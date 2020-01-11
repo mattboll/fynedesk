@@ -44,6 +44,9 @@ func (xsp *x11ScreensProvider) ScreenForWindow(win desktop.Window) *desktop.Scre
 		return xsp.screens[0]
 	}
 	fr := win.(*client).frame
+	if fr == nil {
+		return xsp.Primary()
+	}
 	return xsp.ScreenForGeometry(int(fr.x), int(fr.y), int(fr.width), int(fr.height))
 }
 
