@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"runtime/debug"
+	"strings"
 
 	"fyne.io/fyne"
 	"fyne.io/fyne/canvas"
@@ -39,6 +40,10 @@ func (l *deskLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	if screen == nil {
 		return
 	}
+
+	size = fyne.NewSize(int(math.Round(float64(screen.Width)/(float64(screen.CanvasScale())))),
+		int(math.Round(float64(screen.Height)/float64(screen.CanvasScale()))))
+
 	bg.Resize(size)
 
 	if screen == l.screens.Primary() {
@@ -70,7 +75,6 @@ func (l *deskLayout) newDesktopWindow(outputName string) fyne.Window {
 
 	desk := l.app.NewWindow(fmt.Sprintf("%s%s", RootWindowName, outputName))
 	desk.SetPadded(false)
-	desk.FullScreen()
 
 	return desk
 }
@@ -90,10 +94,11 @@ func (l *deskLayout) setupRoots() {
 	l.bar = newBar(l)
 	l.widgets = newWidgetPanel(l)
 	l.mouse = newMouse()
-	l.mouse.Hide() // temporarily we do not draw mouse (using X default)
+	l.mouse.Hide() //temporarily we do not draw mouse (using X default)
 
 	for _, screen := range l.screens.Screens() {
 		win := l.newDesktopWindow(screen.Name)
+		win.Resize(fyne.NewSize(screen.Width, screen.Height))
 		l.roots = append(l.roots, win)
 		bg := newBackground()
 		l.backgroundScreenMap[bg] = screen
@@ -176,6 +181,21 @@ func (l *deskLayout) scaleVars(scale float32) []string {
 		fmt.Sprintf("QT_SCALE_FACTOR=%1.1f", scale),
 		fmt.Sprintf("GDK_SCALE=%d", intScale),
 		fmt.Sprintf("ELM_SCALE=%1.1f", scale),
+	}
+}
+
+// RootMovedNotify can be called by the window manager to alert the desktop that a root has been moved
+func (l *deskLayout) RootMovedNotify(screen *desktop.Screen) {
+	for _, root := range l.roots {
+		pos := strings.Index(RootWindowName, root.Title()) + len(RootWindowName) + 1
+		outputName := root.Title()[pos:]
+		if outputName == screen.Name {
+			size := fyne.NewSize(int(math.Round(float64(screen.Width)/(float64(screen.CanvasScale())))),
+				int(math.Round(float64(screen.Height)/float64(screen.CanvasScale()))))
+			if root.Canvas().Size() != size {
+				root.Resize(size)
+			}
+		}
 	}
 }
 
