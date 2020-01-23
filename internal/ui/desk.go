@@ -40,10 +40,6 @@ func (l *deskLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	if screen == nil {
 		return
 	}
-
-	size = fyne.NewSize(int(math.Round(float64(screen.Width)/(float64(screen.CanvasScale())))),
-		int(math.Round(float64(screen.Height)/float64(screen.CanvasScale()))))
-
 	bg.Resize(size)
 
 	if screen == l.screens.Primary() {
