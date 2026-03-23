@@ -1,0 +1,4 @@
+[portal]
+DBusName=org.freedesktop.impl.portal.desktop.fynedesk
+Interfaces=org.freedesktop.impl.portal.Screenshot;org.freedesktop.impl.portal.Settings
+UseIn=fynedesk

@@ -9,34 +9,45 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go-version: ['1.19', '1.21']
+        go-version: ['1.23', '1.24']
         os: [ubuntu-latest, macos-latest]
 
     steps:
     - uses: actions/checkout@v4
       with:
         persist-credentials: false
-    - uses: WillAbides/setup-go-faster@v1.13.0
+    - uses: actions/setup-go@v5
       with:
         go-version: ${{ matrix.go-version }}
 
     - name: Get dependencies
-      run: sudo apt-get update && sudo apt-get install gcc libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev libx11-dev xorg-dev bc libpam-dev
+      run: sudo apt-get update && sudo apt-get install gcc libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev libx11-dev xorg-dev libpam0g-dev bc
       if: ${{ runner.os == 'Linux' }}
 
+    # CRITICAL: Never use "go test ./..." — it compiles cmd/compositor/
+    # which links wlroots CGO and will fail without wlroots installed.
     - name: Tests
-      run: go test -tags ci ./...
+      run: ./scripts/test.sh
 
     - name: Update coverage
       run: |
         set -e
-        go test -covermode=atomic -coverprofile=coverage.out ./...
-        coverage=`go tool cover -func coverage.out | grep total | tr -s '\t' | cut -f 3 | grep -o '[^%]*'`
-        if (( $(echo "$coverage < 22" | bc) )); then echo "Test coverage lowered"; exit 1; fi
-      if: ${{ matrix.os == 'ubuntu-latest' }} && ${{ matrix.go-version == '1.21' }}
+        go test -tags ci -covermode=atomic -coverprofile=coverage.out \
+          ./cmd/fynedesk_runner/ \
+          ./internal/ui/ \
+          ./internal/x11/ \
+          ./internal/x11/wm/ \
+          ./modules/launcher/ \
+          ./modules/status/ \
+          ./theme/ \
+          ./wm/ \
+          ./wlipc/
+        coverage=$(go tool cover -func coverage.out | grep total | tr -s '\t' | cut -f 3 | grep -o '[^%]*')
+        if (( $(echo "$coverage < 26" | bc) )); then echo "Test coverage lowered to ${coverage}%"; exit 1; fi
+      if: ${{ runner.os == 'Linux' }}
 
     - name: Update PR Coverage
       uses: shogo82148/actions-goveralls@v1
       with:
         path-to-profile: coverage.out
-      if: ${{ runner.os == 'Linux' && matrix.go-version == '1.19' }}
+      if: ${{ runner.os == 'Linux' && matrix.go-version == '1.23' }}

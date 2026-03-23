@@ -1,0 +1,138 @@
+.TH FYNEDESK-COMPOSITOR 1 "February 2026" "FyneDesk" "User Commands"
+.SH NAME
+fynedesk-compositor \- FyneDesk Wayland compositor
+.SH SYNOPSIS
+.B fynedesk-compositor
+.SH DESCRIPTION
+.B fynedesk-compositor
+is a Wayland compositor built with wlroots 0.17 and the Fyne GUI toolkit.
+It provides a full desktop environment with a panel, app launcher, virtual
+desktops, window management, and more.
+.PP
+The compositor is normally started by a display manager (GDM, SDDM, greetd)
+via the
+.I fynedesk-wayland.desktop
+session file. It can also be run nested inside an existing Wayland or X11
+session for development.
+.SH FEATURES
+.IP \(bu 2
+Window snapping, maximize, minimize, fullscreen
+.IP \(bu 2
+4 virtual desktops with slide animations
+.IP \(bu 2
+Server-side and client-side decorations
+.IP \(bu 2
+Tiling mode (master+stack layout)
+.IP \(bu 2
+Window overview (Exposé)
+.IP \(bu 2
+Frosted glass panel with blur effect
+.IP \(bu 2
+App launcher with calculator and unit conversion
+.IP \(bu 2
+Command palette (Super+P)
+.IP \(bu 2
+Notification system (D-Bus)
+.IP \(bu 2
+System tray (StatusNotifier)
+.IP \(bu 2
+Screen locking (ext-session-lock-v1)
+.IP \(bu 2
+Screenshots via xdg-desktop-portal
+.IP \(bu 2
+Fractional scaling
+.IP \(bu 2
+Multi-monitor support with hotplug
+.IP \(bu 2
+IPC socket for scripting
+.IP \(bu 2
+Per-app window rules (float, workspace, size)
+.IP \(bu 2
+Session save/restore (windows relaunched at login)
+.IP \(bu 2
+Night light (gamma ramp adjustment)
+.IP \(bu 2
+Clipboard history with persistence
+.SH KEYBOARD SHORTCUTS
+The WM modifier (default: Super) is configurable.
+.TP
+.B Super+T / Super+Enter
+Open terminal
+.TP
+.B Super+Space
+App launcher
+.TP
+.B Super+Tab
+Switch windows
+.TP
+.B Super+W
+Window overview
+.TP
+.B Alt+F4
+Close window
+.TP
+.B F11
+Toggle fullscreen
+.TP
+.B Ctrl+Alt+Left/Right
+Switch desktop
+.TP
+.B Super+L
+Lock screen
+.TP
+.B Alt+Escape
+Quit compositor
+.PP
+See
+.BR fynedesk-ctl (1)
+for the full list and
+.I docs/keybindings.md
+for details.
+.SH SESSION MANAGEMENT
+On clean shutdown (Alt+Escape, logout, or SIGTERM), the compositor saves
+the state of all open windows to
+.IR ~/.config/fynedesk/session-state.json .
+On next startup, saved applications are relaunched and their positions,
+desktop assignments, and window states are restored.
+.PP
+Sessions older than 24 hours are automatically discarded.
+.SH WINDOW RULES
+Per-application rules can be defined in the configuration file to control
+how windows are placed and managed. See
+.BR fynedesk (5)
+for the
+.B [[window_rules]]
+format.
+.SH FILES
+.TP
+.I ~/.config/fynedesk/config.toml
+Main configuration file. See
+.BR fynedesk (5).
+.TP
+.I ~/.config/fynedesk/session-state.json
+Session state for restore at next login.
+.TP
+.I $XDG_RUNTIME_DIR/fynedesk.sock
+IPC UNIX socket
+.SH ENVIRONMENT
+.TP
+.B WLR_BACKENDS
+Set to
+.I wayland
+for nested mode or
+.I headless
+for testing.
+.TP
+.B WLR_RENDERER
+Set to
+.I pixman
+for software rendering.
+.TP
+.B FYNEDESK_TERMINAL
+Override the default terminal emulator.
+.SH SEE ALSO
+.BR fynedesk-panel (1),
+.BR fynedesk-ctl (1),
+.BR fynedesk (5)
+.SH AUTHORS
+FyneDesk contributors.

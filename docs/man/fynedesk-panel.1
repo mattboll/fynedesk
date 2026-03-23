@@ -1,0 +1,98 @@
+.TH FYNEDESK-PANEL 1 "March 2026" "FyneDesk" "User Commands"
+.SH NAME
+fynedesk-panel \- FyneDesk desktop panel
+.SH SYNOPSIS
+.B fynedesk-panel
+.RI [ width
+.IR height ]
+.SH DESCRIPTION
+.B fynedesk-panel
+is the desktop panel for FyneDesk. It runs as an XWayland client inside
+the FyneDesk compositor and provides:
+.IP \(bu 2
+Application dock with configurable icons
+.IP \(bu 2
+Taskbar showing open windows
+.IP \(bu 2
+App launcher (search, calculator, URL opener)
+.IP \(bu 2
+System tray (StatusNotifier D-Bus protocol)
+.IP \(bu 2
+Status widgets: clock, battery, sound, brightness, network, power profile
+.IP \(bu 2
+Virtual desktop pager
+.IP \(bu 2
+Clipboard manager
+.IP \(bu 2
+Notification center (sidebar)
+.IP \(bu 2
+Settings dialog
+.PP
+The panel is normally launched by the compositor automatically. It should
+not be started manually.
+.SH ARGUMENTS
+.TP
+.I width height
+Screen dimensions in pixels (passed by compositor). If omitted, the panel
+queries the compositor via IPC.
+.SH SETTINGS
+Panel behavior is configured via
+.BR fynedesk (5)
+and the Settings dialog (accessible via the gear icon or Super+comma).
+.SS Dock
+.IP \(bu 2
+.B icons
+\- Application names for dock shortcuts
+.IP \(bu 2
+.B icon_size
+\- Icon size in pixels (default: 48)
+.IP \(bu 2
+.B zoom_scale
+\- Dock icon zoom factor on hover (default: 2.0)
+.IP \(bu 2
+.B bar_position
+\- "left" or "bottom"
+.SS Clock
+.IP \(bu 2
+.B format
+\- "12h" or "24h"
+.IP \(bu 2
+.B show_seconds
+\- Display seconds in clock
+.SH IPC
+The panel communicates with the compositor via file-based IPC in
+.I ~/.config/fynedesk/
+and a UNIX socket at
+.IR $XDG_RUNTIME_DIR/fynedesk.sock .
+.PP
+Key IPC files:
+.TP
+.I windows-state.json
+Current window list (compositor \(-> panel)
+.TP
+.I desktop-state.json
+Current desktop index and count
+.TP
+.I volume-event.json
+Volume change notifications
+.TP
+.I settings-changed.json
+Settings reload trigger
+.SH ENVIRONMENT
+.TP
+.B FYNE_SCALE
+UI scale factor (set to 1 by compositor).
+.TP
+.B DISPLAY
+XWayland display (e.g. :1).
+.SH FILES
+.TP
+.I ~/.config/fynedesk/config.toml
+Main configuration file. See
+.BR fynedesk (5).
+.SH SEE ALSO
+.BR fynedesk-compositor (1),
+.BR fynedesk-ctl (1),
+.BR fynedesk (5)
+.SH AUTHORS
+FyneDesk contributors.

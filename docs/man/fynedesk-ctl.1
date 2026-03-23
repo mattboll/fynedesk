@@ -1,0 +1,122 @@
+.TH FYNEDESK-CTL 1 "February 2026" "FyneDesk" "User Commands"
+.SH NAME
+fynedesk-ctl \- command-line interface for FyneDesk compositor
+.SH SYNOPSIS
+.B fynedesk-ctl
+.I command
+.RI [ arguments ]
+.SH DESCRIPTION
+.B fynedesk-ctl
+communicates with a running FyneDesk compositor via its IPC socket to
+query state and perform actions.
+.SH COMMANDS
+.SS Window management
+.TP
+.B windows \fR[\fB--json\fR]
+List all windows. Use \fB--json\fR for machine-readable output.
+.TP
+.B focus \fIid\fR
+Focus the window with the given ID.
+.TP
+.B close \fIid\fR
+Close the window.
+.TP
+.B minimize \fIid\fR
+Minimize the window.
+.TP
+.B restore \fIid\fR
+Restore a minimized window.
+.TP
+.B maximize \fIid\fR
+Maximize the window.
+.TP
+.B unmaximize \fIid\fR
+Restore a maximized window.
+.TP
+.B fullscreen \fIid\fR
+Enter fullscreen.
+.TP
+.B unfullscreen \fIid\fR
+Exit fullscreen.
+.TP
+.B pin \fIid\fR
+Pin window to all desktops.
+.TP
+.B unpin \fIid\fR
+Unpin window.
+.TP
+.B raise \fIid\fR
+Raise window to top.
+.TP
+.B move-to-desktop \fIid\fR \fIn\fR
+Move window to desktop \fIn\fR (0-indexed).
+.SS Desktop management
+.TP
+.B desktop
+Show current desktop number and total.
+.TP
+.B switch-desktop \fIn\fR
+Switch to desktop \fIn\fR (0-indexed).
+.SS Session
+.TP
+.B lock
+Lock the screen.
+.TP
+.B logout
+Terminate the compositor.
+.TP
+.B restart
+Restart the compositor.
+.SS Events
+.TP
+.B subscribe \fR[\fIevent\fR ...]
+Stream events as JSON lines. Available events: windows-state,
+desktop-state, notification, volume-change, brightness-change,
+keyboard-layout, clipboard-history.
+.SS Configuration
+.TP
+.B config
+Show the path to the configuration file.
+.SH WINDOW IDS
+Window IDs have the format
+.I xdg-N
+for native Wayland windows or
+.I xway-N
+for XWayland windows. Use
+.B fynedesk-ctl windows
+to list current IDs.
+.SH EXAMPLES
+.nf
+# List windows
+fynedesk-ctl windows
+
+# Focus Firefox
+fynedesk-ctl focus xdg-3
+
+# Move window to desktop 2
+fynedesk-ctl move-to-desktop xdg-3 1
+
+# Subscribe to events
+fynedesk-ctl subscribe windows-state desktop-state
+
+# Lock and switch desktop in one script
+fynedesk-ctl switch-desktop 0
+fynedesk-ctl lock
+.fi
+.SH FILES
+.TP
+.I $XDG_RUNTIME_DIR/fynedesk.sock
+IPC UNIX socket
+.SH EXIT STATUS
+.TP
+.B 0
+Success
+.TP
+.B 1
+Error (connection failed, invalid arguments, etc.)
+.SH SEE ALSO
+.BR fynedesk-compositor (1),
+.BR fynedesk-panel (1),
+.BR fynedesk (5)
+.SH AUTHORS
+FyneDesk contributors.

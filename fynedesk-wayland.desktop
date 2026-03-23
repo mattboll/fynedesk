@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=FyneDesk (Wayland)
+Comment=A lightweight Go-based Wayland desktop environment
+Exec=fynedesk-compositor
+TryExec=fynedesk-compositor
+Type=Application
+DesktopNames=fynedesk;wlroots

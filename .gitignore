@@ -1,11 +1,38 @@
 # Ignore binaries
 cmd/fynedesk/fynedesk
 cmd/fynedesk_runner/fynedesk_runner
-fynedesk
-fynedesk_runner
+cmd/fynedesk-panel/fynedesk-panel
+cmd/fynedesk-emoji/fynedesk-emoji
+/fynedesk
+/fynedesk_runner
+/fynedesk-panel
+/fynedesk-ctl
+/fynedesk-emoji
+/compositor
+cmd/compositor/compositor
+/tmp/
+
+# Build artifacts
+*.deb
+coverage.out
+todo
+
+# Source archives (wlroots, etc.)
+*.orig.tar.bz2
+*.debian.tar.xz
+*.dsc
 
 .idea
 .DS_Store
 
 internal/icon/testdata/applications/app3.desktop
 
+# Test failure artifacts
+modules/status/testdata/failed/
+
+# Local development files (audits, QA screenshots, planning docs)
+.local/
+
+# AI tooling
+.agents/
+skills-lock.json
