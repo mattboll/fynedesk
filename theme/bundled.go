@@ -114,6 +114,13 @@ var resourceMuteSvg = &fyne.StaticResource{
 	StaticContent: resourceMuteSvgData,
 }
 
+//go:embed assets/notifications.svg
+var resourceNotificationsSvgData []byte
+var resourceNotificationsSvg = &fyne.StaticResource{
+	StaticName:    "assets/notifications.svg",
+	StaticContent: resourceNotificationsSvgData,
+}
+
 //go:embed assets/person.svg
 var resourcePersonSvgData []byte
 var resourcePersonSvg = &fyne.StaticResource{
