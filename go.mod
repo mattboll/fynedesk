@@ -1,11 +1,13 @@
 module fyshos.com/fynedesk
 
-go 1.19
+go 1.23.0
+
+toolchain go1.24.12
 
 require (
 	codeberg.org/sdassow/unyts v0.4.1
 	fyne.io/fyne/v2 v2.7.2-0.20251119154138-3a4ac7d7e74e
-	github.com/BurntSushi/toml v1.5.0 // indirect
+	github.com/BurntSushi/toml v1.5.0
 	github.com/BurntSushi/xgb v0.0.0-20210121224620-deaf085860bc
 	github.com/BurntSushi/xgbutil v0.0.0-20190907113008-ad855c713046
 	github.com/FyshOS/appie v0.1.0
@@ -33,13 +35,15 @@ require (
 require github.com/creack/pty v1.1.21 // indirect
 
 require (
+	deedles.dev/wlr v0.0.0-20250321002055-d5699d447b5c
 	github.com/fyne-io/terminal v0.0.0-20251011215138-c2ed69d5a2d6
+	golang.org/x/image v0.25.0
 	golang.org/x/sys v0.30.0
-	golang.org/x/text v0.22.0
+	golang.org/x/text v0.23.0
 )
 
 require (
-	fyne.io/systray v1.11.1-0.20250603113521-ca66a66d8b58 // indirect
+	fyne.io/systray v1.12.0 // indirect
 	github.com/ActiveState/termtest/conpty v0.5.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20170929234023-d6e3b3328b78 // indirect
 	github.com/BurntSushi/freetype-go v0.0.0-20160129220410-b763ddbfe298 // indirect
@@ -51,15 +55,14 @@ require (
 	github.com/fyne-io/glfw-js v0.3.0 // indirect
 	github.com/go-gl/gl v0.0.0-20231021071112-07e5d0ea2e71 // indirect
 	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20240506104042-037f3cc74f2a // indirect
-	github.com/go-text/render v0.2.0 // indirect
-	github.com/go-text/typesetting v0.2.1 // indirect
+	github.com/go-text/render v0.2.1 // indirect
+	github.com/go-text/typesetting v0.3.4 // indirect
 	github.com/jsummers/gobmp v0.0.0-20230614200233-a9de23ed2e25 // indirect
 	github.com/pkg/errors v0.8.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c // indirect
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
 	github.com/yuin/goldmark v1.7.8 // indirect
-	golang.org/x/image v0.24.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
@@ -67,3 +70,7 @@ require (
 replace github.com/BurntSushi/xgb => github.com/fyne-io/xgb v0.0.0-20260101193816-5f7669354be2
 
 replace github.com/BurntSushi/xgbutil => github.com/fyne-io/xgbutil v0.0.0-20260101194047-3bb9400654c0
+
+// Fyne fork adding Window.SetTransparent() API for panel transparency.
+// See: https://github.com/mattboll/fyne/tree/feature/fyne-transparent-first-window
+replace fyne.io/fyne/v2 => github.com/mattboll/fyne/v2 v2.7.4-0.20260308142753-5f4f1ffaa71d

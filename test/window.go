@@ -181,3 +181,8 @@ func (w *Window) Unmaximize() {
 func (w *Window) Unpin() {
 	w.pinned = false
 }
+
+// Urgent returns true if this window is requesting attention
+func (w *Window) Urgent() bool {
+	return false
+}

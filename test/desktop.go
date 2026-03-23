@@ -1,3 +1,4 @@
+// Package test provides mock implementations for testing FyneDesk components without a real window manager.
 package test
 
 import (

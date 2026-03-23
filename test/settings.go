@@ -2,6 +2,7 @@ package test
 
 import (
 	"fyshos.com/fynedesk"
+	"fyshos.com/fynedesk/wlipc"
 
 	"fyne.io/fyne/v2"
 )
@@ -17,10 +18,13 @@ type Settings struct {
 	launcherDisableTaskbar bool
 	borderButtonPosition   string
 	clockFormatting        string
+	clockShowSeconds       bool
 
 	moduleNames []string
 
 	narrowPanel, narrowLeftLauncher bool
+	naturalScroll                   bool
+	keyboardLayouts                 []string
 }
 
 // NewSettings returns an in-memory settings instance
@@ -123,9 +127,32 @@ func (s *Settings) SetModuleNames(mods []string) {
 	s.moduleNames = mods
 }
 
+// KeyboardLayouts returns the configured keyboard layout list.
+func (s *Settings) KeyboardLayouts() []string {
+	return s.keyboardLayouts
+}
+
+// NaturalScroll returns true when the user requested natural (inverted) scroll direction.
+func (s *Settings) NaturalScroll() bool {
+	return s.naturalScroll
+}
+
+// SetNaturalScroll allows tests to configure natural scroll.
+func (s *Settings) SetNaturalScroll(natural bool) {
+	s.naturalScroll = natural
+}
+
 // NarrowLeftLauncher returns true when the user requested a narrow launcher bar on the left.
 func (s *Settings) NarrowLeftLauncher() bool {
 	return s.narrowLeftLauncher
+}
+
+// BarPosition returns the bar position ("left" or "bottom").
+func (s *Settings) BarPosition() string {
+	if s.narrowLeftLauncher {
+		return "left"
+	}
+	return "bottom"
 }
 
 // SetNarrowLeftLauncher allows tests to specify the value for a narrow left hand launcher.
@@ -181,3 +208,65 @@ func (s *Settings) SetClockFormatting(format string) {
 		s.clockFormatting = "12h"
 	}
 }
+
+// ClockShowSeconds returns whether seconds should be displayed on the clock.
+func (s *Settings) ClockShowSeconds() bool {
+	return s.clockShowSeconds
+}
+
+// SetClockShowSeconds allows tests to configure whether seconds are shown.
+func (s *Settings) SetClockShowSeconds(show bool) {
+	s.clockShowSeconds = show
+}
+
+// ColorScheme returns the color scheme preference.
+func (s *Settings) ColorScheme() string {
+	return "auto"
+}
+
+// NightLightEnabled returns whether night light is enabled.
+func (s *Settings) NightLightEnabled() bool {
+	return false
+}
+
+// NightLightTemperature returns the night light color temperature.
+func (s *Settings) NightLightTemperature() int {
+	return 4500
+}
+
+// DesktopCount returns the number of virtual desktops.
+func (s *Settings) DesktopCount() int {
+	return 4
+}
+
+// DesktopNames returns the workspace names.
+func (s *Settings) DesktopNames() []string {
+	return nil
+}
+
+// WindowRules returns the per-app window rules.
+func (s *Settings) WindowRules() []wlipc.WindowRule {
+	return nil
+}
+
+// ReduceMotion returns false for test settings (animations enabled).
+func (s *Settings) ReduceMotion() bool {
+	return false
+}
+
+// Language returns "en" for test settings.
+func (s *Settings) Language() string {
+	return "en"
+}
+
+// PowerLockTimeout returns 5 for test settings.
+func (s *Settings) PowerLockTimeout() int { return 5 }
+
+// PowerBlankTimeout returns 6 for test settings.
+func (s *Settings) PowerBlankTimeout() int { return 6 }
+
+// PowerSuspendTimeout returns 0 (disabled) for test settings.
+func (s *Settings) PowerSuspendTimeout() int { return 0 }
+
+// PowerSuspendAction returns "suspend" for test settings.
+func (s *Settings) PowerSuspendAction() string { return "suspend" }

@@ -39,6 +39,8 @@ type Window interface {
 	Pin()
 	Pinned() bool
 	Unpin()
+
+	Urgent() bool // Is this window requesting attention?
 }
 
 // WindowProperties encapsulates the metadata that a window can provide.

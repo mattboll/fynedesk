@@ -1,3 +1,4 @@
+// Package fynedesk provides the core interfaces and types for the FyneDesk desktop environment.
 package fynedesk // import "fyshos.com/fynedesk"
 
 import (
