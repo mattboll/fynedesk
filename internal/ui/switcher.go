@@ -265,6 +265,7 @@ func newAppSwitcherAt(off int, wins []fynedesk.Window, prov appie.Provider) *Swi
 		icon := s.icons[off].(*switchIcon)
 		s.selected = icon.win
 		s.win.Canvas().Focus(icon)
+		go ensureFocused(s.win, icon)
 	})
 	return s
 }

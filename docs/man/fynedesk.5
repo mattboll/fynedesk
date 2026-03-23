@@ -1,0 +1,177 @@
+.TH FYNEDESK 5 "March 2026" "FyneDesk" "File Formats"
+.SH NAME
+fynedesk \- FyneDesk configuration file
+.SH SYNOPSIS
+.I ~/.config/fynedesk/config.toml
+.SH DESCRIPTION
+The FyneDesk configuration file uses TOML format. Changes are applied
+when saved through the Settings UI or by sending a settings-changed
+notification via IPC.
+.SH SECTIONS
+.SS [display]
+.TP
+.B background = \fI"path"\fR
+Path to wallpaper image file.
+.TP
+.B background_type = \fI"image"\fR | \fI"matrix"\fR | \fI"starfield"\fR
+Wallpaper type.
+.TP
+.B icon_theme = \fI"hicolor"\fR
+FreeDesktop icon theme name.
+.TP
+.B border_button_position = \fI"Left"\fR | \fI"Right"\fR
+Window titlebar button placement.
+.SS [clock]
+.TP
+.B format = \fI"24h"\fR | \fI"12h"\fR
+Clock display format.
+.TP
+.B show_seconds = \fItrue\fR | \fIfalse\fR
+Show seconds in the clock widget.
+.SS [launcher]
+.TP
+.B icons = \fI["Terminal", "Firefox", ...]\fR
+Application names for dock shortcuts (matched against .desktop files).
+.TP
+.B icon_size = \fI48\fR
+Dock icon size in pixels.
+.TP
+.B zoom_scale = \fI2.0\fR
+Zoom scale on hover (1.0 = no zoom).
+.TP
+.B bar_position = \fI"bottom"\fR | \fI"left"\fR
+Position of the dock bar.
+.TP
+.B disable_taskbar = \fIfalse\fR
+Hide the taskbar section of the dock.
+.TP
+.B disable_zoom = \fIfalse\fR
+Disable dock icon zoom effect.
+.SS [input]
+.TP
+.B keyboard_modifier = \fI"Super"\fR | \fI"Alt"\fR
+Primary window manager modifier key.
+.TP
+.B natural_scroll = \fItrue\fR | \fIfalse\fR
+Invert scroll direction (macOS-style).
+.TP
+.B keyboard_layouts = \fI["us", "fr:bepo"]\fR
+XKB keyboard layouts with optional variants (format: \fIlayout\fR or \fIlayout:variant\fR).
+.SS [screensaver]
+.TP
+.B type = \fI"FyshOS"\fR | \fI"swaylock"\fR | \fI"waylock"\fR
+Lock screen implementation. "FyshOS" uses the built-in PAM lock screen.
+.TP
+.B show_clock = \fItrue\fR
+Show clock on lock screen.
+.TP
+.B label = \fI"FyneDesk"\fR
+Custom text displayed on the lock screen.
+.SS [modules]
+.TP
+.B enabled = \fI["Virtual Desktops", "Battery", ...]\fR
+List of enabled panel modules. Available modules: Virtual Desktops, Desktop Files,
+Launcher: Calculate, Launcher: Open URLs, Launcher: Convert units,
+SystemTray, Clipboard, Keyboard Layout,
+Network, Battery, Sound, Brightness, Power Profile, Notifications.
+.SS [theme]
+.TP
+.B name = \fI"default"\fR
+Theme name (directory under \fI~/.config/fynedesk/themes/\fR).
+.TP
+.B [theme.colors]
+Color overrides in \fI#RRGGBB\fR format. Supported keys:
+.RS
+.IP \(bu 2
+.B fynedeskTitlebarActive
+\- Active window titlebar background
+.IP \(bu 2
+.B fynedeskTitlebarInactive
+\- Inactive window titlebar background
+.IP \(bu 2
+.B fynedeskTitlebarText
+\- Titlebar text color
+.RE
+.SS [[window_rules]]
+Per-application window rules. Each rule is a TOML array entry. Rules are
+matched by exact
+.B app_id
+or glob
+.BR pattern .
+.TP
+.B app_id = \fI"foot"\fR
+Exact match on Wayland app_id or X11 WM_CLASS.
+.TP
+.B pattern = \fI"firefox*"\fR
+Glob pattern match (supports *, ?, []).
+.TP
+.B float = \fItrue\fR
+Force window to float (exempt from tiling).
+.TP
+.B workspace = \fI2\fR
+Assign window to workspace N (1-based).
+.TP
+.B width = \fI800\fR
+Set initial window width in pixels.
+.TP
+.B height = \fI600\fR
+Set initial window height in pixels.
+.TP
+.B maximize = \fItrue\fR
+Start window maximized.
+.TP
+.B pinned = \fItrue\fR
+Show window on all desktops.
+.SH EXAMPLE
+.nf
+[display]
+  background = "/home/user/wallpaper.jpg"
+  background_type = "image"
+  border_button_position = "Left"
+
+[clock]
+  format = "24h"
+  show_seconds = true
+
+[launcher]
+  icons = ["Terminal", "Firefox", "Files"]
+  icon_size = 48
+  bar_position = "bottom"
+
+[input]
+  keyboard_modifier = "Super"
+  natural_scroll = true
+  keyboard_layouts = ["us", "fr:bepo"]
+
+[modules]
+  enabled = ["Virtual Desktops", "Battery", "Sound", "Network"]
+
+[[window_rules]]
+  app_id = "foot"
+  workspace = 2
+
+[[window_rules]]
+  pattern = "xterm*"
+  float = true
+  width = 600
+  height = 400
+.fi
+.SH FILES
+.TP
+.I ~/.config/fynedesk/config.toml
+Main configuration file (this file).
+.TP
+.I ~/.config/fynedesk/session-state.json
+Session state saved at logout for restore at next login.
+.TP
+.I ~/.config/fynedesk/clipboard-history.json
+Persistent clipboard history.
+.TP
+.I $XDG_RUNTIME_DIR/fynedesk.sock
+IPC UNIX socket.
+.SH SEE ALSO
+.BR fynedesk-compositor (1),
+.BR fynedesk-panel (1),
+.BR fynedesk-ctl (1)
+.SH AUTHORS
+FyneDesk contributors.

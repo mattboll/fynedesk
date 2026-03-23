@@ -1,3 +1,6 @@
+//go:build !wayland
+
+// Command fynedesk is the main FyneDesk desktop environment entry point for X11 and Wayland sessions.
 package main
 
 import (

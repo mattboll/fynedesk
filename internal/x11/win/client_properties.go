@@ -1,6 +1,7 @@
 //go:build linux || openbsd || freebsd || netbsd
 // +build linux openbsd freebsd netbsd
 
+// Package win provides X11 window wrapper implementation with client properties, theming, and frame management.
 package win
 
 import (

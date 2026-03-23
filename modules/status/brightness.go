@@ -15,6 +15,7 @@ import (
 
 	"fyshos.com/fynedesk"
 	wmtheme "fyshos.com/fynedesk/theme"
+	"fyshos.com/fynedesk/wlipc"
 )
 
 var brightnessMeta = fynedesk.ModuleMetadata{
@@ -32,12 +33,16 @@ const (
 
 // Brightness is a progress bar module to modify screen brightness
 type brightness struct {
-	bar *widget.ProgressBar
+	bar *statusBar
 
 	mode brightType
+	done chan struct{} // closed to stop IPC watcher goroutines
 }
 
 func (b *brightness) Destroy() {
+	if b.done != nil {
+		close(b.done)
+	}
 }
 
 func (b *brightness) value() (float64, error) {
@@ -108,7 +113,9 @@ func (b *brightness) setValue(value int) {
 	}
 
 	newVal, _ := b.value()
-	b.bar.SetValue(newVal)
+	fyne.Do(func() {
+		b.bar.SetValue(newVal)
+	})
 }
 
 func (b *brightness) LaunchSuggestions(input string) []fynedesk.LaunchSuggestion {
@@ -157,9 +164,15 @@ func (b *brightness) Shortcuts() map[*fynedesk.Shortcut]func() {
 	return map[*fynedesk.Shortcut]func(){
 		fynedesk.NewShortcut("Increase Screen Brightness", fynedesk.KeyBrightnessDown, fynedesk.AnyModifier): func() {
 			b.offsetValue(-5)
+			if val, err := b.value(); err == nil {
+				showOSD(wmtheme.BrightnessIcon, val*100)
+			}
 		},
 		fynedesk.NewShortcut("Reduce Screen Brightness", fynedesk.KeyBrightnessUp, fynedesk.AnyModifier): func() {
 			b.offsetValue(5)
+			if val, err := b.value(); err == nil {
+				showOSD(wmtheme.BrightnessIcon, val*100)
+			}
 		},
 	}
 }
@@ -169,7 +182,7 @@ func (b *brightness) StatusAreaWidget() fyne.CanvasObject {
 		return nil
 	}
 
-	b.bar = widget.NewProgressBar()
+	b.bar = newStatusBar()
 	brightnessIcon := widget.NewIcon(wmtheme.BrightnessIcon)
 	prop := canvas.NewRectangle(color.Transparent)
 	prop.SetMinSize(brightnessIcon.MinSize().Add(fyne.NewSize(theme.Padding()*4, 0)))
@@ -186,23 +199,48 @@ func (b *brightness) StatusAreaWidget() fyne.CanvasObject {
 	bright := container.NewBorder(nil, nil, less, more, b.bar)
 
 	go b.offsetValue(0)
+
+	if wlipc.IsWaylandSession() {
+		b.done = make(chan struct{})
+		wlipc.WatchBrightnessEvent(func() {
+			val, err := b.value()
+			if err != nil {
+				return
+			}
+			fyne.Do(func() {
+				b.bar.SetValue(val)
+			})
+		}, b.done)
+	}
+
 	return container.New(&handleNarrow{}, icon, bright)
 }
 
 // newBrightness creates a new module that will show screen brightness in the status area
 func newBrightness() fynedesk.Module {
-	mode := xbacklight
-	cmd := exec.Command("xbacklight")
-	err := cmd.Run()
-	if err != nil || cmd.ProcessState.ExitCode() != 0 {
-		err = exec.Command("brightnessctl").Run()
-		if err != nil {
-			fyne.LogError("Could not launch xbacklight or brightnessctl", err)
-			mode = noBacklight
-		} else {
+	mode := noBacklight
+
+	if wlipc.IsWaylandSession() {
+		// Under Wayland, xbacklight doesn't work (no RandR backlight in XWayland).
+		// The compositor uses brightnessctl, so the panel must too.
+		// Use "brightnessctl get" (not bare "brightnessctl") as some versions
+		// return non-zero with no subcommand even when a device exists.
+		if exec.Command("brightnessctl", "get").Run() == nil {
 			mode = brightnessctl
 		}
+	} else {
+		mode = xbacklight
+		cmd := exec.Command("xbacklight")
+		err := cmd.Run()
+		if err != nil || cmd.ProcessState.ExitCode() != 0 {
+			if exec.Command("brightnessctl", "get").Run() == nil {
+				mode = brightnessctl
+			} else {
+				fyne.LogError("Could not launch xbacklight or brightnessctl", err)
+			}
+		}
 	}
+
 	return &brightness{mode: mode}
 }
 
@@ -230,7 +268,7 @@ func (i *brightItem) Launch() {
 		i.b.offsetValue(-5)
 	} else if val, err := strconv.Atoi(i.input); err == nil {
 		i.b.setValue(val)
+	} else {
+		i.b.offsetValue(5)
 	}
-
-	i.b.offsetValue(5)
 }

@@ -80,6 +80,92 @@ macOS) then the app will start in UI test mode.
 When loaded in this way you can run all of the features except the
 controlling of windows - they will load on your main desktop.
 
+## Wayland compositor (experimental)
+
+FyneDesk can also run as a Wayland compositor using [wlroots](https://gitlab.freedesktop.org/wlroots/wlroots) 0.17.
+In this mode the compositor replaces X11 entirely and launches the panel as an XWayland client.
+
+### Setup
+
+Install wlroots 0.17 and its build dependencies (Debian/Ubuntu, Fedora or Arch):
+
+```
+make setup-wayland
+```
+
+This downloads, builds and installs wlroots 0.17 to `~/.local`.
+
+### Building
+
+```
+make wayland       # build all Wayland components (compositor, panel, ctl)
+```
+
+### Installing
+
+```
+make wayland
+sudo make wayland-install
+```
+
+This installs `fynedesk-compositor`, `fynedesk-panel` and `fynedesk-ctl` to the system path
+and adds a Wayland session entry for your display manager (GDM, SDDM, etc.).
+You can then select "FyneDesk (Wayland)" at the login screen.
+
+### Testing
+
+To test inside an existing desktop session without installing:
+
+```
+make wayland-run
+```
+
+### Keybindings
+
+Default keybindings (configurable in Settings > Keyboard):
+
+| Shortcut | Action |
+|----------|--------|
+| `Alt+Escape` | Quit compositor |
+| `Super+Tab` / `Super+Shift+Tab` | Cycle windows |
+| `F11` | Toggle fullscreen |
+| `Alt+F4` | Close window |
+| `Super+Up` / `Super+F10` | Maximize / restore |
+| `Super+Down` / `Super+F9` | Minimize |
+| `Super+T` / `Super+Enter` | Open terminal |
+| `` Super+` `` | Dropdown terminal |
+| `Super+Space` | App launcher |
+| `Super+L` | Lock screen |
+| `PrintScreen` | Screenshot (full / Shift: region / Ctrl: window) |
+| `Ctrl+Alt+Left/Right` | Switch virtual desktop |
+| `Super+1-4` | Go to desktop 1-4 |
+| `Super+Shift+1-4` | Move window to desktop 1-4 |
+| `Ctrl+Alt+Shift+Left/Right` | Move window to prev/next desktop |
+| `Ctrl+Alt+Backspace` | Emergency logout |
+| Volume / Brightness / Calculator keys | Media keys |
+
+> Shortcuts prefixed with **Super** follow the preferred modifier key (configurable
+> in Settings > Keyboard). When the modifier is set to Alt, read "Alt" instead of "Super".
+> Some shortcuts (Super+Up, PrintScreen, etc.) may not work in nested mode
+> (`make wayland-run`) because the host desktop intercepts them.
+
+### Resource usage
+
+FyneDesk is designed to be lightweight. Below is a comparison of idle resource usage
+measured on Debian 14 (kernel 6.18, 64 GB RAM, Ryzen 9):
+
+| Desktop | Compositor RSS | Shell / Panel RSS | Total RSS | Idle CPU |
+|---------|---------------|-------------------|-----------|----------|
+| **FyneDesk (Wayland)** | **163 MB** | **153 MB** | **~316 MB** | **0–2%** |
+| GNOME 46 (Mutter) | — | ~300 MB | ~450 MB | 1–4% |
+| KDE Plasma 6 (KWin) | ~200 MB | ~250 MB | ~500 MB | 1–4% |
+| Sway | ~60 MB | ~25 MB | ~85 MB | <1% |
+
+*FyneDesk measured in nested Wayland mode. GNOME/KDE numbers from published distro benchmarks
+(Fedora 40/41, Phoronix). Sway is a reference tiling compositor without desktop features.
+All measurements are RSS (Resident Set Size) at idle with no application windows open.
+Actual usage varies by hardware, drivers, and configuration.*
+
 ## Runner
 
 A desktop needs to be rock solid, and whilst we are working hard to get there,

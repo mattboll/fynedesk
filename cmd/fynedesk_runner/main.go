@@ -1,3 +1,4 @@
+// Command fynedesk_runner is a crash recovery wrapper that manages FyneDesk sessions and restarts on failure.
 package main
 
 import (

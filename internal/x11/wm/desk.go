@@ -1,6 +1,7 @@
 //go:build linux || openbsd || freebsd || netbsd
 // +build linux openbsd freebsd netbsd
 
+// Package wm implements the X11 window manager using xgbutil, managing windows, screens, events, and desktop operations.
 package wm // import "fyshos.com/fynedesk/internal/x11/wm"
 
 import (

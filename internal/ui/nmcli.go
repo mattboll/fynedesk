@@ -1,0 +1,183 @@
+package ui
+
+import (
+	"fmt"
+	"os/exec"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+// WifiNetwork represents a WiFi network detected by NetworkManager.
+type WifiNetwork struct {
+	SSID     string
+	Signal   int    // 0-100
+	Security string // e.g. "WPA2", "WPA3", "" for open
+	Active   bool
+}
+
+// IsSecured returns true if the network requires a password.
+func (w WifiNetwork) IsSecured() bool {
+	return w.Security != ""
+}
+
+// scanWifiNetworks returns available WiFi networks via nmcli.
+// Results are sorted: active network first, then by signal descending.
+func scanWifiNetworks() ([]WifiNetwork, error) {
+	out, err := exec.Command("nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY,IN-USE", "device", "wifi", "list").Output()
+	if err != nil {
+		return nil, fmt.Errorf("nmcli: %w", err)
+	}
+
+	seen := make(map[string]WifiNetwork)
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := parseTerseLine(line)
+		if len(fields) < 4 {
+			continue
+		}
+		ssid := fields[0]
+		if ssid == "" {
+			continue // hidden network
+		}
+		signal, _ := strconv.Atoi(fields[1])
+		security := fields[2]
+		active := strings.TrimSpace(fields[3]) == "*"
+
+		// Deduplicate by SSID, keep highest signal (or active)
+		if existing, ok := seen[ssid]; ok {
+			if active || (!existing.Active && signal > existing.Signal) {
+				seen[ssid] = WifiNetwork{SSID: ssid, Signal: signal, Security: security, Active: active}
+			}
+		} else {
+			seen[ssid] = WifiNetwork{SSID: ssid, Signal: signal, Security: security, Active: active}
+		}
+	}
+
+	networks := make([]WifiNetwork, 0, len(seen))
+	for _, n := range seen {
+		networks = append(networks, n)
+	}
+	sort.Slice(networks, func(i, j int) bool {
+		if networks[i].Active != networks[j].Active {
+			return networks[i].Active
+		}
+		return networks[i].Signal > networks[j].Signal
+	})
+	return networks, nil
+}
+
+// rescanWifi triggers a WiFi rescan in the background.
+func rescanWifi() {
+	_ = exec.Command("nmcli", "device", "wifi", "rescan").Run()
+}
+
+// connectWifi connects to the given SSID, optionally with a password.
+// For secured networks, it creates a connection profile with the correct
+// key-mgmt setting derived from the security field (e.g. "WPA2 WPA3").
+func connectWifi(ssid, password, security string) error {
+	if password == "" {
+		// Open network — simple connect is fine.
+		return runNmcli("device", "wifi", "connect", ssid)
+	}
+
+	dev := wifiDevice()
+	if dev == "" {
+		return fmt.Errorf("no wifi device found")
+	}
+
+	keyMgmt := "wpa-psk"
+	if strings.Contains(security, "WPA3") {
+		keyMgmt = "sae"
+	}
+
+	// Delete any stale profile for this SSID so we start fresh.
+	_ = exec.Command("nmcli", "connection", "delete", ssid).Run()
+
+	// Create a new connection profile with explicit key-mgmt.
+	err := runNmcli("connection", "add",
+		"type", "wifi",
+		"ifname", dev,
+		"con-name", ssid,
+		"ssid", ssid,
+		"wifi-sec.key-mgmt", keyMgmt,
+		"wifi-sec.psk", password,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Activate the newly created profile.
+	if err := runNmcli("connection", "up", ssid); err != nil {
+		// Clean up on failure.
+		_ = exec.Command("nmcli", "connection", "delete", ssid).Run()
+		return err
+	}
+	return nil
+}
+
+// runNmcli executes an nmcli command and returns a user-friendly error.
+func runNmcli(args ...string) error {
+	out, err := exec.Command("nmcli", args...).CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
+		return err
+	}
+	return nil
+}
+
+// disconnectWifi disconnects the WiFi device.
+func disconnectWifi() error {
+	dev := wifiDevice()
+	if dev == "" {
+		return fmt.Errorf("no wifi device found")
+	}
+	return exec.Command("nmcli", "device", "disconnect", dev).Run()
+}
+
+// wifiDevice returns the name of the WiFi network interface.
+func wifiDevice() string {
+	out, err := exec.Command("nmcli", "-t", "-f", "DEVICE,TYPE", "device", "status").Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) == 2 && parts[1] == "wifi" {
+			return parts[0]
+		}
+	}
+	return ""
+}
+
+// parseTerseLine splits an nmcli terse-mode line on ':' while
+// respecting '\:' escapes (SSIDs can contain colons).
+func parseTerseLine(line string) []string {
+	var fields []string
+	var current strings.Builder
+	escaped := false
+	for _, r := range line {
+		if escaped {
+			current.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if r == '\\' {
+			escaped = true
+			continue
+		}
+		if r == ':' {
+			fields = append(fields, current.String())
+			current.Reset()
+			continue
+		}
+		current.WriteRune(r)
+	}
+	fields = append(fields, current.String())
+	return fields
+}

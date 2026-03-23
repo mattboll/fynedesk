@@ -12,14 +12,32 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
+
+	"fyshos.com/fynedesk/wlipc"
 )
 
 func (l *desktop) screenshot() {
+	// In Wayland compositor mode, delegate to compositor via IPC
+	if client := wlipc.DefaultClient(); client != nil {
+		client.SendRequest(wlipc.ReqCompositorAction, struct {
+			Action string `json:"action"`
+		}{Action: wlipc.ActionScreenshotFull})
+		return
+	}
+	// X11 mode fallback
 	bg := l.wm.Capture()
 	l.showCaptureSave(bg)
 }
 
 func (l *desktop) screenshotWindow() {
+	// In Wayland compositor mode, delegate to compositor via IPC
+	if client := wlipc.DefaultClient(); client != nil {
+		client.SendRequest(wlipc.ReqCompositorAction, struct {
+			Action string `json:"action"`
+		}{Action: wlipc.ActionScreenshotWindow})
+		return
+	}
+	// X11 mode fallback
 	win := l.wm.TopWindow()
 	if win == nil {
 		fyne.LogError("Unable to print window with no window visible", nil)

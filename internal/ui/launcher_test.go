@@ -28,23 +28,27 @@ func TestLauncher_ListMatches(t *testing.T) {
 	assert.Equal(t, "Another", apps[0].(*widget.Button).Text)
 
 	apps = launcher.appButtonListMatching("miss")
-	assert.Equal(t, 0, len(apps))
+	assert.Equal(t, 1, len(apps))
+	assert.IsType(t, &widget.Label{}, apps[0])
 }
 
 func TestLauncher_ListTyped(t *testing.T) {
 	setupIcons("App 1", "App 2", "Another")
 	launcher := newAppPicker("Test", func(data appie.AppData, id int) {})
+	launcher.debounceDuration = 0
 
 	assert.Equal(t, 0, len(launcher.appList.Objects))
 	test.Type(launcher.entry, "App")
 	assert.Equal(t, 2, len(launcher.appList.Objects))
 	test.Type(launcher.entry, "Appy")
-	assert.Equal(t, 0, len(launcher.appList.Objects))
+	assert.Equal(t, 1, len(launcher.appList.Objects))
+	assert.IsType(t, &widget.Label{}, launcher.appList.Objects[0])
 }
 
 func TestLauncher_ListActive(t *testing.T) {
 	setupIcons("App 1", "App 2", "Another")
 	launcher := newAppPicker("Test", func(data appie.AppData, id int) {})
+	launcher.debounceDuration = 0
 
 	assert.Equal(t, 0, len(launcher.appList.Objects))
 	assert.Equal(t, 0, launcher.activeIndex)

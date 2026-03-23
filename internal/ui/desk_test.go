@@ -30,7 +30,7 @@ func TestDeskLayout_Layout(t *testing.T) {
 	assert.Equal(t, deskSize, bg.Size())
 	assert.Equal(t, deskSize.Width, l.widgets.Position().X+l.widgets.Size().Width)
 	assert.Equal(t, deskSize.Height, l.widgets.Size().Height)
-	if l.Settings().NarrowLeftLauncher() {
+	if l.Settings().BarPosition() == "left" {
 		assert.Equal(t, deskSize.Width, wmTheme.NarrowBarWidth)
 		assert.Equal(t, deskSize.Height, l.bar.Size().Height)
 	} else {
@@ -60,6 +60,7 @@ func TestScaleVars_Down(t *testing.T) {
 }
 
 func TestBackgroundChange(t *testing.T) {
+	t.Setenv("WAYLAND_DISPLAY", "") // ensure test doesn't use Wayland compositor mode
 	l := NewEmbeddedDesktop(test.NewApp(), wmTest.NewAppProvider()).(*desktop)
 	l.screens = wmTest.NewScreensProvider(&fynedesk.Screen{Name: "Screen0", X: 0, Y: 0,
 		Width: 2000, Height: 1000, Scale: 1.0})
@@ -75,6 +76,6 @@ func TestBackgroundChange(t *testing.T) {
 	}
 
 	l.settings.(*wmTest.Settings).SetBackground(filepath.Join(workingDir, "testdata", "fyne.png"))
-	l.updateBackgrounds(l.Settings().Background())
+	l.updateBackgrounds(l.Settings().Background(), "")
 	assert.Equal(t, l.settings.Background(), bg.wallpaper.Objects[0].(*canvas.Image).File)
 }

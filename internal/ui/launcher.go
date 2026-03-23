@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/FyshOS/appie"
@@ -12,8 +15,93 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/fynedesk"
+	"fyshos.com/fynedesk/locale"
 	wmTheme "fyshos.com/fynedesk/theme"
+	"fyshos.com/fynedesk/wlipc"
+	"fyshos.com/fynedesk/wm"
 )
+
+// readCompositorState reads the current compositor state from the config file.
+func readCompositorState() *CompositorState {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(configDir, "fynedesk", "compositor-state.json"))
+	if err != nil {
+		return nil
+	}
+	var state CompositorState
+	if json.Unmarshal(data, &state) != nil {
+		return nil
+	}
+	return &state
+}
+
+// positionLauncherAtCursor positions the launcher overlay centered on the output
+// that contains the cursor at (cx, cy) in compositor layout-space pixels.
+func positionLauncherAtCursor(title string, cx, cy float32, size fyne.Size) {
+	// Find the output that contains the cursor
+	screens := fynedesk.Instance().Screens()
+	if screens == nil {
+		return
+	}
+	primary := screens.Primary()
+	if primary == nil {
+		return
+	}
+
+	// Default to primary screen dimensions (in Fyne units)
+	scale := primary.CanvasScale()
+	screenW := float32(primary.Width) / scale
+	screenH := float32(primary.Height) / scale
+	offsetX := float32(primary.X) / scale
+	offsetY := float32(primary.Y) / scale
+
+	// Try to find the cursor's output from compositor state.
+	// Compositor state uses logical (layout-space) pixels, same as cursor coords.
+	state := readCompositorState()
+	if state != nil {
+		for _, out := range state.Outputs {
+			ox, oy := float32(out.X), float32(out.Y)
+			ow := float32(out.Width)
+			oh := float32(out.Height)
+			if cx >= ox && cx < ox+ow && cy >= oy && cy < oy+oh {
+				screenW = ow
+				screenH = oh
+				offsetX = ox
+				offsetY = oy
+				break
+			}
+		}
+	}
+
+	// Center the launcher on that output (absolute layout coords)
+	finalX := offsetX + (screenW-size.Width)/2
+	finalY := offsetY + (screenH-size.Height)/2
+	wlipc.RequestOverlayPositionAbsolute(title, finalX, finalY, size.Width, size.Height)
+}
+
+// positionLauncherOnPrimary centers the launcher on the primary screen
+// using absolute layout coordinates.
+func positionLauncherOnPrimary(title string, size fyne.Size) {
+	screens := fynedesk.Instance().Screens()
+	if screens == nil {
+		return
+	}
+	primary := screens.Primary()
+	if primary == nil {
+		return
+	}
+	scale := primary.CanvasScale()
+	screenW := float32(primary.Width) / scale
+	screenH := float32(primary.Height) / scale
+	offX := float32(primary.X) / scale
+	offY := float32(primary.Y) / scale
+	finalX := offX + (screenW-size.Width)/2
+	finalY := offY + (screenH-size.Height)/2
+	wlipc.RequestOverlayPositionAbsolute(title, finalX, finalY, size.Width, size.Height)
+}
 
 var appExec *picker
 
@@ -44,10 +132,12 @@ type picker struct {
 	callback func(data appie.AppData, actionID int)
 	showMods bool
 
-	entry       *appEntry
-	appList     *fyne.Container
-	appScroll   *container.Scroll
-	activeIndex int
+	entry            *appEntry
+	appList          *fyne.Container
+	appScroll        *container.Scroll
+	activeIndex      int
+	debounceTimer    *time.Timer
+	debounceDuration time.Duration
 }
 
 func (l *picker) close() {
@@ -59,7 +149,11 @@ func (l *picker) pickSelected() {
 		return
 	}
 
-	l.appList.Objects[l.activeIndex].(*widget.Button).OnTapped()
+	btn, ok := l.appList.Objects[l.activeIndex].(*widget.Button)
+	if !ok {
+		return
+	}
+	btn.OnTapped()
 }
 
 func (l *picker) setActiveIndex(index int) {
@@ -67,10 +161,16 @@ func (l *picker) setActiveIndex(index int) {
 		return
 	}
 
-	oldActive := l.appList.Objects[l.activeIndex].(*widget.Button)
+	oldActive, ok := l.appList.Objects[l.activeIndex].(*widget.Button)
+	if !ok {
+		return
+	}
 	oldActive.Importance = widget.MediumImportance
 	oldActive.Refresh()
-	active := l.appList.Objects[index].(*widget.Button)
+	active, ok := l.appList.Objects[index].(*widget.Button)
+	if !ok {
+		return
+	}
 	active.Importance = widget.HighImportance
 	active.Refresh()
 
@@ -125,6 +225,12 @@ func (l *picker) appButtonListMatching(input string) []fyne.CanvasObject {
 		appList[0].(*widget.Button).Importance = widget.HighImportance
 	}
 
+	if len(appList) == 0 {
+		noResults := widget.NewLabel(locale.T("launcher.noApps"))
+		noResults.Alignment = fyne.TextAlignCenter
+		appList = append(appList, noResults)
+	}
+
 	return appList
 }
 
@@ -134,7 +240,11 @@ func (l *picker) loadIcons(dataRange []appie.AppData, appList []fyne.CanvasObjec
 	for i, data := range dataRange {
 		app := appList[i].(*widget.Button)
 		icon := data.Icon(iconTheme, 32)
-		app.SetIcon(icon)
+		if icon != nil {
+			fyne.Do(func() {
+				app.SetIcon(icon)
+			})
+		}
 	}
 }
 
@@ -184,54 +294,86 @@ func newAppPicker(title string, callback func(appie.AppData, int)) *picker {
 
 	appList := container.NewVBox()
 	appScroller := container.NewScroll(appList)
-	l := &picker{win: win, desk: fynedesk.Instance(), appList: appList, appScroll: appScroller, callback: callback}
+	l := &picker{win: win, desk: fynedesk.Instance(), appList: appList, appScroll: appScroller, callback: callback,
+		debounceDuration: 150 * time.Millisecond}
 
 	entry := &appEntry{pick: l}
 	entry.ExtendBaseWidget(entry)
-	entry.SetPlaceHolder("Application")
+	entry.SetPlaceHolder(locale.T("launcher.app"))
 	entry.OnChanged = func(input string) {
-		appList.Objects = nil
+		if l.debounceTimer != nil {
+			l.debounceTimer.Stop()
+		}
 		if input == "" {
+			appList.Objects = nil
+			appList.Refresh()
 			return
 		}
-
-		l.updateAppListMatching(input)
+		if l.debounceDuration <= 0 {
+			l.updateAppListMatching(input)
+			return
+		}
+		l.debounceTimer = time.AfterFunc(l.debounceDuration, func() {
+			fyne.Do(func() {
+				l.updateAppListMatching(input)
+			})
+		})
 	}
 	l.entry = entry
 
-	cancel := widget.NewButtonWithIcon("Cancel", theme.CancelIcon(), func() {
+	clearBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
+		entry.SetText("")
+		appList.Objects = nil
+		appList.Refresh()
+	})
+	searchRow := container.NewBorder(nil, nil, nil, clearBtn, entry)
+
+	cancel := widget.NewButtonWithIcon(locale.T("launcher.cancel"), theme.CancelIcon(), func() {
 		win.Close()
 	})
 
 	fyne.Do(func() {
 		ideal := fyne.NewSize(300,
 			cancel.MinSize().Height*4+theme.Padding()*6+entry.MinSize().Height)
-		win.SetContent(container.NewBorder(entry, cancel, nil, nil, appScroller))
+		win.SetContent(container.NewBorder(searchRow, cancel, nil, nil, appScroller))
 		win.Resize(ideal)
+
+		// Position on the correct output using cursor position from compositor.
+		// Do this BEFORE CenterOnScreen to avoid a visible jump.
+		cx, cy := launcherCursorX, launcherCursorY
+		launcherCursorX, launcherCursorY = 0, 0 // reset for next use
+		if cx > 0 || cy > 0 {
+			positionLauncherAtCursor(win.Title(), cx, cy, ideal)
+		} else {
+			positionLauncherOnPrimary(win.Title(), ideal)
+		}
+
+		// CenterOnScreen as Fyne-level fallback (non-Wayland or if IPC fails)
 		win.CenterOnScreen()
 		win.Canvas().Focus(entry)
 
-		// TODO consider if there is a bug upstream in the window handling here or in Fyne
-		go func() {
-			retries := 3
-			for retries > 0 {
-				time.Sleep(time.Millisecond * 20)
-				fyne.Do(func() {
-					win.Resize(ideal)
-					win.CenterOnScreen()
-				})
-
-				retries--
-			}
-		}()
+		go ensureFocused(win, entry)
 	})
 	return l
 }
 
+// ShowAppLauncherAt opens the launcher, positioning it on the screen that
+// contains the given cursor coordinates (layout-space pixels). If cx and cy
+// are both 0 it falls back to CenterOnScreen (primary display).
+func ShowAppLauncherAt(cx, cy float32) {
+	launcherCursorX = cx
+	launcherCursorY = cy
+	ShowAppLauncher()
+}
+
+var launcherCursorX, launcherCursorY float32
+
 // ShowAppLauncher opens a new application launcher, closing an old one if it existed.
 func ShowAppLauncher() {
 	if appExec != nil {
-		appExec.close()
+		prev := appExec
+		appExec = nil // clear immediately to avoid stale reference
+		prev.close()
 		return
 	}
 
@@ -244,6 +386,7 @@ func ShowAppLauncher() {
 		}
 		if err != nil {
 			fyne.LogError("Failed to start app", err)
+			wm.SendNotification(wm.NewNotification("Launch failed", "Could not start "+app.Name()))
 			return
 		}
 	})

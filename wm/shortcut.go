@@ -1,3 +1,4 @@
+// Package wm provides window manager utilities including shortcut handling, positioning, borders, D-Bus operations, and notifications.
 package wm
 
 import (

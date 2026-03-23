@@ -54,7 +54,7 @@ func (f *fyles) ScreenAreaWidget() fyne.CanvasObject {
 
 	desk := fynedesk.Instance()
 	var barPad fyne.CanvasObject
-	if desk.Settings().NarrowLeftLauncher() {
+	if desk.Settings().BarPosition() == "left" {
 		r := canvas.NewRectangle(color.Transparent)
 		r.SetMinSize(fyne.NewSize(wmtheme.NarrowBarWidth, 1))
 		barPad = r

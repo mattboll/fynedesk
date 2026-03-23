@@ -2,6 +2,7 @@ package ui
 
 import (
 	"image/color"
+	"log"
 	"os/exec"
 	"os/user"
 	"strconv"
@@ -12,13 +13,16 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	deskDriver "fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/driver/software"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/fynedesk"
+	"fyshos.com/fynedesk/locale"
 	wmtheme "fyshos.com/fynedesk/theme"
+	"fyshos.com/fynedesk/wlipc"
 )
 
 // Go date package does not follow changing timezones, so we will.
@@ -29,17 +33,17 @@ type widgetRenderer struct {
 	panel *widgetPanel
 	bg    *canvas.Rectangle
 
-	layout  fyne.Layout
 	objects []fyne.CanvasObject
 }
 
 func (w *widgetRenderer) MinSize() fyne.Size {
-	return w.layout.MinSize(w.objects)
+	return w.panel.MinSize()
 }
 
 func (w *widgetRenderer) Layout(size fyne.Size) {
 	w.bg.Resize(size)
-	w.layout.Layout(w.objects[1:], size)
+	// objects[1] is the Border container (top/bottom/center with scroll)
+	w.objects[1].Resize(size)
 }
 
 func (w *widgetRenderer) Refresh() {
@@ -56,8 +60,10 @@ func (w *widgetRenderer) Refresh() {
 	}
 	fg := theme.Color(theme.ColorNameForeground)
 	w.panel.clock.Color = fg
+	w.panel.clockSec.Color = fg
 	w.panel.vClock.Color = fg
 	canvas.Refresh(w.panel.clock)
+	canvas.Refresh(w.panel.clockSec)
 }
 
 func (w *widgetRenderer) Objects() []fyne.CanvasObject {
@@ -73,26 +79,40 @@ type widgetPanel struct {
 	desk            fynedesk.Desktop
 	about, settings fyne.Window
 
-	account         *widget.Button
-	clock, vClock   *canvas.Text
-	date            *widget.Label
-	rotated         *canvas.Image
-	modules, clocks *fyne.Container
-	notifications   fyne.CanvasObject
+	account                 *widget.Button
+	clock, clockSec, vClock *canvas.Text
+	date                    *widget.Label
+	rotated                 *canvas.Image
+	modules, clocks         *fyne.Container
+	notifications           fyne.CanvasObject
+
+	calendarWin     fyne.Window // current calendar overlay (nil if closed)
+	lastRotatedText string      // cached text to avoid redundant rotate
 }
 
 func (w *widgetPanel) clockTick() {
-	// more complex than time.Timer so that when the OS sleeps it does not stack ticks...
-	wait := make(chan struct{})
+	// Buffered channel (size 1) prevents deadlock when fyne.Do blocks:
+	// without the buffer, the AfterFunc goroutine blocks on send while
+	// the consumer is stuck waiting for fyne.Do, causing the clock to freeze.
+	wait := make(chan struct{}, 1)
 	time.AfterFunc(time.Second, func() {
 		wait <- struct{}{}
 	})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[panel] PANIC in clockTick goroutine: %v", r)
+			}
+		}()
 		for range wait {
 			fyne.Do(w.clockRefresh)
 
 			time.AfterFunc(time.Second, func() {
-				wait <- struct{}{}
+				select {
+				case wait <- struct{}{}:
+				default:
+					// Drop tick if previous one hasn't been consumed yet
+				}
 			})
 		}
 	}()
@@ -103,11 +123,26 @@ func (w *widgetPanel) clockRefresh() {
 		return // not yet been drawn so don't worry
 	}
 
+	showSec := w.desk.Settings().ClockShowSeconds()
 	w.clock.Text = w.formattedTime()
-	w.vClock.Text = w.formattedTime()
+	if showSec {
+		w.clockSec.Text = adjustedNow().Format(":05")
+		w.clockSec.Show()
+		w.vClock.Text = w.formattedTimeWithSeconds()
+	} else {
+		w.clockSec.Text = ""
+		w.clockSec.Hide()
+		w.vClock.Text = w.formattedTime()
+	}
 	canvas.Refresh(w.clock)
+	canvas.Refresh(w.clockSec)
 	if w.desk.Settings().NarrowWidgetPanel() {
-		w.rotate(w.vClock)
+		// Only re-render the rotated clock if text actually changed
+		newText := w.vClock.Text
+		if newText != w.lastRotatedText {
+			w.lastRotatedText = newText
+			go w.rotate(w.vClock)
+		}
 	}
 
 	w.date.SetText(w.formattedDate())
@@ -119,6 +154,13 @@ func (w *widgetPanel) formattedTime() string {
 		return adjustedNow().Format("3:04pm")
 	}
 	return adjustedNow().Format("15:04")
+}
+
+func (w *widgetPanel) formattedTimeWithSeconds() string {
+	if w.desk.Settings().ClockFormatting() == "12h" {
+		return adjustedNow().Format("3:04:05pm")
+	}
+	return adjustedNow().Format("15:04:05")
 }
 
 func (w *widgetPanel) formattedDate() string {
@@ -142,6 +184,16 @@ func (w *widgetPanel) createClock() {
 		Alignment: fyne.TextAlignCenter,
 		TextStyle: style,
 		TextSize:  3 * theme.TextSize(),
+	}
+	w.clockSec = &canvas.Text{
+		Color:     fg,
+		Text:      "",
+		Alignment: fyne.TextAlignCenter,
+		TextStyle: style,
+		TextSize:  2 * theme.TextSize(),
+	}
+	if !w.desk.Settings().ClockShowSeconds() {
+		w.clockSec.Hide()
 	}
 	w.vClock = &canvas.Text{
 		Color:     fg,
@@ -185,31 +237,64 @@ func (w *widgetPanel) CreateRenderer() fyne.WidgetRenderer {
 	})
 
 	w.rotated = &canvas.Image{}
-	w.clocks = container.NewStack(w.clock, container.New(&vClockPad{}, w.rotated))
+	clockRow := container.NewCenter(container.NewHBox(w.clock, container.NewVBox(layout.NewSpacer(), w.clockSec)))
+	w.clocks = container.NewStack(clockRow, container.New(&vClockPad{}, w.rotated))
 	if narrow {
-		w.clock.Hide()
+		clockRow.Hide()
 	} else {
 		w.clocks.Objects[1].Hide()
 	}
 	w.clockRefresh()
 
 	bg := canvas.NewRectangle(wmtheme.WidgetPanelBackground())
-	objects := []fyne.CanvasObject{
-		bg,
-		canvas.NewRectangle(color.Transparent), // clear top edge for clocks
+
+	clockContent := container.NewVBox(
 		w.clocks,
 		w.date,
-		w.notifications}
+	)
+	clockTap := newTappableContainer(clockContent, func() {
+		w.showCalendar()
+	})
+
+	top := container.NewVBox(
+		canvas.NewRectangle(color.Transparent), // clear top edge for clocks
+		clockTap,
+		w.notifications,
+	)
 
 	w.modules = container.NewVBox()
-	objects = append(objects, layout.NewSpacer(), w.modules, w.account)
 	w.loadModules(w.desk.Modules())
+	// Sidebar toggle button
+	sidebarBtn := widget.NewButtonWithIcon("", theme.MenuIcon(), func() {
+		ToggleSidebar()
+	})
+	sidebarBtn.Importance = widget.LowImportance
+	var sidebarWidget fyne.CanvasObject
+	if narrow {
+		sidebarWidget = newHoverTooltip(sidebarBtn, locale.T("sidebar.toggle"))
+	} else {
+		sidebarWidget = sidebarBtn
+	}
+
+	var accountWidget fyne.CanvasObject
+	if narrow {
+		currentUser, _ := user.Current()
+		tipText := "Account"
+		if currentUser != nil {
+			tipText = currentUser.Username
+		}
+		accountWidget = newHoverTooltip(w.account, tipText)
+	} else {
+		accountWidget = w.account
+	}
+	bottom := container.NewVBox(w.modules, sidebarWidget, accountWidget)
+
+	content := container.NewBorder(top, bottom, nil, nil)
 
 	return &widgetRenderer{
 		panel:   w,
 		bg:      bg,
-		layout:  layout.NewVBoxLayout(),
-		objects: objects,
+		objects: []fyne.CanvasObject{bg, content},
 	}
 }
 
@@ -255,10 +340,80 @@ func (w *widgetPanel) loadModules(mods []fynedesk.Module) {
 func newWidgetPanel(rootDesk fynedesk.Desktop) *widgetPanel {
 	w := &widgetPanel{desk: rootDesk}
 	w.ExtendBaseWidget(w)
-	w.notifications = startNotifications()
+	w.notifications = newNotificationPanel()
+	initNotificationToasts()
 	w.createClock()
 
 	return w
+}
+
+func (w *widgetPanel) showCalendar() {
+	// Toggle: close existing calendar if open
+	if w.calendarWin != nil {
+		w.calendarWin.Close()
+		w.calendarWin = nil
+		return
+	}
+
+	cal := calendarPopup(adjustedNow())
+
+	d, ok := fyne.CurrentApp().Driver().(deskDriver.Driver)
+	if !ok {
+		return
+	}
+	win := d.CreateSplashWindow()
+	win.SetTitle("Calendar " + SkipTaskbarHint)
+	win.SetContent(cal)
+	win.SetOnClosed(func() { w.calendarWin = nil })
+
+	calW := float32(340)
+	calH := float32(290)
+	win.Resize(fyne.NewSize(calW, calH))
+
+	screen := fynedesk.Instance().Screens().Primary()
+	screenW := float32(screen.Width) / screen.CanvasScale()
+	panelW := float32(0)
+	if w.desk.Settings().NarrowLeftLauncher() {
+		panelW = wmtheme.NarrowBarWidth
+	}
+	widgetW := wmtheme.WidgetPanelWidth
+	if w.desk.Settings().NarrowWidgetPanel() {
+		widgetW = wmtheme.NarrowBarWidth
+	}
+	// Position to the left of the widget panel, near the top
+	finalX := screenW - widgetW - calW - 10
+	if finalX < panelW {
+		finalX = panelW + 10
+	}
+	finalY := float32(10)
+
+	wlipc.RequestOverlayPosition(win.Title(), finalX, finalY, calW, calH)
+	win.Show()
+
+	w.calendarWin = win
+}
+
+// tappableContainer wraps a container to make it respond to taps.
+type tappableContainer struct {
+	widget.BaseWidget
+	content fyne.CanvasObject
+	onTap   func()
+}
+
+func newTappableContainer(content fyne.CanvasObject, onTap func()) *tappableContainer {
+	t := &tappableContainer{content: content, onTap: onTap}
+	t.ExtendBaseWidget(t)
+	return t
+}
+
+func (t *tappableContainer) Tapped(_ *fyne.PointEvent) {
+	if t.onTap != nil {
+		t.onTap()
+	}
+}
+
+func (t *tappableContainer) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(t.content)
 }
 
 type vClockPad struct {

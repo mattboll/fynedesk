@@ -2,7 +2,10 @@ package status
 
 import (
 	"image/color"
+	"log"
 	"os"
+	"os/exec"
+	"strconv"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -13,6 +16,7 @@ import (
 
 	"fyshos.com/fynedesk"
 	wmtheme "fyshos.com/fynedesk/theme"
+	"fyshos.com/fynedesk/wm"
 )
 
 var batteryMeta = fynedesk.ModuleMetadata{
@@ -20,11 +24,15 @@ var batteryMeta = fynedesk.ModuleMetadata{
 	NewInstance: newBattery,
 }
 
+const criticalBatteryThreshold = 0.05 // 5%
+
 type battery struct {
-	bar  *widget.ProgressBar
+	bar  *statusBar
 	done bool
 	icon *widget.Icon
 	fill *canvas.Rectangle
+
+	hibernateTriggered bool // avoid repeated hibernate attempts
 }
 
 func pickChargeOrEnergy() (string, string) {
@@ -61,7 +69,8 @@ func (b *battery) StatusAreaWidget() fyne.CanvasObject {
 		return nil
 	}
 
-	b.bar = widget.NewProgressBar()
+	b.bar = newStatusBar()
+	b.bar.SemanticColor = batteryColor
 	b.icon = widget.NewIcon(wmtheme.BatteryIcon)
 	b.fill = canvas.NewRectangle(theme.Color(theme.ColorNameForeground))
 	prop := canvas.NewRectangle(color.Transparent)
@@ -88,16 +97,42 @@ func (b *battery) setValue(val float64) {
 	if on, err := b.powered(); on || err != nil {
 		b.icon.SetResource(wmtheme.PowerIcon)
 		b.fill.Hide()
+		b.hibernateTriggered = false // reset when plugged in
 	} else if val < 0.1 {
 		b.icon.SetResource(theme.NewErrorThemedResource(wmtheme.BatteryIcon))
-		b.fill.FillColor = theme.Color(theme.ColorNameError)
+		b.fill.FillColor = batteryColor(val)
 		b.fill.Refresh()
 		b.fill.Show()
+
+		// Critical battery: hibernate to prevent data loss
+		if val > 0 && val < criticalBatteryThreshold && !b.hibernateTriggered {
+			b.hibernateTriggered = true
+			go b.triggerHibernate(val)
+		}
 	} else {
 		b.icon.SetResource(wmtheme.BatteryIcon)
-		b.fill.FillColor = theme.Color(theme.ColorNameForeground)
+		b.fill.FillColor = batteryColor(val)
 		b.fill.Refresh()
 		b.fill.Show()
+	}
+}
+
+// triggerHibernate warns the user and puts the system into hibernate/suspend.
+func (b *battery) triggerHibernate(val float64) {
+	pct := strconv.Itoa(int(val * 100))
+	n := wm.NewNotification("Critical Battery",
+		"Battery at "+pct+"% — hibernating now to prevent data loss.")
+	wm.SendNotification(n)
+
+	// Wait a moment for the notification to display
+	time.Sleep(2 * time.Second)
+
+	// Try hibernate first, fall back to suspend
+	if err := exec.Command("systemctl", "hibernate").Run(); err != nil {
+		log.Printf("[battery] hibernate failed: %v, trying suspend", err)
+		if err := exec.Command("systemctl", "suspend").Run(); err != nil {
+			log.Printf("[battery] suspend also failed: %v", err)
+		}
 	}
 }
 

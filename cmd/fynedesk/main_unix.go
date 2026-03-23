@@ -1,5 +1,4 @@
-//go:build linux || openbsd || freebsd || netbsd
-// +build linux openbsd freebsd netbsd
+//go:build !wayland && (linux || openbsd || freebsd || netbsd)
 
 package main
 

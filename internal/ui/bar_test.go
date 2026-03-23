@@ -104,13 +104,13 @@ func TestAppBarBackground(t *testing.T) {
 	testBar.disableTaskbar = true
 
 	bg := test.WidgetRenderer(testBar).(*barRenderer).background
-	if testBar.desk.Settings().NarrowLeftLauncher() {
+	if testBar.desk.Settings().BarPosition() == "left" {
 		assert.Equal(t, wmTheme.WidgetPanelBackground(), bg.(*canvas.Rectangle).FillColor)
 		assert.Equal(t, wmTheme.NarrowBarWidth, bg.Size().Width)
 	} else {
-		assert.Equal(t, color.Transparent, bg.(*canvas.LinearGradient).EndColor)
-		assert.Equal(t, theme.Color(theme.ColorNameBackground), bg.(*canvas.LinearGradient).StartColor)
-		assert.Equal(t, testBar.iconSize+theme.Padding()*2, bg.Size().Width)
+		rect := bg.(*canvas.Rectangle)
+		assert.Equal(t, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x28}, rect.FillColor)
+		assert.Equal(t, float32(14), rect.CornerRadius)
 	}
 }
 

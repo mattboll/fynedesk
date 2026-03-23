@@ -1,3 +1,4 @@
+// Package ui implements the FyneDesk desktop user interface components including the panel bar, launcher, settings dialogs, and background rendering.
 package ui
 
 import (
@@ -14,6 +15,7 @@ import (
 
 	"fyshos.com/fynedesk"
 	"fyshos.com/fynedesk/internal/notify"
+	"fyshos.com/fynedesk/locale"
 	wmtheme "fyshos.com/fynedesk/theme"
 	"fyshos.com/fynedesk/wm"
 )
@@ -23,6 +25,8 @@ const (
 	RootWindowName = "Fyne Desktop"
 	// SkipTaskbarHint should be added to the title of normal windows that should be skipped like the X11 SkipTaskbar hint.
 	SkipTaskbarHint = "FyneDesk:skip"
+	// NoFocusHint prevents the compositor from stealing keyboard focus when the window maps.
+	NoFocusHint = "FyneDesk:nofocus"
 )
 
 type desktop struct {
@@ -38,11 +42,21 @@ type desktop struct {
 	showMenu    func(*fyne.Menu, fyne.Position)
 	moduleCache []fynedesk.Module
 
-	bar     *bar
-	widgets *widgetPanel
-	mouse   fyne.CanvasObject
-	root    fyne.Window
-	desk    int
+	bar        *bar
+	widgets    *widgetPanel
+	mouse      fyne.CanvasObject
+	root       fyne.Window
+	desk       int
+	background *background // stored for direct settings updates
+}
+
+// setScreenAreaVisible shows or hides screen area modules (desktop icons).
+// Called when the panel is raised/lowered via hotspot to prevent desktop
+// icons from appearing above windows.
+func (l *desktop) setScreenAreaVisible(visible bool) {
+	if l.background != nil {
+		l.background.setScreenAreaVisible(visible)
+	}
 }
 
 func (l *desktop) Desktop() int {
@@ -67,18 +81,25 @@ func (l *desktop) SetDesktop(id int) {
 		deltas[i] = fyne.NewDelta(0, off)
 	}
 
-	fyne.NewAnimation(canvas.DurationStandard, func(f float32) {
+	if l.Settings().ReduceMotion() {
 		for i, item := range l.wm.Windows() {
 			if item.Pinned() {
 				continue
 			}
-
-			newX := starts[i].X + deltas[i].DX*f
-			newY := starts[i].Y + deltas[i].DY*f
-
-			item.Move(fyne.NewPos(newX, newY))
+			item.Move(fyne.NewPos(starts[i].X+deltas[i].DX, starts[i].Y+deltas[i].DY))
 		}
-	}).Start()
+	} else {
+		fyne.NewAnimation(canvas.DurationStandard, func(f float32) {
+			for i, item := range l.wm.Windows() {
+				if item.Pinned() {
+					continue
+				}
+				newX := starts[i].X + deltas[i].DX*f
+				newY := starts[i].Y + deltas[i].DY*f
+				item.Move(fyne.NewPos(newX, newY))
+			}
+		}).Start()
+	}
 
 	for _, m := range l.Modules() {
 		if desk, ok := m.(notify.DesktopNotify); ok {
@@ -94,13 +115,20 @@ func (l *desktop) ShowSettings() {
 func (l *desktop) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	bg := objects[0].(*background)
 	bg.Resize(size)
-	if l.Settings().NarrowLeftLauncher() {
+
+	pos := l.Settings().BarPosition()
+	switch pos {
+	case "left":
 		l.bar.Resize(fyne.NewSize(wmtheme.NarrowBarWidth, size.Height))
 		l.bar.Move(fyne.NewPos(0, 0))
-	} else {
-		barHeight := l.bar.MinSize().Height
-		l.bar.Resize(fyne.NewSize(size.Width, barHeight+1)) // add 1 so rounding cannot trigger mouse out on bottom edge
-		l.bar.Move(fyne.NewPos(0, size.Height-barHeight))
+	default: // "bottom" or unset
+		// Use the zoom-scaled height so Fyne doesn't clip zoomed icons that
+		// extend above the base bar area. Icons are bottom-aligned within
+		// this container; the zoom effect grows upward into the extra space.
+		barHeight := float32(l.Settings().LauncherIconSize())*float32(l.Settings().LauncherZoomScale()) + 2
+		l.bar.Resize(fyne.NewSize(size.Width, barHeight+1))
+		barY := size.Height - barHeight
+		l.bar.Move(fyne.NewPos(0, barY))
 	}
 	l.bar.Refresh()
 
@@ -108,6 +136,7 @@ func (l *desktop) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 	l.widgets.Resize(fyne.NewSize(widgetsWidth, size.Height))
 	l.widgets.Move(fyne.NewPos(size.Width-widgetsWidth, 0))
 	l.widgets.Refresh()
+
 }
 
 func (l *desktop) MinSize(_ []fyne.CanvasObject) fyne.Size {
@@ -122,12 +151,9 @@ func (l *desktop) ShowMenuAt(menu *fyne.Menu, pos fyne.Position) {
 	l.showMenu(menu, pos)
 }
 
-func (l *desktop) updateBackgrounds(path string) {
-	root := l.root.Content().(*fyne.Container).Objects[0]
-	if back, ok := root.(*background); ok {
-		back.updateBackground(path)
-	} else { // embed mode has another container
-		root.(*fyne.Container).Objects[0].(*background).updateBackground(path)
+func (l *desktop) updateBackgrounds(path, bgType string) {
+	if l.background != nil {
+		l.background.updateBackground(path, bgType)
 	}
 }
 
@@ -136,8 +162,9 @@ func (l *desktop) createPrimaryContent() fyne.CanvasObject {
 	l.widgets = newWidgetPanel(l)
 	l.mouse = newMouse()
 	l.mouse.Hide()
+	l.background = newBackground()
 
-	return container.New(l, newBackground(), l.bar, l.widgets, l.mouse)
+	return container.New(l, l.background, l.bar, l.widgets, l.mouse)
 }
 
 func (l *desktop) createRoot(screens fynedesk.ScreenList) fyne.Window {
@@ -217,12 +244,16 @@ func (l *desktop) ContentBoundsPixels(screen *fynedesk.Screen) (x, y, w, h uint3
 		pad = wmtheme.NarrowBarWidth
 	}
 	if l.screens.Primary() == screen {
-		bar := uint32(0)
-		if l.Settings().NarrowLeftLauncher() {
-			bar = uint32(wmtheme.NarrowBarWidth * screen.CanvasScale())
-		}
 		wid := uint32(pad * screen.CanvasScale())
-		return bar, 0, screenW - bar - wid, screenH
+		pos := l.Settings().BarPosition()
+		switch pos {
+		case "left":
+			bar := uint32(wmtheme.NarrowBarWidth * screen.CanvasScale())
+			return bar, 0, screenW - bar - wid, screenH
+		default: // "bottom"
+			barH := uint32(wmtheme.NarrowBarWidth * screen.CanvasScale()) // approximate bar height
+			return 0, 0, screenW - wid, screenH - barH
+		}
 	}
 	return 0, 0, screenW, screenH
 }
@@ -334,9 +365,16 @@ func (l *desktop) MouseOutNotify() {
 }
 
 func (l *desktop) fireSettingsChangeListener(s fynedesk.DeskSettings) {
+	locale.SetLanguage(s.Language())
 	l.clearModuleCache()
-	l.updateBackgrounds(s.Background())
+	bgType := fyne.CurrentApp().Preferences().String("background_type")
+	l.updateBackgrounds(s.Background(), bgType)
 	l.widgets.reloadModules(l.Modules())
+
+	// Update locale-dependent labels
+	if np, ok := l.widgets.notifications.(*notificationPanel); ok {
+		np.updateLocale()
+	}
 
 	l.bar.iconSize = l.Settings().LauncherIconSize()
 	l.bar.iconScale = l.Settings().LauncherZoomScale()
@@ -350,7 +388,8 @@ func (l *desktop) addSettingsChangeListener() {
 	l.Settings().AddChangeListener(l.fireSettingsChangeListener)
 
 	l.app.Settings().AddListener(func(_ fyne.Settings) {
-		l.updateBackgrounds(l.Settings().Background())
+		bgType := fyne.CurrentApp().Preferences().String("background_type")
+		l.updateBackgrounds(l.Settings().Background(), bgType)
 	})
 }
 
@@ -410,15 +449,54 @@ func NewDesktop(app fyne.App, mgr fynedesk.WindowManager, icons appie.Provider, 
 // If run during CI for testing it will return an in-memory window using the
 // fyne/test package.
 func NewEmbeddedDesktop(app fyne.App, icons appie.Provider) fynedesk.Desktop {
+	return newEmbeddedDesktop(app, icons, "Embedded "+RootWindowName)
+}
+
+// NewPanelDesktop creates an embedded desktop for use as a Wayland panel.
+// The window title is set to "FyneDesk:Panel" so the compositor can identify it.
+func NewPanelDesktop(app fyne.App, icons appie.Provider) fynedesk.Desktop {
+	return newEmbeddedDesktop(app, icons, "FyneDesk:Panel")
+}
+
+func newEmbeddedDesktop(app fyne.App, icons appie.Provider, title string) fynedesk.Desktop {
 	wm := &embededWM{}
 	desk := newDesktop(app, wm, icons)
 	desk.run = desk.runEmbed
 	desk.showMenu = desk.showMenuEmbed
 
-	desk.root = desk.newDesktopWindowEmbed()
+	desk.root = desk.newDesktopWindowEmbedWithTitle(title)
 	over := wm.setWindow(desk.root)
 	desk.root.SetContent(container.NewStack(desk.createPrimaryContent(), over))
 	return desk
+}
+
+// SetScreenSize sets the pixel screen dimensions for the Wayland panel.
+// This updates the embedded WM and screen provider with the actual screen size,
+// so overlay positions can be correctly mapped to pixel coordinates.
+func SetScreenSize(desk fynedesk.Desktop, w, h int) {
+	if d, ok := desk.(*desktop); ok {
+		if wm, ok := d.wm.(*embededWM); ok {
+			wm.screenW = w
+			wm.screenH = h
+		}
+		// Also update the embedded screen provider
+		if esp, ok := d.screens.(*embeddedScreensProvider); ok {
+			esp.screens[0].Width = w
+			esp.screens[0].Height = h
+		}
+	}
+}
+
+// SetScreenPosition sets the primary output's layout position for the Wayland panel.
+// When the primary output is not at (0,0) (e.g. multi-monitor), overlay positions
+// must be offset by these coordinates so they land on the correct output.
+func SetScreenPosition(desk fynedesk.Desktop, x, y int) {
+	if d, ok := desk.(*desktop); ok {
+		if esp, ok := d.screens.(*embeddedScreensProvider); ok {
+			esp.screens[0].X = x
+			esp.screens[0].Y = y
+		}
+	}
 }
 
 func newDesktop(app fyne.App, wm fynedesk.WindowManager, icons appie.Provider) *desktop {
@@ -427,7 +505,20 @@ func newDesktop(app fyne.App, wm fynedesk.WindowManager, icons appie.Provider) *
 
 	fynedesk.SetInstance(desk)
 	desk.settings = newDeskSettings()
+	locale.SetLanguage(desk.settings.Language())
 	desk.addSettingsChangeListener()
+
+	// Load theme.json so custom colors (primary, background, etc.) apply at startup
+	reloadFyneTheme()
+
+	// Sync Fyne primary color changes to theme.json so the JSON theme
+	// reflects the user's "Main Color" selection from Fyne Settings.
+	watchFynePrimaryColor(app)
+
+	// Watch for accent color extracted from wallpaper by the compositor
+	accentDone := make(chan struct{})
+	_ = accentDone // lives for process lifetime
+	watchAccentColor(accentDone)
 
 	desk.registerShortcuts()
 	return desk

@@ -441,6 +441,10 @@ func (c *client) Unpin() {
 	c.SetDesktop(id)
 }
 
+func (c *client) Urgent() bool {
+	return false // X11 urgency is handled via WM_HINTS, not applicable here
+}
+
 func (c *client) fullscreenMessage(action x11.WindowStateAction) {
 	err := ewmh.WmStateReq(c.wm.X(), c.win, int(action), "_NET_WM_STATE_FULLSCREEN")
 	if err != nil {

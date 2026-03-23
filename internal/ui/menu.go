@@ -3,6 +3,7 @@ package ui
 import (
 	"image/color"
 	"os"
+	"os/exec"
 	"sort"
 	"time"
 
@@ -14,11 +15,12 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	deskDriver "fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
+	"fyshos.com/fynedesk/locale"
 	wmtheme "fyshos.com/fynedesk/theme"
+	"fyshos.com/fynedesk/wlipc"
 )
 
 func (w *widgetPanel) appendAppCategories(acc *widget.Accordion, win fyne.Window) {
@@ -53,48 +55,87 @@ func (w *widgetPanel) appendAppCategories(acc *widget.Accordion, win fyne.Window
 			container.NewVBox(items...)))
 	}
 
-	acc.Items = accList
-	acc.Refresh()
+	fyne.Do(func() {
+		acc.Items = accList
+		acc.Refresh()
+	})
 }
 
 func (w *widgetPanel) askLogout() {
 	win := fyne.CurrentApp().Driver().(deskDriver.Driver).CreateSplashWindow()
-	logout := widget.NewButtonWithIcon("Logout", theme.LogoutIcon(), func() {
+
+	closeAndDo := func(action func()) {
 		win.Close()
 		time.Sleep(time.Second / 10)
-		w.desk.WindowManager().Close()
+		action()
+	}
+
+	logout := widget.NewButtonWithIcon(locale.T("menu.logout"), theme.LogoutIcon(), func() {
+		closeAndDo(func() { w.desk.WindowManager().Close() })
 	})
 	logout.Importance = widget.DangerImportance
-	cancel := widget.NewButton("Cancel", func() {
+
+	shutdown := widget.NewButtonWithIcon(locale.T("menu.powerOff"), wmtheme.PowerIcon, func() {
+		closeAndDo(func() { wlipc.RequestShutdown() })
+	})
+	shutdown.Importance = widget.DangerImportance
+
+	restart := widget.NewButtonWithIcon(locale.T("menu.restart"), theme.ViewRefreshIcon(), func() {
+		closeAndDo(func() {
+			if wlipc.IsWaylandSession() {
+				exec.Command("systemctl", "reboot").Run()
+			} else {
+				os.Exit(5)
+			}
+		})
+	})
+
+	hibernate := widget.NewButtonWithIcon(locale.T("menu.hibernate"), theme.DownloadIcon(), func() {
+		closeAndDo(func() { wlipc.RequestHibernate() })
+	})
+
+	suspend := widget.NewButtonWithIcon(locale.T("menu.suspend"), theme.MediaPauseIcon(), func() {
+		closeAndDo(func() { wlipc.RequestSuspend() })
+	})
+
+	cancel := widget.NewButton(locale.T("menu.cancel"), func() {
 		win.Close()
 	})
 
-	header := widget.NewRichTextFromMarkdown("### Log out")
+	header := widget.NewRichTextFromMarkdown("### " + locale.T("menu.logout"))
 	header.Truncation = fyne.TextTruncateEllipsis
-	bottomPad := canvas.NewRectangle(color.Transparent)
-	bottomPad.SetMinSize(fyne.NewSquareSize(10))
-	content := container.NewBorder(
-		header,
-		container.NewVBox(
-			container.NewHBox(layout.NewSpacer(),
-				container.NewGridWithColumns(2, cancel, logout),
-				layout.NewSpacer()), bottomPad),
-		nil, nil,
-		widget.NewLabel("Are you sure you want to log out?"))
 
-	r, g, b, _ := theme.Color(theme.ColorNameOverlayBackground).RGBA()
-	bgCol := &color.NRGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 230}
+	buttons := container.NewGridWithColumns(3,
+		logout, restart, shutdown,
+		suspend, hibernate, cancel,
+	)
 
+	content := container.NewBorder(header, nil, nil, nil, buttons)
+
+	r, g, b, _ := theme.Color(theme.ColorNameBackground).RGBA()
+	bgCol := &color.NRGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 240}
 	bg := canvas.NewRectangle(bgCol)
-	icon := canvas.NewImageFromResource(theme.LogoutIcon())
+
+	icon := canvas.NewImageFromResource(wmtheme.PowerIcon)
 	iconBox := container.NewWithoutLayout(icon)
-	icon.Resize(fyne.NewSize(92, 92))
-	icon.Move(fyne.NewPos(280-92-theme.Padding(), theme.Padding()))
+	icon.Resize(fyne.NewSize(72, 72))
+	icon.Move(fyne.NewPos(420-72-theme.Padding(), theme.Padding()))
 	win.SetContent(container.NewStack(
 		iconBox, bg,
 		container.NewPadded(content)))
 
-	win.Resize(fyne.NewSize(280, 150))
+	const modalW, modalH = 420, 200
+	if wlipc.IsWaylandSession() {
+		screen := w.desk.Screens().Primary()
+		scale := screen.CanvasScale()
+		screenW := float32(screen.Width) / scale
+		screenH := float32(screen.Height) / scale
+		pos := fyne.NewPos((screenW-modalW)/2, (screenH-modalH)/2)
+		w.desk.WindowManager().ShowOverlay(win, fyne.NewSize(modalW, modalH), pos)
+		return
+	}
+
+	win.Resize(fyne.NewSize(modalW, modalH))
 	win.CenterOnScreen()
 	win.Show()
 }
@@ -109,13 +150,17 @@ func (w *widgetPanel) showAccountMenu(_ fyne.CanvasObject) {
 	})
 	items1 := []fyne.CanvasObject{
 		&widget.Button{Icon: theme.LogoutIcon(), Importance: widget.DangerImportance, OnTapped: func() {
-			w.askLogout()
 			w2.Close()
+			w.askLogout()
 		}}}
 	isEmbed := w.desk.(*desktop).root.Title() != RootWindowName
 	items1 = append(items1, &widget.Button{Icon: wmtheme.LockIcon, Importance: widget.LowImportance, OnTapped: func() {
 		w2.Close()
-		w.desk.TriggerScreenSaver(false)
+		if wlipc.IsWaylandSession() {
+			wlipc.RequestLock()
+		} else {
+			w.desk.TriggerScreenSaver(false)
+		}
 	}})
 	if !isEmbed {
 		if os.Getenv("FYNE_DESK_RUNNER") != "" {
@@ -123,6 +168,22 @@ func (w *widgetPanel) showAccountMenu(_ fyne.CanvasObject) {
 				os.Exit(5)
 			}})
 		}
+	} else if wlipc.IsWaylandSession() {
+		items1 = append(items1, &widget.Button{Icon: theme.ViewRefreshIcon(), Importance: widget.LowImportance, OnTapped: func() {
+			w2.Close()
+			wlipc.RequestRestart()
+		}})
+	}
+
+	if wlipc.IsWaylandSession() {
+		items1 = append(items1, &widget.Button{Icon: theme.ComputerIcon(), Importance: widget.LowImportance, OnTapped: func() {
+			w2.Close()
+			if client := wlipc.DefaultClient(); client != nil {
+				client.SendRequest(wlipc.ReqCompositorAction, struct {
+					Action string `json:"action"`
+				}{Action: wlipc.ActionShowDesktop})
+			}
+		}})
 	}
 
 	items2 := []fyne.CanvasObject{
@@ -135,7 +196,7 @@ func (w *widgetPanel) showAccountMenu(_ fyne.CanvasObject) {
 			w2.Close()
 		}}}
 	items := container.NewBorder(nil, nil, container.NewHBox(items1...), container.NewHBox(items2...),
-		&widget.Button{Icon: theme.SearchIcon(), Text: "Search", Importance: widget.LowImportance, OnTapped: func() {
+		&widget.Button{Icon: theme.SearchIcon(), Text: locale.T("menu.search"), Importance: widget.LowImportance, OnTapped: func() {
 			ShowAppLauncher()
 			w2.Close()
 		}})
@@ -145,10 +206,13 @@ func (w *widgetPanel) showAccountMenu(_ fyne.CanvasObject) {
 		btn := w.newAppButton(app, w2)
 		recent = append(recent, btn)
 
-		btn.Icon = app.Icon(w.desk.Settings().IconTheme(), int(64*w.desk.Screens().Primary().CanvasScale()))
+		icon := app.Icon(w.desk.Settings().IconTheme(), int(64*w.desk.Screens().Primary().CanvasScale()))
+		if icon != nil {
+			btn.Icon = icon
+		}
 	}
 
-	acc := widget.NewAccordion(widget.NewAccordionItem("Recent",
+	acc := widget.NewAccordion(widget.NewAccordionItem(locale.T("menu.recent"),
 		container.NewVBox(recent...)))
 	acc.MultiOpen = true
 	acc.Open(0)
@@ -157,8 +221,15 @@ func (w *widgetPanel) showAccountMenu(_ fyne.CanvasObject) {
 	w2.SetContent(container.NewBorder(
 		items, nil, nil, nil,
 		container.NewScroll(acc)))
-	winSize := w.desk.(*desktop).root.Canvas().Size()
-	pos := fyne.NewPos(winSize.Width-300, winSize.Height-360)
+	screen := w.desk.Screens().Primary()
+	scale := screen.CanvasScale()
+	screenW := float32(screen.Width) / scale
+	screenH := float32(screen.Height) / scale
+	panelW := wmtheme.WidgetPanelWidth
+	if w.desk.Settings().NarrowWidgetPanel() {
+		panelW = wmtheme.NarrowBarWidth
+	}
+	pos := fyne.NewPos(screenW-300-panelW, screenH-360)
 	w.desk.WindowManager().ShowOverlay(w2, fyne.NewSize(300, 360), pos)
 }
 
@@ -173,6 +244,9 @@ func (w *widgetPanel) newAppButton(app appie.AppData, w2 fyne.Window) *widget.Bu
 
 func (w *widgetPanel) loadIcon(app appie.AppData, btn *widget.Button) {
 	iconRes := app.Icon(w.desk.Settings().IconTheme(), int(64*w.desk.Screens().Primary().CanvasScale()))
+	if iconRes == nil {
+		return
+	}
 
 	fyne.Do(func() {
 		btn.SetIcon(iconRes)

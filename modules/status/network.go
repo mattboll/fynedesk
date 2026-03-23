@@ -3,19 +3,17 @@ package status
 import (
 	"errors"
 	"log"
-	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/FyshOS/appie"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/fynedesk"
+	"fyshos.com/fynedesk/internal/ui"
 	wmtheme "fyshos.com/fynedesk/theme"
 )
 
@@ -101,7 +99,7 @@ func (n *network) isEthernetConnected() (bool, error) {
 			return true, nil
 		}
 		// IPv6, non-link-local only
-		if found, _ := regexp.MatchString(`\s+inet6\s+[[:xdigit:]:]+\s+prefixlen\s+`, m[0]); found {
+		if found, _ := regexp.MatchString(`\s+inet6\s+[[:xdigit:]:]+\s+prefixlen\s+`, string(m[0])); found {
 			return true, nil
 		}
 	}
@@ -163,59 +161,10 @@ func (n *network) Metadata() fynedesk.ModuleMetadata {
 }
 
 func (n *network) showSettings() {
-	gui := &networkApp{}
-
-	if err := fynedesk.Instance().RunApp(gui); err != nil {
-		fyne.LogError("Failed to find WiFi settings tool connman-gtk", err)
-		return
-	}
+	ui.ShowWifiPicker()
 }
 
 // NewNetwork creates a new module that will show network information in the status area
 func NewNetwork() fynedesk.Module {
 	return &network{}
-}
-
-type networkApp struct {
-}
-
-func (n *networkApp) Actions() []appie.Action {
-	return nil
-}
-
-func (n *networkApp) Name() string {
-	return "Network Settings"
-}
-
-func (n *networkApp) Run(env []string) error {
-	vars := os.Environ()
-	vars = append(vars, env...)
-
-	cmd := exec.Command("connman-gtk")
-	cmd.Env = vars
-	return cmd.Start()
-}
-
-func (n *networkApp) RunWithParameters(_, env []string) error {
-	return n.Run(env)
-}
-
-func (n *networkApp) Categories() []string {
-	return []string{"Settings"}
-}
-
-func (n *networkApp) Hidden() bool {
-	return true
-}
-
-func (n *networkApp) Icon(theme string, size int) fyne.Resource {
-	return wmtheme.WifiIcon
-}
-
-func (n *networkApp) MimeTypes() []string {
-	return []string{}
-}
-
-func (n *networkApp) Source() *appie.AppSource {
-	return nil
 }

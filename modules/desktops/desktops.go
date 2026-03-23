@@ -7,9 +7,15 @@ import (
 	"fyne.io/fyne/v2/container"
 
 	"fyshos.com/fynedesk"
+	"fyshos.com/fynedesk/wlipc"
 )
 
-const deskCount = 4
+func deskCount() int {
+	if fynedesk.Instance() != nil {
+		return fynedesk.Instance().Settings().DesktopCount()
+	}
+	return 4
+}
 
 var desksMeta = fynedesk.ModuleMetadata{
 	Name:        "Virtual Desktops",
@@ -17,14 +23,11 @@ var desksMeta = fynedesk.ModuleMetadata{
 }
 
 type desktops struct {
-	current int
-	gui     *pager
+	gui *pager
 }
 
-func (d *desktops) DesktopChangeNotify(id int) {
-	oldID := d.current
-	d.current = id
-	d.gui.refreshFrom(oldID)
+func (d *desktops) DesktopChangeNotify(_ int) {
+	d.gui.refresh()
 }
 
 func (d *desktops) Destroy() {
@@ -35,54 +38,53 @@ func (d *desktops) Metadata() fynedesk.ModuleMetadata {
 }
 
 func (d *desktops) Shortcuts() map[*fynedesk.Shortcut]func() {
-	mapping := make(map[*fynedesk.Shortcut]func(), deskCount+2)
-	for i := 0; i < deskCount; i++ {
+	mapping := make(map[*fynedesk.Shortcut]func(), deskCount()+2)
+
+	// These shortcuts are only active in X11 mode.
+	// In Wayland mode, the compositor handles keybindings directly.
+	for i := range deskCount() {
 		id := strconv.Itoa(i + 1)
 		deskID := i
 		mapping[&fynedesk.Shortcut{Name: "Switch to Desktop " + id, KeyName: fyne.KeyName(id), Modifier: fynedesk.UserModifier}] = func() {
 			d.setDesktop(deskID)
 		}
 		mapping[&fynedesk.Shortcut{Name: "Move Window to Desktop " + id, KeyName: fyne.KeyName(id), Modifier: fynedesk.UserModifier | fyne.KeyModifierShift}] = func() {
-			w := fynedesk.Instance().WindowManager().Windows()[0]
-			w.SetDesktop(deskID)
+			top := fynedesk.Instance().WindowManager().TopWindow()
+			if top != nil {
+				top.SetDesktop(deskID)
+			}
 		}
 	}
+
+	current := func() int { return fynedesk.Instance().Desktop() }
 
 	mapping[&fynedesk.Shortcut{Name: "Switch to Previous Desktop", KeyName: fyne.KeyUp, Modifier: fynedesk.UserModifier}] = func() {
-		if d.current == 0 {
-			return
+		if current() > 0 {
+			d.setDesktop(current() - 1)
 		}
-		d.setDesktop(d.current - 1)
 	}
 	mapping[&fynedesk.Shortcut{Name: "Switch to Next Desktop", KeyName: fyne.KeyDown, Modifier: fynedesk.UserModifier}] = func() {
-		if d.current == deskCount-1 {
-			return
+		if current() < deskCount()-1 {
+			d.setDesktop(current() + 1)
 		}
-		d.setDesktop(d.current + 1)
 	}
 	mapping[&fynedesk.Shortcut{Name: "Move Window to Previous Desktop", KeyName: fyne.KeyUp, Modifier: fynedesk.UserModifier | fyne.KeyModifierShift}] = func() {
-		if d.current == 0 {
+		if current() == 0 {
 			return
 		}
-
-		if len(fynedesk.Instance().WindowManager().Windows()) == 0 {
-			return
+		top := fynedesk.Instance().WindowManager().TopWindow()
+		if top != nil {
+			top.SetDesktop(current() - 1)
 		}
-
-		w := fynedesk.Instance().WindowManager().Windows()[0]
-		w.SetDesktop(d.current - 1)
 	}
 	mapping[&fynedesk.Shortcut{Name: "Move Window to Next Desktop", KeyName: fyne.KeyDown, Modifier: fynedesk.UserModifier | fyne.KeyModifierShift}] = func() {
-		if d.current == deskCount-1 {
+		if current() == deskCount()-1 {
 			return
 		}
-
-		if len(fynedesk.Instance().WindowManager().Windows()) == 0 {
-			return
+		top := fynedesk.Instance().WindowManager().TopWindow()
+		if top != nil {
+			top.SetDesktop(current() + 1)
 		}
-
-		w := fynedesk.Instance().WindowManager().Windows()[0]
-		w.SetDesktop(d.current + 1)
 	}
 	return mapping
 }
@@ -92,10 +94,16 @@ func (d *desktops) StatusAreaWidget() fyne.CanvasObject {
 }
 
 func (d *desktops) setDesktop(id int) {
-	oldID := d.current
-	d.current = id
+	// Use IPC for Wayland compositor
+	if wlipc.IsWaylandSession() {
+		if err := wlipc.RequestDesktopSwitch(id); err != nil {
+			fyne.LogError("Failed to request desktop switch", err)
+		}
+		return // Compositor will update state, we'll get notified via watcher
+	}
+
+	// X11 mode: direct call
 	fynedesk.Instance().SetDesktop(id)
-	d.gui.refreshFrom(oldID)
 }
 
 // newDesktops creates a new module that will manage virtual desktops and display a pager widget.

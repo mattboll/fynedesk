@@ -13,6 +13,9 @@ import (
 
 // Destroy tidies up resources
 func (b *sound) Destroy() {
+	if b.done != nil {
+		close(b.done)
+	}
 	if b.client == nil {
 		return
 	}

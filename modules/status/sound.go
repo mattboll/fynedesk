@@ -13,6 +13,7 @@ import (
 
 	"fyshos.com/fynedesk"
 	wmtheme "fyshos.com/fynedesk/theme"
+	"fyshos.com/fynedesk/wlipc"
 )
 
 var soundMeta = fynedesk.ModuleMetadata{
@@ -21,9 +22,10 @@ var soundMeta = fynedesk.ModuleMetadata{
 }
 
 type sound struct {
-	bar    *widget.ProgressBar
+	bar    *statusBar
 	client *pulseaudio.Client
 	mute   *widget.Button
+	done   chan struct{} // closed to stop IPC watcher goroutines
 }
 
 func newSound() fynedesk.Module {
@@ -67,12 +69,26 @@ func (b *sound) Shortcuts() map[*fynedesk.Shortcut]func() {
 	return map[*fynedesk.Shortcut]func(){
 		fynedesk.NewShortcut("Mute Sound", fynedesk.KeyVolumeMute, fynedesk.AnyModifier): func() {
 			b.toggleMute()
+			vol, err := b.value()
+			if err == nil {
+				icon := wmtheme.SoundIcon
+				if b.muted() {
+					icon = wmtheme.MuteIcon
+				}
+				showOSD(icon, float64(vol))
+			}
 		},
-		fynedesk.NewShortcut("Increase Sound Volume", fynedesk.KeyVolumeDown, fynedesk.AnyModifier): func() {
+		fynedesk.NewShortcut("Reduce Sound Volume", fynedesk.KeyVolumeDown, fynedesk.AnyModifier): func() {
 			b.offsetValue(-5)
+			if vol, err := b.value(); err == nil {
+				showOSD(wmtheme.SoundIcon, float64(vol))
+			}
 		},
-		fynedesk.NewShortcut("Reduce Sound Volume", fynedesk.KeyVolumeUp, fynedesk.AnyModifier): func() {
+		fynedesk.NewShortcut("Increase Sound Volume", fynedesk.KeyVolumeUp, fynedesk.AnyModifier): func() {
 			b.offsetValue(5)
+			if vol, err := b.value(); err == nil {
+				showOSD(wmtheme.SoundIcon, float64(vol))
+			}
 		},
 	}
 }
@@ -84,7 +100,8 @@ func (b *sound) StatusAreaWidget() fyne.CanvasObject {
 		return nil
 	}
 
-	b.bar = &widget.ProgressBar{Max: 100}
+	b.bar = newStatusBar()
+	b.bar.Max = 100
 	b.mute = &widget.Button{Icon: wmtheme.SoundIcon, Importance: widget.LowImportance, OnTapped: b.toggleMute}
 	if b.muted() {
 		b.mute.SetIcon(wmtheme.MuteIcon)
@@ -101,7 +118,57 @@ func (b *sound) StatusAreaWidget() fyne.CanvasObject {
 	sound := container.NewBorder(nil, nil, less, more, b.bar)
 
 	go b.offsetValue(0)
+
+	// Poll volume changes periodically to catch external changes
+	// (e.g. volume keys handled by host compositor, wpctl, etc.)
+	go b.watchVolume()
+
+	// Also watch IPC volume events from compositor (more reliable than PulseAudio
+	// protocol when compositor uses wpctl to change PipeWire volume)
+	if wlipc.IsWaylandSession() {
+		b.done = make(chan struct{})
+		wlipc.WatchVolumeEvent(func() {
+			vol, err := b.value()
+			if err != nil {
+				return
+			}
+			muted := b.muted()
+			fyne.Do(func() {
+				b.bar.SetValue(float64(vol))
+				if muted {
+					b.mute.SetIcon(wmtheme.MuteIcon)
+				} else {
+					b.mute.SetIcon(wmtheme.SoundIcon)
+				}
+			})
+		}, b.done)
+	}
+
 	return container.New(&handleNarrow{}, b.mute, sound)
+}
+
+func (b *sound) watchVolume() {
+	updates, err := b.client.Updates()
+	if err != nil {
+		fyne.LogError("Failed to subscribe to PulseAudio updates", err)
+		return
+	}
+
+	for range updates {
+		vol, err := b.value()
+		if err != nil {
+			continue
+		}
+		muted := b.muted()
+		fyne.Do(func() {
+			b.bar.SetValue(float64(vol))
+			if muted {
+				b.mute.SetIcon(wmtheme.MuteIcon)
+			} else {
+				b.mute.SetIcon(wmtheme.SoundIcon)
+			}
+		})
+	}
 }
 
 // Metadata returns ModuleMetadata
