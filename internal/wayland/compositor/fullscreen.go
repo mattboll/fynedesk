@@ -255,6 +255,8 @@ func goXwaySurfaceResized(surface unsafe.Pointer, w, h C.int) {
 
 			// Update decorations to match new surface dimensions (fixes Steam resize)
 			if v.decorated && !v.fullscreen {
+				log.Printf("[RESIZE] XWay commit: title=%q wlr_surface=%dx%d xway_surface=%dx%d maximized=%v",
+					v.surface.Title(), width, height, v.surface.Width(), v.surface.Height(), v.maximized)
 				s.updateXwayViewDecorations(v)
 			}
 

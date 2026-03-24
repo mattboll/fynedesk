@@ -235,6 +235,8 @@ func (s *server) maximizeXwayWindow(v *xwayView) {
 
 	if v.maximized {
 		// Restore
+		log.Printf("[MAXIMIZE] Restoring XWay: title=%q saved=(%v,%v %dx%d)",
+			v.surface.Title(), v.savedX, v.savedY, v.savedWidth, v.savedHeight)
 		v.surface.Configure(int16(v.savedX), int16(v.savedY), uint16(v.savedWidth), uint16(v.savedHeight))
 		v.maximized = false
 		v.snapped = snapNone
@@ -258,6 +260,9 @@ func (s *server) maximizeXwayWindow(v *xwayView) {
 		}
 		targetX := float64(cx)
 		targetY := float64(cy + topMargin)
+		log.Printf("[MAXIMIZE] XWay: title=%q surfW=%d surfH=%d → Configure(%d,%d, %dx%d) topMargin=%d",
+			v.surface.Title(), v.surface.Width(), v.surface.Height(),
+			int16(targetX), int16(targetY), cw, ch-topMargin, topMargin)
 		v.surface.Configure(int16(targetX), int16(targetY), uint16(cw), uint16(ch-topMargin))
 		v.maximized = true
 		s.animateXwayPos(v, oldX, oldY, targetX, targetY)

@@ -251,6 +251,16 @@ func (s *server) handleOverlayDismiss(xwayV *xwayView, surface wlr.Surface, sx, 
 // min buttons, titlebar drag/double-click, border resize). Returns true if consumed.
 func (s *server) handleDecorationClick(xdgV *xdgView, xwayV *xwayView) bool {
 	decoXdg, decoXway, zone := s.viewAtDecoration(s.cursor.X(), s.cursor.Y())
+	if zone != decoNone {
+		var title string
+		if decoXway != nil {
+			title = decoXway.surface.Title()
+		} else if decoXdg != nil {
+			title = decoXdg.xdgToplevel.Title()
+		}
+		log.Printf("[DECO-CLICK] viewAtDecoration: zone=%d title=%q viewAt=(xdg=%v xway=%v)",
+			zone, title, xdgV != nil, xwayV != nil)
+	}
 
 	// Safety net: if viewAt() found a different view than viewAtDecoration(),
 	// the decoration click is from a background window — suppress it.
@@ -259,6 +269,15 @@ func (s *server) handleDecorationClick(xdgV *xdgView, xwayV *xwayView) bool {
 		surfView := xdgV != nil || xwayV != nil
 		isSameView := (decoXdg != nil && decoXdg == xdgV) || (decoXway != nil && decoXway == xwayV)
 		if decoView && surfView && !isSameView {
+			var decoTitle, surfTitle string
+			if decoXway != nil {
+				decoTitle = decoXway.surface.Title()
+			}
+			if xwayV != nil {
+				surfTitle = xwayV.surface.Title()
+			}
+			log.Printf("[DECO-CLICK] SUPPRESSED zone=%d: deco=%q vs surf=%q (xdg: deco=%v surf=%v)",
+				zone, decoTitle, surfTitle, decoXdg != nil, xdgV != nil)
 			zone = decoNone
 		}
 	}
@@ -270,8 +289,10 @@ func (s *server) handleDecorationClick(xdgV *xdgView, xwayV *xwayView) bool {
 	switch zone {
 	case decoCloseButton:
 		if decoXdg != nil {
+			log.Printf("[DECO-CLICK] Close XDG: app_id=%q", getXdgToplevelAppID(decoXdg.xdgToplevel))
 			s.closeXdgWindow(decoXdg)
 		} else if decoXway != nil {
+			log.Printf("[DECO-CLICK] Close XWay: title=%q class=%q", decoXway.surface.Title(), getXwaylandSurfaceClass(decoXway.surface))
 			s.closeXwayWindow(decoXway)
 		}
 	case decoMaxButton:

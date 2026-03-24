@@ -686,11 +686,10 @@ func (s *server) renderOutput(output wlr.Output) {
 	commitStart := time.Now()
 	if C.scene_output_commit(sceneOutput) == 0 {
 		// DRM atomic commit failed (EBUSY): a previous page flip is still
-		// in-flight. Always schedule the next frame so the event loop keeps
-		// processing input events and client surface updates. Without this,
-		// the compositor stalls until an external event wakes the loop —
-		// causing the "freeze while typing in Firefox" symptom.
-		C.schedule_output_frame(outputPtr(output))
+		// in-flight. Do NOT schedule another frame here — the page flip
+		// completion callback will fire the next frame event naturally.
+		// Scheduling here creates a tight retry loop (~6ms) that starves
+		// the event loop and causes mouse lag.
 		return
 	}
 	commitDur := time.Since(commitStart)
