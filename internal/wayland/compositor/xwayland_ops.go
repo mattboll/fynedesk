@@ -162,8 +162,12 @@ func (s *server) positionOverlay(v *xwayView, surface wlr.XwaylandSurface) {
 	}
 	surface.Configure(int16(x), int16(y), uint16(confW), uint16(confH))
 
-	// Slide-up entrance animation for overlay menus
-	if !s.reduceMotion {
+	// Slide-up entrance animation for small overlay popups (menus, calendar).
+	// Skip for large overlays (sidebar, notifications) that handle their own
+	// slide-in animation via IPC repositioning — the compositor animation would
+	// override the IPC positions and leave the window stuck at the wrong offset.
+	isLargeOverlay := surfH > 400
+	if !s.reduceMotion && !isLargeOverlay {
 		s.animateXwayPos(v, x, y+30, x, y)
 	} else {
 		setXwayScenePos(v)

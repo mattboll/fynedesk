@@ -592,19 +592,7 @@ func (s *server) drainMainThreadActions() {
 		select {
 		case action := <-s.mainThreadActions:
 			t0 := time.Now()
-			// Watchdog: if the action blocks >2s, log from another goroutine
-			// so we know the main thread is stuck (the post-action log won't
-			// print until the action returns).
-			done := make(chan struct{})
-			go func() {
-				select {
-				case <-done:
-				case <-time.After(2 * time.Second):
-					log.Printf("[STALL] mainThreadAction BLOCKED for >2s (started at %v)\n", t0.Format("15:04:05.000"))
-				}
-			}()
 			action()
-			close(done)
 			if d := time.Since(t0); d > 50*time.Millisecond {
 				log.Printf("[STALL] mainThreadAction took %v\n", d)
 			}
@@ -653,21 +641,23 @@ func (s *server) renderOutput(output wlr.Output) {
 	}
 
 	// Tick all animations (snap, transitions, close effects, etc.)
-	// Side effects update scene nodes; we always re-schedule on EBUSY below.
-	s.tickViewAnims()
-	s.tickTransition()
-	s.tickBootSequence()
-	s.tickCloseAnims()
-	s.tickOverviewAnim()
-	s.tickSwitcherFade()
-	s.tickOpenAnim()
+	// Each returns true if still running, used to decide frame scheduling.
+	animActive := s.tickViewAnims()
+	animActive = s.tickTransition() || animActive
+	animActive = s.tickBootSequence() || animActive
+	animActive = s.tickCloseAnims() || animActive
+	animActive = s.tickOverviewAnim() || animActive
+	animActive = s.tickSwitcherFade() || animActive
+	animActive = s.tickOpenAnim() || animActive
 
 	// Tick animated wallpaper (before scene commit so pixels are fresh).
+	animWallpaperActive := false
 	for _, out := range s.outputs {
 		if out.output == output && out.animWallpaper != nil {
 			if !s.isOutputOccludedByFullscreen(out) {
 				s.updateAnimatedWallpaper(out)
 			}
+			animWallpaperActive = true
 			break
 		}
 	}
@@ -708,12 +698,14 @@ func (s *server) renderOutput(output wlr.Output) {
 		s.updateSwitcherScene()
 	}
 
-	// Schedule the next frame. After a successful commit, always schedule
-	// the next frame so client surface updates are rendered promptly.
-	// When only animated wallpaper is active and it just ticked, also schedule
-	// at vsync so the next frame can check for client damage. When animation
-	// didn't tick, the timer from the commit-failed path handles scheduling.
-	C.schedule_output_frame(outputPtr(output))
+	// Schedule the next frame only when there's active work requiring continuous
+	// rendering. For idle desktops, the scene's damage tracking sets
+	// output->needs_frame when clients commit new buffers, which triggers the
+	// next frame callback via the DRM backend automatically.
+	if animActive || animWallpaperActive || s.switcherActive || s.overviewActive ||
+		s.transitionActive || s.bootActive || s.regionSelectActive {
+		C.schedule_output_frame(outputPtr(output))
+	}
 
 	// Log severe stalls only (>1s indicates a real problem).
 	totalDur := time.Since(frameStart)

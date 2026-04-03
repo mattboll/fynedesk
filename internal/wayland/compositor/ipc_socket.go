@@ -445,8 +445,7 @@ func (s *server) handleWindowPreview(windowID string) (json.RawMessage, error) {
 			if v.cachedThumb != nil {
 				return encodePreview(v.cachedThumb, windowID, v.xdgToplevel.Title())
 			}
-			// Reset throttle so next render frame captures immediately
-			s.lastThumbCapture = time.Time{}
+			s.schedulePreviewCapture(windowID)
 			return nil, fmt.Errorf("preview not yet captured for window %s (scheduled)", windowID)
 		}
 	}
@@ -456,9 +455,26 @@ func (s *server) handleWindowPreview(windowID string) (json.RawMessage, error) {
 			if v.cachedThumb != nil {
 				return encodePreview(v.cachedThumb, windowID, v.surface.Title())
 			}
-			s.lastThumbCapture = time.Time{}
+			s.schedulePreviewCapture(windowID)
 			return nil, fmt.Errorf("preview not yet captured for window %s (scheduled)", windowID)
 		}
 	}
 	return nil, fmt.Errorf("no preview for window %s", windowID)
+}
+
+// schedulePreviewCapture queues a window ID for thumbnail capture on the next
+// render frame. Called from the IPC goroutine when a taskbar hover preview is
+// requested but no cached thumbnail exists yet.
+func (s *server) schedulePreviewCapture(windowID string) {
+	s.mainThreadActions <- func() {
+		// Avoid duplicates
+		for _, id := range s.previewPendingIDs {
+			if id == windowID {
+				return
+			}
+		}
+		s.previewPendingIDs = append(s.previewPendingIDs, windowID)
+		s.lastThumbCapture = time.Time{} // reset throttle
+	}
+	s.triggerWakeup()
 }

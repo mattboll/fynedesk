@@ -62,6 +62,15 @@ func (s *server) handleCursorMotionAbsolute(p wlr.Pointer, t time.Time, x, y flo
 func (s *server) handleCursorButton(p wlr.Pointer, t time.Time, button wlr.CursorButton, state wlr.ButtonState) {
 	s.resetIdleTimer()
 
+	// Track button count for Wayland implicit pointer grab.
+	// The protocol requires that a surface retains pointer focus from button
+	// press until all buttons are released (e.g. CSD window resize/drag).
+	if state == wlr.ButtonPressed {
+		s.pointerButtonCount++
+	} else if state == wlr.ButtonReleased && s.pointerButtonCount > 0 {
+		s.pointerButtonCount--
+	}
+
 	// When locked, forward button events to the lock surface (if it exists)
 	if s.locked {
 		if s.currentLock != nil && len(s.lockSurfaceStates) > 0 {
@@ -92,6 +101,18 @@ func (s *server) handleCursorButton(p wlr.Pointer, t time.Time, button wlr.Curso
 	// Find view and surface under cursor
 	xdgV, xwayV, surface, sx, sy := s.viewAt(s.cursor.X(), s.cursor.Y())
 	surface, sx, sy = s.fallbackToMainSurface(xdgV, xwayV, surface, sx, sy)
+
+	// Track which view receives the button press for implicit grab motion.
+	// This is critical for overlay/skip windows (sidebar, calendar) that
+	// don't update s.activeXway — without this, processImplicitGrabMotion
+	// would compute surface-local coordinates from the wrong window.
+	if state == wlr.ButtonPressed && s.pointerButtonCount == 1 {
+		s.implicitGrabXway = xwayV
+		s.implicitGrabXdg = xdgV
+	} else if state == wlr.ButtonReleased && s.pointerButtonCount == 0 {
+		s.implicitGrabXway = nil
+		s.implicitGrabXdg = nil
+	}
 
 	// Get current keyboard modifiers (may be nil if no keyboard attached yet)
 	kb := s.seat.Keyboard()
@@ -143,21 +164,38 @@ func (s *server) handleCursorButton(p wlr.Pointer, t time.Time, button wlr.Curso
 }
 
 // handleRegionClick handles clicks during region screenshot selection mode.
+// Supports two interaction patterns:
+//   - Click-drag: press, hold, drag to second corner, release
+//   - Click-click: click to place first corner, move, click to place second corner
+//
 // Returns true if the event was consumed.
 func (s *server) handleRegionClick(button wlr.CursorButton, state wlr.ButtonState) bool {
 	if !s.regionSelectActive {
 		return false
 	}
-	if state == wlr.ButtonPressed && button == 272 {
-		s.regionStartX = s.cursor.X()
-		s.regionStartY = s.cursor.Y()
-		return true
-	}
-	if state == wlr.ButtonReleased && button == 272 {
-		s.regionEndX = s.cursor.X()
-		s.regionEndY = s.cursor.Y()
-		s.finishRegionSelect()
-		return true
+	if button == 272 {
+		if state == wlr.ButtonPressed {
+			if s.regionAnchorSet {
+				// Second click (click-click mode): finish the selection
+				s.finishRegionSelect()
+				return true
+			}
+			// First click: place anchor
+			s.regionStartX = s.cursor.X()
+			s.regionStartY = s.cursor.Y()
+			s.regionAnchorSet = true
+			return true
+		}
+		if state == wlr.ButtonReleased {
+			// Check if user dragged far enough for click-drag mode
+			dx := s.cursor.X() - s.regionStartX
+			dy := s.cursor.Y() - s.regionStartY
+			if dx*dx+dy*dy >= 25 { // >= 5px distance
+				s.finishRegionSelect()
+			}
+			// Otherwise: too small, stay in selection mode (click-click)
+			return true
+		}
 	}
 	// Right-click cancels
 	if state == wlr.ButtonPressed && button == 273 {
@@ -643,6 +681,17 @@ func (s *server) processCursorMotion(t time.Time) {
 		return
 	}
 
+	// Implicit pointer grab: when buttons are held and no compositor grab is
+	// active, keep delivering events to the focused surface without changing
+	// focus. This is required by the Wayland protocol and fixes CSD window
+	// resize (e.g. Android Studio/JBR) where the cursor moves outside the
+	// surface during drag. Skip during DnD — wlroots handles drag focus.
+	if s.pointerButtonCount > 0 && s.grab == grabNone && !s.isDragActive() {
+		s.updateOutputCursorScale()
+		s.processImplicitGrabMotion(t)
+		return
+	}
+
 	// Check hot corners (overview, launcher, etc.)
 	s.checkHotCorners()
 
@@ -981,4 +1030,42 @@ func (s *server) routePointerMotion(t time.Time, xdgV *xdgView, xwayV *xwayView,
 	// Over empty space (desktop background) — default cursor, clear focus
 	s.cursor.SetXCursor(s.cursorMgr, "default")
 	s.seat.PointerNotifyClearFocus()
+}
+
+// processImplicitGrabMotion sends pointer motion to the currently focused
+// surface without changing focus. This implements the Wayland implicit grab:
+// while any pointer button is held, the surface that had focus at button press
+// time continues to receive all pointer events — even if the cursor moves
+// outside the surface bounds. This is critical for CSD window resize/drag
+// (e.g. Android Studio/JBR, GTK CSD) where the cursor leaves the surface edge.
+func (s *server) processImplicitGrabMotion(t time.Time) {
+	focused := s.seat.PointerState().FocusedSurface()
+	if !focused.Valid() {
+		return
+	}
+	// Use the view that was under the cursor at button-press time.
+	// We can't use s.activeXway because overlay/skip windows (sidebar,
+	// calendar, etc.) don't update it — they'd compute surface-local
+	// coordinates from the wrong window, breaking drag on overlays.
+	cx, cy := s.cursor.X(), s.cursor.Y()
+	if s.implicitGrabXway != nil && s.implicitGrabXway.mapped {
+		sx := cx - s.implicitGrabXway.x
+		sy := cy - s.implicitGrabXway.y
+		s.seat.PointerNotifyMotion(t, sx, sy)
+	} else if s.implicitGrabXdg != nil && s.implicitGrabXdg.mapped {
+		geo := s.implicitGrabXdg.xdgToplevel.Base().GetGeometry()
+		sx := cx - s.implicitGrabXdg.x + float64(geo.Min.X)
+		sy := cy - s.implicitGrabXdg.y + float64(geo.Min.Y)
+		s.seat.PointerNotifyMotion(t, sx, sy)
+	} else if s.activeXway != nil && s.activeXway.mapped && !s.activeXway.isPanel {
+		// Fallback to activeXway for clicks that didn't go through handleCursorButton
+		sx := cx - s.activeXway.x
+		sy := cy - s.activeXway.y
+		s.seat.PointerNotifyMotion(t, sx, sy)
+	} else if s.activeXdg != nil && s.activeXdg.mapped {
+		geo := s.activeXdg.xdgToplevel.Base().GetGeometry()
+		sx := cx - s.activeXdg.x + float64(geo.Min.X)
+		sy := cy - s.activeXdg.y + float64(geo.Min.Y)
+		s.seat.PointerNotifyMotion(t, sx, sy)
+	}
 }

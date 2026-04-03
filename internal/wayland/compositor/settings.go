@@ -823,13 +823,20 @@ func (s *server) loadKeybindings(prefs map[string]interface{}) {
 			kbMap[resolvedBinding{sym: sym, mods: mods}] = action
 
 			// When Shift is held, XKB resolves keysyms with case transformation
-			// (e.g. Shift+t → "T" keysym, Shift+Tab → ISO_Left_Tab).
-			// Register aliases for the shifted variants so both match.
+			// (e.g. Shift+t → "T" keysym, Shift+Tab → ISO_Left_Tab,
+			// Shift+Print → Sys_Req). Register aliases for the shifted
+			// variants so both match.
 			if hasShift {
 				if b.Key == "Tab" {
 					isoSym := xkb.SymFromName("ISO_Left_Tab", xkb.KeySymNoFlags)
 					if isoSym != 0 {
 						kbMap[resolvedBinding{sym: isoSym, mods: mods}] = action
+					}
+				} else if b.Key == "Print" {
+					// Shift+Print produces Sys_Req on most keyboards
+					sysReqSym := xkb.SymFromName("Sys_Req", xkb.KeySymNoFlags)
+					if sysReqSym != 0 {
+						kbMap[resolvedBinding{sym: sysReqSym, mods: mods}] = action
 					}
 				} else if len(b.Key) == 1 && b.Key[0] >= 'a' && b.Key[0] <= 'z' {
 					// Lowercase letter: also register the uppercase keysym

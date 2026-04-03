@@ -392,18 +392,25 @@ type server struct {
 	// Screenshot modes
 	windowPickMode     bool // Waiting for click to select window for screenshot
 	regionSelectActive bool
+	regionAnchorSet    bool    // true after first click places the anchor
 	regionStartX       float64
 	regionStartY       float64
 	regionEndX         float64
 	regionEndY         float64
-	regionDimRect      unsafe.Pointer // *C.struct_wlr_scene_rect (semi-transparent overlay)
-	regionSelBuf       unsafe.Pointer // *C.struct_wlr_scene_buffer (selection highlight)
-	regionSelPixBuf    unsafe.Pointer // *C.struct_pixel_buffer
+	// Scene rects for region overlay (GPU-native, no pixel manipulation):
+	// 4 dim rects around selection + 4 border rects + container tree
+	regionTree         unsafe.Pointer // *C.struct_wlr_scene_tree
+	regionDimRects     [4]unsafe.Pointer // top, bottom, left, right dim rects
+	regionBorderRects  [4]unsafe.Pointer // top, bottom, left, right border rects
 
 	// Thumbnail capture throttle (last time we captured view thumbnails)
 	lastThumbCapture         time.Time
 	thumbCaptureFailLogged   int // 1 if "EGL not available" was already logged
 	thumbCaptureCount        int // total successful capture cycles (for periodic logging)
+
+	// Pending preview captures requested via IPC (taskbar hover).
+	// Written from main thread (via mainThreadActions), read from render path.
+	previewPendingIDs []string
 
 	// Stable view ID counter (monotonically increasing)
 	nextViewID int
@@ -480,6 +487,13 @@ type server struct {
 
 	// Tiling mode (per-desktop)
 	tiling []tilingState
+
+	// Implicit pointer grab: Wayland protocol requires that once a button is
+	// pressed on a surface, that surface retains pointer focus until all buttons
+	// are released — even if the cursor moves outside the surface bounds.
+	pointerButtonCount int       // Number of pointer buttons currently held
+	implicitGrabXway   *xwayView // XWayland view that received the button press (for implicit grab motion)
+	implicitGrabXdg    *xdgView  // XDG view that received the button press (for implicit grab motion)
 
 	// Trackpad gesture state
 	gesture         gestureState

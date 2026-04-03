@@ -467,15 +467,12 @@ import (
 // per window instead of ~8MB at full res), and reuses a persistent FBO.
 // Returns true if thumbnails were actually captured (false if throttled).
 func (s *server) captureViewThumbnails() bool {
-	if s.locked {
+	hasPending := len(s.previewPendingIDs) > 0
+	if s.locked || (!s.switcherActive && !hasPending) {
 		return false
 	}
 	now := time.Now()
-	interval := 500 * time.Millisecond
-	if s.switcherActive {
-		interval = 100 * time.Millisecond
-	}
-	if now.Sub(s.lastThumbCapture) < interval {
+	if now.Sub(s.lastThumbCapture) < 100*time.Millisecond {
 		return false
 	}
 	s.lastThumbCapture = now
@@ -498,7 +495,7 @@ func (s *server) captureViewThumbnails() bool {
 	pix := make([]byte, thumbMaxW*thumbMaxH*4)
 
 	if s.switcherActive {
-		// When switcher is visible, only capture windows shown in it
+		// Capture windows shown in the active switcher
 		for _, w := range s.switcherWindows {
 			switch v := w.(type) {
 			case *xdgView:
@@ -511,23 +508,14 @@ func (s *server) captureViewThumbnails() bool {
 				}
 			}
 		}
-	} else {
-		// Background: capture all visible views for future Alt-Tab
-		for _, v := range s.xdgViews {
-			if !v.mapped || !v.onDesk(s.currentDesk) {
-				continue
-			}
-			if thumb := s.captureXDGThumbDirect(v, pix, thumbMaxW, thumbMaxH); thumb != nil {
-				v.cachedThumb = thumb
-			}
-		}
-		for _, v := range s.xwayViews {
-			if !v.mapped || v.isPanel || v.isOverlay || !v.onDesk(s.currentDesk) {
-				continue
-			}
-			if thumb := s.captureWlrThumbDirect(v, pix, thumbMaxW, thumbMaxH); thumb != nil {
-				v.cachedThumb = thumb
-			}
+	}
+
+	// Capture windows requested by taskbar hover previews
+	if hasPending {
+		pending := s.previewPendingIDs
+		s.previewPendingIDs = nil
+		for _, id := range pending {
+			s.captureThumbByID(id, pix)
 		}
 	}
 
@@ -548,6 +536,27 @@ func (s *server) captureViewThumbnails() bool {
 	}
 	s.thumbCaptureCount++
 	return true
+}
+
+// captureThumbByID captures a thumbnail for the window with the given ID.
+// EGL context must already be active (called within captureViewThumbnails).
+func (s *server) captureThumbByID(id string, pix []byte) {
+	for _, v := range s.xdgViews {
+		if v.id == id && v.mapped {
+			if thumb := s.captureXDGThumbDirect(v, pix, thumbMaxW, thumbMaxH); thumb != nil {
+				v.cachedThumb = thumb
+			}
+			return
+		}
+	}
+	for _, v := range s.xwayViews {
+		if v.id == id && v.mapped {
+			if thumb := s.captureWlrThumbDirect(v, pix, thumbMaxW, thumbMaxH); thumb != nil {
+				v.cachedThumb = thumb
+			}
+			return
+		}
+	}
 }
 
 // collectSwitcherThumbs collects cached thumbnails for the current switcher windows.
@@ -572,7 +581,7 @@ func (s *server) captureXDGThumbDirect(v *xdgView, pix []byte, maxW, maxH int) *
 	var outW, outH C.int
 	if C.capture_xdg_thumb(xdgSurf, C.int(maxW), C.int(maxH),
 		unsafe.Pointer(&pix[0]), &outW, &outH) != 0 {
-		return s.thumbFromPixels(pix, int(outW), int(outH))
+		return s.thumbFromPixels(pix, int(outW), int(outH), v.cachedThumb)
 	}
 
 	// SHM fallback (main surface only, needs full-res read + scale)
@@ -588,7 +597,7 @@ func (s *server) captureWlrThumbDirect(v *xwayView, pix []byte, maxW, maxH int) 
 	var outW, outH C.int
 	if C.capture_wlr_thumb(surf, C.int(maxW), C.int(maxH),
 		unsafe.Pointer(&pix[0]), &outW, &outH) != 0 {
-		return s.thumbFromPixels(pix, int(outW), int(outH))
+		return s.thumbFromPixels(pix, int(outW), int(outH), v.cachedThumb)
 	}
 
 	// SHM fallback
@@ -596,15 +605,21 @@ func (s *server) captureWlrThumbDirect(v *xwayView, pix []byte, maxW, maxH int) 
 }
 
 // thumbFromPixels creates an NRGBA image from GL readback data (already at thumbnail size).
-// Forces alpha=255 for opaque thumbnails.
-func (s *server) thumbFromPixels(pix []byte, w, h int) *image.NRGBA {
+// Forces alpha=255 for opaque thumbnails. Reuses existing image if dimensions match.
+func (s *server) thumbFromPixels(pix []byte, w, h int, existing *image.NRGBA) *image.NRGBA {
 	n := w * h * 4
-	out := make([]byte, n)
-	copy(out, pix[:n])
-	for i := 3; i < n; i += 4 {
-		out[i] = 255
+	img := existing
+	if img == nil || len(img.Pix) != n {
+		img = &image.NRGBA{Pix: make([]byte, n), Stride: w * 4, Rect: image.Rect(0, 0, w, h)}
+	} else {
+		img.Rect = image.Rect(0, 0, w, h)
+		img.Stride = w * 4
 	}
-	return &image.NRGBA{Pix: out, Stride: w * 4, Rect: image.Rect(0, 0, w, h)}
+	copy(img.Pix, pix[:n])
+	for i := 3; i < n; i += 4 {
+		img.Pix[i] = 255
+	}
+	return img
 }
 
 // shmFallbackThumb reads via SHM and scales in Go (slow path, rarely used).
