@@ -595,7 +595,7 @@ func (d *deskSettings) load() {
 		d.moduleNames = strings.Split(defaultModules, "|")
 	}
 	// Auto-migrate: add new modules for existing users
-	d.migrateModules("Keyboard Layout", "Notifications", "Power Profile")
+	d.migrateModules("Keyboard Layout", "Notifications", "Power Profile", "Notes")
 
 	if cfg.Input.KeyboardModifier == "Alt" {
 		d.modifier = fyne.KeyModifierAlt
