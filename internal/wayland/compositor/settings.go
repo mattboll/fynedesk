@@ -23,12 +23,16 @@ func (s *server) getConfigDir() string {
 	return configDir
 }
 
-// atomicWriteFile writes data atomically using write-to-temp + rename
+// atomicWriteFile writes data atomically using write-to-temp + rename.
+// Readers polling the IPC files at 100ms must never see a partially-written
+// state, so the previous os.WriteFile fallback (taken when CreateTemp failed,
+// e.g. ENOSPC on the directory) is gone — return the error and let the caller
+// log it.
 func atomicWriteFile(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".ipc-*")
 	if err != nil {
-		return os.WriteFile(path, data, 0644) // Fallback to direct write
+		return err
 	}
 	tmpName := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
@@ -40,7 +44,11 @@ func atomicWriteFile(path string, data []byte) error {
 		os.Remove(tmpName)
 		return err
 	}
-	return os.Rename(tmpName, path)
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return nil
 }
 
 // readPrefs reads settings, preferring TOML config over Fyne preferences JSON.

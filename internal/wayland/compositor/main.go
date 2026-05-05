@@ -1283,7 +1283,10 @@ func Run() {
 	if srv.shuttingDown.Load() {
 		homeDir, _ := os.UserHomeDir()
 		markerPath := filepath.Join(homeDir, ".cache", "fyne", "com.fyshos.fynedesk", "shutdown-marker")
-		os.WriteFile(markerPath, []byte("shutdown"), 0644)
+		_ = os.MkdirAll(filepath.Dir(markerPath), 0700)
+		if err := atomicWriteFile(markerPath, []byte("shutdown")); err != nil {
+			log.Printf("Warning: could not write shutdown marker: %v", err)
+		}
 	}
 
 	// Cleanup
@@ -1326,7 +1329,7 @@ org.freedesktop.impl.portal.ScreenCast=wlr
 org.freedesktop.impl.portal.FileChooser=gtk
 org.freedesktop.impl.portal.Settings=fynedesk;gtk
 `
-	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+	if err := atomicWriteFile(configPath, []byte(content)); err != nil {
 		log.Printf("Warning: could not write portal config: %v\n", err)
 		return
 	}
