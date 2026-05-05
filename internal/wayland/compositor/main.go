@@ -1330,6 +1330,13 @@ func Run() {
 	}
 	cleanupSessionLock() // Remove all lock listeners before display.Destroy() to avoid wlroots assertion
 	srv.display.Destroy()
+
+	// If we reached this point through a clean shutdown (logout/restart), the
+	// user-initiated path: the lock-state marker is no longer relevant and
+	// would otherwise re-lock the next session unnecessarily after gdm auth.
+	// Crashes never reach here, so the marker survives those.
+	srv.markUnlocked()
+
 	log.Println("Compositor terminated")
 
 	// If a "restart" IPC arrived (instead of a clean shutdown), exit with the
