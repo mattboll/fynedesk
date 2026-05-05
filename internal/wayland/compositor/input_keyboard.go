@@ -51,17 +51,27 @@ func (s *server) setupKeyboard(device wlr.InputDevice) {
 	// Store keyboard reference for later layout switching
 	s.keyboards = append(s.keyboards, keyboard)
 
+	// Track this keyboard's listeners locally so we can destroy them when the
+	// device disappears, instead of growing s.listeners (server-wide) by 3 on
+	// every USB hot-plug or XWayland virtual keyboard creation.
+	var perDevice []wlr.Listener
+
 	// Remove keyboard from list when device is destroyed (e.g. XWayland virtual keyboards)
-	s.listeners = append(s.listeners, device.OnDestroy(func(dev wlr.InputDevice) {
+	perDevice = append(perDevice, device.OnDestroy(func(dev wlr.InputDevice) {
 		for i, kb := range s.keyboards {
 			if kb == keyboard {
 				s.keyboards = append(s.keyboards[:i], s.keyboards[i+1:]...)
 				break
 			}
 		}
+		// Destroy our other listeners so they don't outlive the device.
+		// Skip index 0 — that's this OnDestroy listener, currently firing.
+		for i := 1; i < len(perDevice); i++ {
+			perDevice[i].Destroy()
+		}
 	}))
 
-	s.listeners = append(s.listeners, keyboard.OnKey(func(kb wlr.Keyboard, t time.Time, keyCode uint32, updateState bool, state wlr.KeyState) {
+	perDevice = append(perDevice, keyboard.OnKey(func(kb wlr.Keyboard, t time.Time, keyCode uint32, updateState bool, state wlr.KeyState) {
 		s.resetIdleTimer()
 
 		// Stop key repeat on any key release
@@ -203,7 +213,7 @@ func (s *server) setupKeyboard(device wlr.InputDevice) {
 
 	}))
 
-	s.listeners = append(s.listeners, keyboard.OnModifiers(func(kb wlr.Keyboard) {
+	perDevice = append(perDevice, keyboard.OnModifiers(func(kb wlr.Keyboard) {
 		// Check switcher dismiss in the modifiers callback too, as this fires
 		// reliably when modifier state changes and GetModifiers() is accurate here.
 		if s.switcherActive && s.isSwitcherModReleased(kb.GetModifiers()) {
