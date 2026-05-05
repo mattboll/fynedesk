@@ -398,7 +398,7 @@ func cloneRepo(src *appie.AppSource, path string, done func()) (err error) {
 	}()
 
 	go func() {
-		cmd := exec.Command("git", "clone", src.Repo, path)
+		cmd := exec.Command("git", "clone", "--", src.Repo, path)
 		err = cmd.Run()
 		if err == nil {
 			return
