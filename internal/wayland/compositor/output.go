@@ -658,7 +658,12 @@ func (s *server) startDynamicWallpaperTimer() {
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
-		for range ticker.C {
+		for {
+			select {
+			case <-s.shutdown:
+				return
+			case <-ticker.C:
+			}
 			if s.backgroundType != "dynamic" || s.shuttingDown.Load() {
 				return
 			}
