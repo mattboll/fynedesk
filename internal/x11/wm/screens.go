@@ -105,6 +105,9 @@ func (xsp *x11ScreensProvider) ScreenForWindow(win fynedesk.Window) *fynedesk.Sc
 }
 
 func getScale(widthPx, widthMm uint16) float32 {
+	if widthMm == 0 {
+		return 1.0
+	}
 	dpi := float32(widthPx) / (float32(widthMm) / 25.4)
 	if dpi > 1000 || dpi < 10 {
 		dpi = baselineDPI
