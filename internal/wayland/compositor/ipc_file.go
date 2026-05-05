@@ -57,6 +57,9 @@ func (s *server) watchModeRequests() {
 	defer ticker.Stop()
 
 	for range ticker.C {
+		if s.shuttingDown.Load() {
+			return
+		}
 		locked := s.locked
 
 		// Check for mode change request
