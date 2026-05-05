@@ -235,14 +235,5 @@ func (i *volItem) Launch() {
 }
 
 func startsWith(haystack, needle string) bool {
-	if haystack == "" {
-		return false
-	}
-	if haystack == needle {
-		return true
-	}
-	if len(haystack) < len(needle) {
-		return haystack == needle[:len(haystack)]
-	}
-	return strings.IndexAny(haystack, needle) == 0
+	return strings.HasPrefix(haystack, needle)
 }
