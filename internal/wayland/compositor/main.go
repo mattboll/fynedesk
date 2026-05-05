@@ -1160,7 +1160,7 @@ func Run() {
 	if !srv.nestedMode {
 		if _, err := exec.LookPath("gnome-keyring-daemon"); err == nil {
 			keyringCmd := exec.Command("gnome-keyring-daemon", "--start", "--components=secrets,pkcs11")
-			keyringCmd.Env = os.Environ()
+			keyringCmd.Env = safeEnv()
 			if out, err := keyringCmd.Output(); err == nil {
 				// Parse output lines like "GNOME_KEYRING_CONTROL=/run/user/1000/keyring"
 				for _, line := range strings.Split(string(out), "\n") {
@@ -1184,7 +1184,7 @@ func Run() {
 			args = append([]string{"--systemd"}, args...)
 		}
 		dbusCmd := exec.Command("dbus-update-activation-environment", args...)
-		dbusCmd.Env = os.Environ()
+		dbusCmd.Env = safeEnv()
 		if err := dbusCmd.Run(); err != nil {
 			log.Printf("Warning: dbus-update-activation-environment failed: %v\n", err)
 		}
