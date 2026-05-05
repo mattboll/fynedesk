@@ -192,6 +192,10 @@ func (c *client) Iconify() {
 		return
 	}
 
+	// Set the local flag immediately. The WM_CHANGE_STATE round-trip will
+	// also call NotifyIconify shortly, but the flag must be correct now so
+	// that callers reading Iconic() between the two see consistent state.
+	c.iconic = true
 	c.stateMessage(icccm.StateIconic)
 	windowStateSet(c.wm.X(), c.win, icccm.StateIconic)
 }
