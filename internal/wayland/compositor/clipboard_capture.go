@@ -32,9 +32,16 @@ func goClipboardChanged(fd C.int) {
 		f := os.NewFile(uintptr(fd), "clipboard-pipe")
 		defer f.Close()
 
-		data, err := io.ReadAll(io.LimitReader(f, 10240))
+		// Cap at 10KB + 1 byte so we can detect (and log) truncation rather
+		// than silently swallowing the tail of a large paste.
+		const maxClip = 10240
+		data, err := io.ReadAll(io.LimitReader(f, maxClip+1))
 		if err != nil || len(data) == 0 {
 			return
+		}
+		if len(data) > maxClip {
+			log.Printf("[clipboard] entry exceeded %d bytes, truncating", maxClip)
+			data = data[:maxClip]
 		}
 
 		text := string(data)
