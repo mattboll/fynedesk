@@ -13,8 +13,14 @@ type DesktopRequest struct {
 	Desktop int `json:"desktop"`
 }
 
+// IPCStateVersion is the schema version of the file-based IPC payloads.
+// Bump on breaking changes (renamed/removed fields, semantic shifts).
+// Additive changes (new optional fields) don't require a bump.
+const IPCStateVersion = 1
+
 // DesktopState is written by compositor with current desktop info
 type DesktopState struct {
+	Version  int      `json:"version,omitempty"` // IPC schema version (0 == legacy/unset)
 	Current  int      `json:"current"`
 	NumDesks int      `json:"num_desks"`
 	Names    []string `json:"names,omitempty"` // Workspace names (empty = use numbers)
@@ -43,6 +49,7 @@ type WindowInfo struct {
 
 // WindowsState is written by compositor with current window list
 type WindowsState struct {
+	Version   int          `json:"version,omitempty"` // IPC schema version (0 == legacy/unset)
 	Windows   []WindowInfo `json:"windows"`
 	Timestamp int64        `json:"timestamp"`
 }

@@ -192,6 +192,7 @@ type DesktopRequest struct {
 
 // DesktopState is written to a file for the panel to read current desktop
 type DesktopState struct {
+	Version  int      `json:"version,omitempty"` // IPC schema version (0 == legacy/unset)
 	Current  int      `json:"current"`
 	NumDesks int      `json:"num_desks"`
 	Names    []string `json:"names,omitempty"`

@@ -43,6 +43,7 @@ func (s *server) writeDesktopState() {
 	statePath := filepath.Join(configDir, "desktop-state.json")
 
 	state := DesktopState{
+		Version:  wlipc.IPCStateVersion,
 		Current:  s.currentDesk,
 		NumDesks: s.numDesks,
 		Names:    s.desktopNames,
@@ -130,6 +131,7 @@ func (s *server) flushWindowsState() {
 	}
 
 	state := wlipc.WindowsState{
+		Version:   wlipc.IPCStateVersion,
 		Windows:   windows,
 		Timestamp: time.Now().UnixNano(),
 	}
