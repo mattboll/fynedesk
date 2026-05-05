@@ -232,10 +232,12 @@ func (s *IPCServer) acceptLoop() {
 	}
 }
 
-// idleTimeout is the per-connection read timeout. A client that does not send
-// a complete message within this window is disconnected so it can't tie up a
-// goroutine indefinitely.
-const idleTimeout = 60 * time.Second
+// preSubscribeTimeout is the read deadline applied before a client has
+// subscribed to any event. A client that does not send a complete message
+// within this window is disconnected so it can't tie up a goroutine
+// indefinitely. After the first subscription, the deadline is cleared
+// because legitimate subscribers stay quiet for hours waiting for events.
+const preSubscribeTimeout = 60 * time.Second
 
 func (s *IPCServer) handleClient(c *ipcClient) {
 	defer func() {
@@ -249,7 +251,14 @@ func (s *IPCServer) handleClient(c *ipcClient) {
 	scanner.Buffer(make([]byte, 256*1024), 256*1024) // 256KB max message
 
 	for {
-		_ = c.conn.SetReadDeadline(time.Now().Add(idleTimeout))
+		c.mu.Lock()
+		hasSubs := len(c.subs) > 0
+		c.mu.Unlock()
+		if hasSubs {
+			_ = c.conn.SetReadDeadline(time.Time{})
+		} else {
+			_ = c.conn.SetReadDeadline(time.Now().Add(preSubscribeTimeout))
+		}
 		if !scanner.Scan() {
 			break
 		}
