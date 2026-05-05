@@ -357,29 +357,24 @@ type server struct {
 	// Icon cache: app_id -> wlr texture (nil = lookup failed, don't retry)
 	iconCache map[string]*iconEntry
 
-	// Settings version for deco cache invalidation
-	decoSettingsVer int
-
 	// Decoration hover state for button glow effect
 	hoverButton decoZone  // Which button is hovered (decoNone if none)
 	hoverXdg    *xdgView  // View whose titlebar is hovered
 	hoverXway   *xwayView // View whose titlebar is hovered
 
 	// App switcher overlay state
-	switcherActive     bool                  // Whether the switcher overlay is visible
-	switcherWindows    []interface{}         // Windows in the switcher (xdgView or xwayView)
-	switcherIndex      int                   // Currently highlighted window index
-	switcherOrigXdg    *xdgView              // Original focused XDG window before switcher
-	switcherOrigXway   *xwayView             // Original focused XWayland window before switcher
-	switcherIconCache  map[string]*iconEntry // 24px icons for switcher
-	switcherThumbnails []wlr.Texture         // Cached SHM thumbnails (captured from framebuffer)
-	switcherThumbImgs  []*image.NRGBA        // Captured surface thumbnails for composite
-	switcherDimRect    unsafe.Pointer        // *C.struct_wlr_scene_rect (full-screen dim)
-	switcherBuf        unsafe.Pointer        // *C.struct_wlr_scene_buffer (composite panel)
-	switcherPixBuf     unsafe.Pointer        // *C.struct_pixel_buffer (backing pixel data)
-	switcherFadeIn     bool                  // Fade-in animation active
-	switcherFadeOut    bool                  // Fade-out animation active
-	switcherFadeStart  time.Time             // When the fade started
+	switcherActive     bool          // Whether the switcher overlay is visible
+	switcherWindows    []interface{} // Windows in the switcher (xdgView or xwayView)
+	switcherIndex      int           // Currently highlighted window index
+	switcherOrigXdg    *xdgView      // Original focused XDG window before switcher
+	switcherOrigXway   *xwayView     // Original focused XWayland window before switcher
+	switcherThumbnails []wlr.Texture // Cached SHM thumbnails (captured from framebuffer)
+	switcherThumbImgs  []*image.NRGBA // Captured surface thumbnails for composite
+	switcherBuf        unsafe.Pointer // *C.struct_wlr_scene_buffer (composite panel)
+	switcherPixBuf     unsafe.Pointer // *C.struct_pixel_buffer (backing pixel data)
+	switcherFadeIn     bool          // Fade-in animation active
+	switcherFadeOut    bool          // Fade-out animation active
+	switcherFadeStart  time.Time     // When the fade started
 
 	// Window overview (Exposé) state — per-window scene buffers
 	overviewActive      bool

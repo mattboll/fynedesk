@@ -236,42 +236,7 @@ func (s *server) notifyScreenshot(filePath string) {
 	}()
 }
 
-// getFocusedWindowGeometry returns the geometry of the focused window as "x,y widthxheight"
-func (s *server) getFocusedWindowGeometry() string {
-	if s.activeXdg != nil {
-		v := s.activeXdg
-		surface := v.xdgToplevel.Base().Surface()
-		state := surface.Current()
-		x := int(v.x)
-		y := int(v.y)
-		w := state.Width()
-		h := state.Height()
-		if v.decorated {
-			y -= titlebarHeight
-			h += titlebarHeight
-		}
-		return fmt.Sprintf("%d,%d %dx%d", x, y, w, h)
-	}
-	if s.activeXway != nil && !s.activeXway.isPanel {
-		v := s.activeXway
-		surface := v.surface.Surface()
-		state := surface.Current()
-		x := int(v.x)
-		y := int(v.y)
-		w := state.Width()
-		h := state.Height()
-		if v.decorated {
-			y -= titlebarHeight
-			h += titlebarHeight
-		}
-		return fmt.Sprintf("%d,%d %dx%d", x, y, w, h)
-	}
-	return ""
-}
-
-var dropdownTermCmd *exec.Cmd
 var dropdownTermVisible bool
-var dropdownTermView interface{} // Can be *xdgView or *xwayView
 
 func (s *server) resetIdleTimer() {
 	s.lastInputTime = time.Now()
@@ -669,7 +634,6 @@ func (s *server) toggleDropdownTerminal() {
 		}
 		cmd.Env = safeEnv()
 		if err := cmd.Start(); err == nil {
-			dropdownTermCmd = cmd
 			log.Printf("Launched dropdown terminal: %s\n", term)
 			return
 		}

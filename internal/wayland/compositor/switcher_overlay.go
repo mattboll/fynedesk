@@ -1,18 +1,12 @@
 package compositor
 
 import (
-	"image"
-	"os"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/FyshOS/appie"
-
 	"deedles.dev/wlr"
 	"deedles.dev/wlr/xkb"
-
-	"golang.org/x/image/draw"
 )
 
 // --- App Switcher Overlay ---
@@ -353,47 +347,3 @@ func (s *server) switcherWindowAppID(w interface{}) string {
 	return ""
 }
 
-// loadSwitcherIcon loads a 24px icon for the switcher overlay
-func (s *server) loadSwitcherIcon(appID string) *iconEntry {
-	if s.switcherIconCache == nil {
-		s.switcherIconCache = make(map[string]*iconEntry)
-	}
-	if entry, ok := s.switcherIconCache[appID]; ok {
-		return entry
-	}
-
-	iconPath := appie.FdoLookupIconPath("", switcherIconSize, strings.ToLower(appID))
-	if iconPath == "" {
-		iconPath = appie.FdoLookupIconPath("", switcherIconSize, appID)
-	}
-	if iconPath == "" {
-		s.switcherIconCache[appID] = nil
-		return nil
-	}
-
-	f, err := os.Open(iconPath)
-	if err != nil {
-		s.switcherIconCache[appID] = nil
-		return nil
-	}
-	defer f.Close()
-
-	img, _, err := image.Decode(f)
-	if err != nil {
-		s.switcherIconCache[appID] = nil
-		return nil
-	}
-
-	scaled := image.NewNRGBA(image.Rect(0, 0, switcherIconSize, switcherIconSize))
-	draw.BiLinear.Scale(scaled, scaled.Bounds(), img, img.Bounds(), draw.Over, nil)
-
-	texture := wlr.TextureFromImage(s.renderer, scaled)
-	if !texture.Valid() {
-		s.switcherIconCache[appID] = nil
-		return nil
-	}
-
-	entry := &iconEntry{texture: texture, w: switcherIconSize, h: switcherIconSize}
-	s.switcherIconCache[appID] = entry
-	return entry
-}

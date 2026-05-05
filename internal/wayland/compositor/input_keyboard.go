@@ -317,11 +317,3 @@ func (s *server) applyKeyboardLayout() {
 	}
 }
 
-// cycleKeyboardLayout switches to the next configured keyboard layout.
-func (s *server) cycleKeyboardLayout() {
-	if len(s.keyboardLayouts) <= 1 {
-		return
-	}
-	s.activeLayoutIndex = (s.activeLayoutIndex + 1) % len(s.keyboardLayouts)
-	s.applyKeyboardLayout()
-}
