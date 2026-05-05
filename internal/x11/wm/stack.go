@@ -45,8 +45,9 @@ func (s *stack) RaiseToTop(win fynedesk.Window) {
 	s.removeFromStack(win)
 	s.addToStack(win)
 
-	wm := fynedesk.Instance().WindowManager().(*x11WM)
-	windowClientListStackingUpdate(wm)
+	if wm, ok := fynedesk.Instance().WindowManager().(*x11WM); ok {
+		windowClientListStackingUpdate(wm)
+	}
 
 	for _, l := range s.listeners {
 		l.WindowOrderChanged()
@@ -60,7 +61,7 @@ func (s *stack) RemoveWindow(win fynedesk.Window) {
 		s.TopWindow().Focus()
 	} else {
 		// focus root
-		if wm := fynedesk.Instance().WindowManager().(*x11WM); wm.X() != nil {
+		if wm, ok := fynedesk.Instance().WindowManager().(*x11WM); ok && wm.X() != nil {
 			err := ewmh.ActiveWindowReq(wm.X(), wm.rootID)
 			if err != nil {
 				fyne.LogError("There was an error trying to remove the window ", err)
