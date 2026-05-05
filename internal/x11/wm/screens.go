@@ -74,7 +74,10 @@ func (xsp *x11ScreensProvider) Screens() []*fynedesk.Screen {
 }
 
 func (xsp *x11ScreensProvider) ScreenForGeometry(x int, y int, width int, height int) *fynedesk.Screen {
-	if len(xsp.screens) <= 1 {
+	if len(xsp.screens) == 0 {
+		return nil
+	}
+	if len(xsp.screens) == 1 {
 		return xsp.screens[0]
 	}
 	for i := 0; i < len(xsp.screens); i++ {
@@ -93,7 +96,10 @@ func (xsp *x11ScreensProvider) ScreenForGeometry(x int, y int, width int, height
 }
 
 func (xsp *x11ScreensProvider) ScreenForWindow(win fynedesk.Window) *fynedesk.Screen {
-	if len(xsp.screens) <= 1 {
+	if len(xsp.screens) == 0 {
+		return nil
+	}
+	if len(xsp.screens) == 1 {
 		return xsp.screens[0]
 	}
 
@@ -184,9 +190,13 @@ func (xsp *x11ScreensProvider) setupScreens() {
 			}
 		}
 	}
-	if !primaryFound {
+	if !primaryFound && len(tmpScreens) > 0 {
 		xsp.primary = tmpScreens[0]
 		xsp.active = tmpScreens[0]
+	}
+	if len(tmpScreens) == 0 {
+		xsp.setupSingleScreen()
+		return
 	}
 	xsp.screens = tmpScreens
 }
