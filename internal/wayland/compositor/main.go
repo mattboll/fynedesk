@@ -1206,16 +1206,35 @@ func Run() {
 
 	// Start the panel process after XWayland is ready
 	go func() {
-		time.Sleep(2 * time.Second) // Give XWayland more time to initialize
+		// Helper: sleep but bail out early on shutdown.
+		wait := func(d time.Duration) bool {
+			select {
+			case <-srv.shutdown:
+				return false
+			case <-time.After(d):
+				return true
+			}
+		}
+		if !wait(2 * time.Second) { // Give XWayland more time to initialize
+			return
+		}
 		srv.startPanel()
 
 		// Restore previous session after panel is ready
-		time.Sleep(3 * time.Second)
-		srv.mainThreadActions <- func() { srv.restoreSession() }
-		srv.triggerWakeup()
+		if !wait(3 * time.Second) {
+			return
+		}
+		select {
+		case srv.mainThreadActions <- func() { srv.restoreSession() }:
+			srv.triggerWakeup()
+		case <-srv.shutdown:
+			return
+		}
 
 		// Fallback: if panel doesn't appear after 10s, launch a terminal
-		time.Sleep(7 * time.Second)
+		if !wait(7 * time.Second) {
+			return
+		}
 		if srv.panelXway == nil || !srv.panelXway.mapped {
 			log.Println("WARNING: Panel not detected after 10s, launching fallback terminal")
 			srv.launchTerminal()
