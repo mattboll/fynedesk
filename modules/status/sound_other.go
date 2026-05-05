@@ -11,15 +11,18 @@ import (
 	wmtheme "fyshos.com/fynedesk/theme"
 )
 
-// Destroy tidies up resources
+// Destroy tidies up resources. Closing the client also closes its Updates()
+// channel, which is what unblocks watchVolume's `for range updates` loop.
 func (b *sound) Destroy() {
 	if b.done != nil {
 		close(b.done)
+		b.done = nil
 	}
 	if b.client == nil {
 		return
 	}
 	b.client.Close()
+	b.client = nil
 }
 
 func (b *sound) muted() bool {
