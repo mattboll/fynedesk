@@ -323,7 +323,7 @@ func (x *x11WM) handlePropertyChange(ev xproto.PropertyNotifyEvent) {
 }
 
 func (x *x11WM) handleScreenChange(timestamp xproto.Timestamp) {
-	if x.screenChangeTimestamp == timestamp {
+	if timestamp != 0 && timestamp <= x.screenChangeTimestamp {
 		return
 	}
 	x.screenChangeTimestamp = timestamp
