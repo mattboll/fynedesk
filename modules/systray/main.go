@@ -203,9 +203,13 @@ func NewTray() fynedesk.Module {
 				name := v.Body[0]
 				newOwner := v.Body[2]
 				if newOwner == "" {
-					t.nodesMu.RLock()
-					item, ok := t.nodes[dbus.Sender(name.(string))]
-					t.nodesMu.RUnlock()
+					sender := dbus.Sender(name.(string))
+					t.nodesMu.Lock()
+					item, ok := t.nodes[sender]
+					if ok {
+						delete(t.nodes, sender)
+					}
+					t.nodesMu.Unlock()
 					if ok {
 						t.box.Remove(item.ico)
 						t.box.Refresh()
