@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"os/user"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/disintegration/imaging"
@@ -443,12 +444,14 @@ func getOffset() int {
 		return 0
 	}
 
-	if len(ret) <= 2 {
-		fyne.LogError("Invalid offset format "+string(ret), err)
+	trimmed := strings.TrimSpace(string(ret))
+	if len(trimmed) < 5 {
+		fyne.LogError("Invalid offset format "+trimmed, nil)
+		return 0
 	}
 
-	hourStr := string(ret[0 : len(ret)-3])
-	minStr := string(ret[len(ret)-3:])
+	hourStr := trimmed[:len(trimmed)-2]
+	minStr := trimmed[len(trimmed)-2:]
 
 	hours, _ := strconv.ParseInt(hourStr, 10, 64)
 	mins, _ := strconv.ParseInt(minStr, 10, 0)
