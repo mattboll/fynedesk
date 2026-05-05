@@ -305,8 +305,11 @@ func (s *IPCServer) handleClient(c *ipcClient) {
 		c.conn.Close()
 	}()
 
+	// 1 MiB max message — large enough for window-preview PNG responses
+	// while still bounding memory per connection.
+	const maxMsg = 1 << 20
 	scanner := bufio.NewScanner(c.conn)
-	scanner.Buffer(make([]byte, 256*1024), 256*1024) // 256KB max message
+	scanner.Buffer(make([]byte, 64*1024), maxMsg)
 
 	for {
 		c.mu.Lock()
@@ -318,6 +321,9 @@ func (s *IPCServer) handleClient(c *ipcClient) {
 			_ = c.conn.SetReadDeadline(time.Now().Add(preSubscribeTimeout))
 		}
 		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				log.Printf("[IPC] scanner: %v", err)
+			}
 			break
 		}
 		var msg Message
