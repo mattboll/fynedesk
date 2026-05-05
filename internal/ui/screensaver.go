@@ -6,6 +6,7 @@ package ui
 import (
 	"math/rand"
 	"os/exec"
+	"sync/atomic"
 	"time"
 
 	screensaver "fyshos.com/fynedesk/internal/ui/generated"
@@ -18,7 +19,7 @@ import (
 )
 
 var (
-	inhibitCount = 0
+	inhibitCount atomic.Int32
 	lastActivity = time.Now()
 )
 
@@ -58,7 +59,7 @@ func (l *desktop) watchScreenActivity() {
 	to := time.NewTicker(5 * time.Second)
 
 	for range to.C {
-		if inhibitCount == 0 && lastActivity.Add(time.Minute*5).Before(time.Now()) {
+		if inhibitCount.Load() == 0 && lastActivity.Add(time.Minute*5).Before(time.Now()) {
 
 			if !idle {
 				idle = true
@@ -115,7 +116,7 @@ type screenSaverWatcher struct {
 
 func (s *screenSaverWatcher) Inhibit(_ dbus.Sender, who, why string) (uint, *dbus.Error) {
 	id := rand.Uint32()
-	inhibitCount++
+	inhibitCount.Add(1)
 
 	// TODO also check these are still alive every so often
 	return uint(id), nil
@@ -123,6 +124,6 @@ func (s *screenSaverWatcher) Inhibit(_ dbus.Sender, who, why string) (uint, *dbu
 
 func (s *screenSaverWatcher) UnInhibit(_ dbus.Sender, cookie uint32) *dbus.Error {
 	// TODO compare to the cookies logged
-	inhibitCount--
+	inhibitCount.Add(-1)
 	return nil
 }
