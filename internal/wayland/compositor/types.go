@@ -280,6 +280,7 @@ type server struct {
 	nestedMode      bool // true when running inside another compositor (WLR_BACKENDS set)
 	privateDBusPid  int  // PID of private dbus-daemon (nested mode only)
 	shuttingDown    atomic.Bool
+	shutdown        chan struct{} // closed when the compositor is tearing down; long-lived watchers select on it
 	screenSaverDBus *screenSaverDBus
 	portal          *portalDBus
 

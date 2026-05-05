@@ -42,11 +42,21 @@ func (s *server) watchSuspendResume() {
 
 	sigChan := make(chan *dbus.Signal, 4)
 	conn.Signal(sigChan)
+	defer conn.Close()
 	log.Println("[SUSPEND] Listening for logind PrepareForSleep signal")
 
-	for sig := range sigChan {
+	for {
+		var sig *dbus.Signal
+		select {
+		case <-s.shutdown:
+			return
+		case sig = <-sigChan:
+			if sig == nil { // channel closed
+				return
+			}
+		}
 		if s.shuttingDown.Load() {
-			break
+			return
 		}
 
 		if sig.Name != "org.freedesktop.login1.Manager.PrepareForSleep" {
@@ -102,6 +112,4 @@ func (s *server) watchSuspendResume() {
 			}()
 		}
 	}
-
-	conn.Close()
 }

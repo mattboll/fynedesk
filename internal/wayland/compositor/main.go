@@ -910,6 +910,7 @@ func Run() {
 		wmModifier:        wlr.KeyboardModifierLogo, // Default: Super key
 		nestedMode:        os.Getenv("WAYLAND_DISPLAY") != "" || os.Getenv("DISPLAY") != "",
 		mainThreadActions: make(chan func(), 64),
+		shutdown:          make(chan struct{}),
 	}
 	clipServer = srv
 	srv.initPowerDefaults()
@@ -1262,6 +1263,11 @@ func Run() {
 		<-sigChan
 		log.Println("\nShutting down...")
 		srv.shuttingDown.Store(true)
+		select {
+		case <-srv.shutdown:
+		default:
+			close(srv.shutdown)
+		}
 		srv.saveSessionState() // Save before terminating (reads are safe from goroutine)
 		if srv.panelCmd != nil && srv.panelCmd.Process != nil {
 			srv.panelCmd.Process.Kill()
