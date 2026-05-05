@@ -28,7 +28,7 @@ const criticalBatteryThreshold = 0.05 // 5%
 
 type battery struct {
 	bar  *statusBar
-	done bool
+	done chan struct{}
 	icon *widget.Icon
 	fill *canvas.Rectangle
 
@@ -44,20 +44,29 @@ func pickChargeOrEnergy() (string, string) {
 }
 
 func (b *battery) batteryTick() {
+	b.done = make(chan struct{})
 	tick := time.NewTicker(time.Second * 10)
 	go func() {
-		for !b.done {
-			<-tick.C
-			val, _ := b.value()
-			fyne.Do(func() {
-				b.setValue(val)
-			})
+		defer tick.Stop()
+		for {
+			select {
+			case <-b.done:
+				return
+			case <-tick.C:
+				val, _ := b.value()
+				fyne.Do(func() {
+					b.setValue(val)
+				})
+			}
 		}
 	}()
 }
 
 func (b *battery) Destroy() {
-	b.done = true
+	if b.done != nil {
+		close(b.done)
+		b.done = nil
+	}
 }
 
 func (b *battery) Metadata() fynedesk.ModuleMetadata {
