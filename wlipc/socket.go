@@ -117,11 +117,18 @@ type IPCServer struct {
 type RequestHandler func(msg *Message) (json.RawMessage, error)
 
 type ipcClient struct {
-	conn   net.Conn
-	writer *bufio.Writer
-	mu     sync.Mutex // protects writer
-	subs   map[string]bool
+	conn       net.Conn
+	writer     *bufio.Writer
+	mu         sync.Mutex // protects writer (used by request/response paths)
+	subs       map[string]bool
+	broadcasts chan []byte   // buffered; events drop-oldest when full
+	done       chan struct{} // closed when the client is being torn down
 }
+
+// broadcastBufferSize is the per-client broadcast queue depth. A slow
+// consumer that can't keep up will see older events dropped rather than
+// blocking the broadcast loop for everyone.
+const broadcastBufferSize = 16
 
 // NewIPCServer creates and starts the IPC server.
 func NewIPCServer(handler RequestHandler) (*IPCServer, error) {
@@ -188,13 +195,25 @@ func (s *IPCServer) Broadcast(eventName string, data any) {
 	for c := range s.clients {
 		c.mu.Lock()
 		subscribed := c.subs[eventName]
+		c.mu.Unlock()
 		if !subscribed {
-			c.mu.Unlock()
 			continue
 		}
-		c.writer.Write(line)
-		c.writer.Flush()
-		c.mu.Unlock()
+		// Non-blocking send. If the client's queue is full (slow consumer),
+		// drop the oldest event to make room — broadcasts are state snapshots
+		// so the latest is what matters.
+		select {
+		case c.broadcasts <- line:
+		default:
+			select {
+			case <-c.broadcasts:
+			default:
+			}
+			select {
+			case c.broadcasts <- line:
+			default:
+			}
+		}
 	}
 }
 
@@ -219,16 +238,44 @@ func (s *IPCServer) acceptLoop() {
 		}
 
 		client := &ipcClient{
-			conn:   conn,
-			writer: bufio.NewWriter(conn),
-			subs:   make(map[string]bool),
+			conn:       conn,
+			writer:     bufio.NewWriter(conn),
+			subs:       make(map[string]bool),
+			broadcasts: make(chan []byte, broadcastBufferSize),
+			done:       make(chan struct{}),
 		}
 
 		s.mu.Lock()
 		s.clients[client] = struct{}{}
 		s.mu.Unlock()
 
+		go s.broadcastWriter(client)
 		go s.handleClient(client)
+	}
+}
+
+// broadcastWriter drains the client's broadcast queue. Running in a per-client
+// goroutine means a slow consumer can't block the broadcast loop or any other
+// subscriber.
+func (s *IPCServer) broadcastWriter(c *ipcClient) {
+	for {
+		select {
+		case <-c.done:
+			return
+		case line := <-c.broadcasts:
+			c.mu.Lock()
+			_, werr := c.writer.Write(line)
+			if werr == nil {
+				werr = c.writer.Flush()
+			}
+			c.mu.Unlock()
+			if werr != nil {
+				// Connection is broken; close it so handleClient exits and
+				// the cleanup path runs.
+				c.conn.Close()
+				return
+			}
+		}
 	}
 }
 
@@ -244,6 +291,12 @@ func (s *IPCServer) handleClient(c *ipcClient) {
 		s.mu.Lock()
 		delete(s.clients, c)
 		s.mu.Unlock()
+		// Signal the broadcast writer to exit, then close the connection.
+		select {
+		case <-c.done:
+		default:
+			close(c.done)
+		}
 		c.conn.Close()
 	}()
 
