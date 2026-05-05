@@ -62,11 +62,18 @@ func (s *server) writeDesktopState() {
 }
 
 // truncateIPCTitle limits title length to prevent IPC bloat from malicious clients.
+// Slices on a UTF-8 rune boundary so the result is always valid UTF-8.
 func truncateIPCTitle(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen]
+	// Walk back from maxLen to find the start of a UTF-8 sequence
+	// (continuation bytes have the form 10xxxxxx).
+	cut := maxLen
+	for cut > 0 && s[cut]&0xC0 == 0x80 {
+		cut--
+	}
+	return s[:cut]
 }
 
 // writeWindowsState marks the windows state as dirty. The actual write
