@@ -159,6 +159,7 @@ type builtinLockState struct {
 	showError   bool
 	userName    string
 	clockTicker *time.Ticker
+	clockDone   chan struct{} // closed by deactivateBuiltinLock to terminate the clock goroutine
 	blurredBg   *image.NRGBA
 }
 
@@ -295,17 +296,29 @@ func (s *server) activateBuiltinLock() {
 	s.updateBuiltinLockScene()
 
 	// Start clock ticker (update every minute).
-	// Capture the ticker locally so the goroutine doesn't race on s.builtinLock.
+	// Capture the ticker and done channel locally so the goroutine doesn't
+	// race on s.builtinLock (which gets nilled by deactivateBuiltinLock).
 	ticker := time.NewTicker(30 * time.Second)
+	done := make(chan struct{})
 	s.builtinLock.clockTicker = ticker
+	s.builtinLock.clockDone = done
 	go func() {
-		for range ticker.C {
-			s.mainThreadActions <- func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+			}
+			select {
+			case s.mainThreadActions <- func() {
 				// Guard inside the main-thread callback: builtinLock may have
 				// been nilled between the tick and this callback executing.
 				s.updateBuiltinLockScene() // already checks builtinLock == nil
+			}:
+				s.triggerWakeup()
+			case <-done:
+				return
 			}
-			s.triggerWakeup()
 		}
 	}()
 
@@ -592,9 +605,13 @@ func (s *server) deactivateBuiltinLock() {
 		return
 	}
 
-	// Stop clock ticker
+	// Stop clock ticker and signal the goroutine to exit (Stop() alone does
+	// not close ticker.C, so a 'for range ticker.C' would block forever).
 	if s.builtinLock.clockTicker != nil {
 		s.builtinLock.clockTicker.Stop()
+	}
+	if s.builtinLock.clockDone != nil {
+		close(s.builtinLock.clockDone)
 	}
 
 	// Destroy scene nodes
