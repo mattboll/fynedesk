@@ -58,8 +58,9 @@ var trayMeta = fynedesk.ModuleMetadata{
 }
 
 type tray struct {
-	conn *dbus.Conn
-	menu *menu.Dbusmenu
+	conn   *dbus.Conn
+	menu   *menu.Dbusmenu
+	signal chan *dbus.Signal
 
 	box     *fyne.Container
 	nodesMu sync.RWMutex
@@ -194,10 +195,10 @@ func NewTray() fynedesk.Module {
 		return t
 	}
 
-	c := make(chan *dbus.Signal, 10)
-	t.conn.Signal(c)
+	t.signal = make(chan *dbus.Signal, 10)
+	t.conn.Signal(t.signal)
 	go func() {
-		for v := range c {
+		for v := range t.signal {
 			switch v.Name {
 			case "org.freedesktop.DBus.NameOwnerChanged":
 				name := v.Body[0]
@@ -233,6 +234,17 @@ func NewTray() fynedesk.Module {
 }
 
 func (t *tray) Destroy() {
+	if t.conn != nil {
+		if t.signal != nil {
+			t.conn.RemoveSignal(t.signal)
+			close(t.signal)
+			t.signal = nil
+		}
+		if err := t.conn.Close(); err != nil {
+			log.Printf("[systray] dbus close failed: %v", err)
+		}
+		t.conn = nil
+	}
 }
 
 func (t *tray) RegisterStatusNotifierItem(service string, sender dbus.Sender) (err *dbus.Error) {
