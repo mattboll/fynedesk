@@ -44,8 +44,10 @@ func (x *x11WM) handleActiveWin(ev xproto.ClientMessageEvent) {
 			return // don't try to focus iconic windows
 		}
 
-		// ask for focus, when it is lost return to root window
-		xproto.SetInputFocus(x.x.Conn(), 1, ev.Window, xproto.TimeCurrentTime).Check()
+		// ask for focus, when it is lost return to root window.
+		// Send unchecked: BadWindow on a just-destroyed client is harmless and
+		// the round-trip from .Check() was being discarded anyway.
+		xproto.SetInputFocus(x.x.Conn(), 1, ev.Window, xproto.TimeCurrentTime)
 	}
 	if notifyFocus {
 		protocolAtm, err := xprop.Atm(x.x, "WM_PROTOCOLS")
