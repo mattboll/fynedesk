@@ -13,9 +13,16 @@ import (
 )
 
 var (
-	exprRegex = regexp.MustCompile(`^[0-9.+\-*/()<^>:%]+$`)
+	// Restricted to genuine arithmetic — '<', '^', '>', ':' previously allowed
+	// govaluate to evaluate XOR/comparison/ternary, which can produce huge
+	// integer results (DoS via 2^99999999) or panic (integer divide by zero).
+	exprRegex = regexp.MustCompile(`^[0-9.+\-*/()% ]+$`)
 	numRegex  = regexp.MustCompile(`^[0-9.]+$`)
 )
+
+// maxExprLen caps the input length to avoid pathological evaluations from
+// pasted text in the launcher entry box.
+const maxExprLen = 64
 
 var calcMeta = fynedesk.ModuleMetadata{
 	Name:        "Launcher: Calculate",
@@ -39,7 +46,16 @@ func (c *calc) LaunchSuggestions(input string) []fynedesk.LaunchSuggestion {
 	return []fynedesk.LaunchSuggestion{&calcItem{sum: input, result: result}}
 }
 
-func (c *calc) eval(sum string) (string, error) {
+func (c *calc) eval(sum string) (result string, err error) {
+	// govaluate panics on integer division by zero (e.g. "5/0"); recover
+	// so a bad expression in the launcher entry can't crash the panel.
+	defer func() {
+		if r := recover(); r != nil {
+			result = ""
+			err = errEvalPanic
+		}
+	}()
+
 	expression, err := govaluate.NewEvaluableExpression(sum)
 	if err != nil {
 		return "", err
@@ -57,12 +73,21 @@ func (c *calc) eval(sum string) (string, error) {
 	return "", nil
 }
 
+var errEvalPanic = errEval("evaluator panicked")
+
+type errEval string
+
+func (e errEval) Error() string { return string(e) }
+
 func (c *calc) Metadata() fynedesk.ModuleMetadata {
 	return calcMeta
 }
 
 // isExpression will return true if input is a mathematical expression unless it just contains a number
 func (c *calc) isExpression(input string) bool {
+	if len(input) > maxExprLen {
+		return false
+	}
 	return exprRegex.MatchString(input) && !numRegex.MatchString(input)
 }
 
