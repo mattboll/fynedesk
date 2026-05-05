@@ -128,7 +128,8 @@ func newFyles() fynedesk.Module {
 type filter struct{}
 
 func (f *filter) Matches(u fyne.URI) bool {
-	return u.Name()[0] != '.'
+	name := u.Name()
+	return name != "" && name[0] != '.'
 }
 
 func filterHidden() storage.FileFilter {
