@@ -41,4 +41,9 @@ type XWin interface {
 	NotifyMouseRelease(int16, int16, xproto.Button)
 
 	QueueMoveResizeGeometry(int, int, uint, uint)
+
+	// FreeResources releases server-side resources owned by this window
+	// (frame pixmaps, GContexts). Called when the WM destroys the frame so
+	// the X server doesn't accumulate dead pixmaps/GCs across window churn.
+	FreeResources()
 }

@@ -94,6 +94,11 @@ func (w *Window) QueueMoveResizeGeometry(int, int, uint, uint) {
 	// no-op
 }
 
+// FreeResources releases server-side X resources held by the frame.
+func (w *Window) FreeResources() {
+	// no-op
+}
+
 // Refresh is called when the window should update with new border state
 func (w *Window) Refresh() {
 	// no-op

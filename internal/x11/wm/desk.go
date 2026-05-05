@@ -595,6 +595,10 @@ func (x *x11WM) destroyWindow(win xproto.Window) {
 		x.transientLeaderRemove(transient)
 	}
 
+	// Free server-side decoration resources (pixmaps, GContexts) before
+	// destroying the frame window, otherwise the X server accumulates dead
+	// resources across window churn.
+	c.FreeResources()
 	xproto.DestroyWindow(x.x.Conn(), c.FrameID())
 	// The child window is already gone (it sent DestroyNotify); don't ask the
 	// server to destroy it again — that produces BadWindow noise.

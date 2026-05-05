@@ -77,6 +77,15 @@ func (c *client) ChildID() xproto.Window {
 	return c.win
 }
 
+// FreeResources releases server-side X resources held by the frame
+// (pixmaps, GContexts). Idempotent; safe to call after the frame has been
+// destroyed.
+func (c *client) FreeResources() {
+	if c.frame != nil {
+		c.frame.freePixmaps()
+	}
+}
+
 func (c *client) Close() {
 	winProtos, err := icccm.WmProtocolsGet(c.wm.X(), c.win)
 	if err != nil {
