@@ -321,6 +321,11 @@ func (x *x11WM) handlePropertyChange(ev xproto.PropertyNotifyEvent) {
 		c.NotifyGeometry(x, y, w, h)
 	case "_MOTIF_WM_HINTS":
 		c.NotifyBorderChange()
+	case "_NET_WM_ICON":
+		// Some apps update their icon after startup (notifications,
+		// tabbed apps showing the active tab's favicon). Invalidate
+		// the cached icon and refresh.
+		c.NotifyBorderChange()
 	}
 }
 
