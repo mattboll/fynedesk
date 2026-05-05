@@ -316,6 +316,17 @@ func (x *x11WM) bindShortcuts(win xproto.Window) {
 	}
 }
 
+// firstKeycode returns the first keycode for the named symbol, or 0 if the
+// active keyboard layout has none. Avoids panicking when StrToKeycodes
+// returns an empty slice (some XKB layouts omit specific keys).
+func firstKeycode(xu *xgbutil.XUtil, name string) xproto.Keycode {
+	codes := keybind.StrToKeycodes(xu, name)
+	if len(codes) == 0 {
+		return 0
+	}
+	return codes[0]
+}
+
 func (x *x11WM) keyNameToCode(n fyne.KeyName) xproto.Keycode {
 	keybind.Initialize(x.x)
 	switch n {
@@ -348,24 +359,19 @@ func (x *x11WM) keyNameToCode(n fyne.KeyName) xproto.Keycode {
 	case fynedesk.KeyVolumeUp:
 		return keyCodeVolumeMore
 	case fyne.KeyF9:
-		codes := keybind.StrToKeycodes(x.x, "F9")
-		return codes[0]
+		return firstKeycode(x.x, "F9")
 	case fyne.KeyF10:
-		codes := keybind.StrToKeycodes(x.x, "F10")
-		return codes[0]
+		return firstKeycode(x.x, "F10")
 	case fyne.KeyF11:
-		codes := keybind.StrToKeycodes(x.x, "F11")
-		return codes[0]
+		return firstKeycode(x.x, "F11")
 	case fyne.KeyL:
-		codes := keybind.StrToKeycodes(x.x, "L")
-		return codes[0]
+		return firstKeycode(x.x, "L")
 	}
 
 	for i := 0; i <= 9; i++ {
 		id := strconv.Itoa(i)
 		if n == fyne.KeyName(id) {
-			codes := keybind.StrToKeycodes(x.x, id)
-			return codes[0]
+			return firstKeycode(x.x, id)
 		}
 	}
 
