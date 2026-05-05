@@ -8,6 +8,7 @@ import (
 	"image"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BurntSushi/xgb/xproto"
@@ -51,6 +52,7 @@ type frame struct {
 	cancelFunc context.CancelFunc
 
 	pendingGeometry chan *configureGeometry
+	pendingMu       sync.Mutex // guards pendingGeometry create/close/send transitions
 	transparency    int
 
 	canvas test.WindowlessCanvas
@@ -246,37 +248,88 @@ func (f *frame) checkScale() {
 	}
 }
 
-func (f *frame) configureLoop() {
+// configureLoop coalesces a stream of pending geometry changes (from
+// MoveResize drags) into one updateGeometry per ~10ms so we don't spam the
+// X server with one ConfigureWindow per pointer event. It exits when the
+// channel is closed by endConfigureLoop or after 5s of inactivity (replaces
+// the original tight-spin polling loop that pegged a CPU core during drags).
+func (f *frame) configureLoop(ch chan *configureGeometry) {
+	const idleTimeout = 5 * time.Second
+	const coalesceWindow = 10 * time.Millisecond
 	var lastGeometry *configureGeometry
-	var change = false
+	idle := time.NewTimer(idleTimeout)
+	defer idle.Stop()
+	flush := time.NewTimer(coalesceWindow)
+	flush.Stop() // armed only when a change is buffered
+	flushArmed := false
 
-	blanks := 0
-	for f.pendingGeometry != nil {
+	apply := func() {
+		if lastGeometry == nil {
+			return
+		}
+		f.updateGeometry(lastGeometry.x, lastGeometry.y,
+			lastGeometry.width, lastGeometry.height, lastGeometry.force)
+		lastGeometry = nil
+	}
+	exit := func() {
+		apply()
+		f.pendingMu.Lock()
+		if f.pendingGeometry == ch {
+			f.pendingGeometry = nil
+		}
+		f.pendingMu.Unlock()
+	}
+
+	for {
 		select {
-		case g, ok := <-f.pendingGeometry:
-			if g == nil || !ok {
-				f.pendingGeometry = nil
+		case g, ok := <-ch:
+			if !ok {
+				exit()
 				return
 			}
 			lastGeometry = g
-			change = true
-		default:
-			if change && lastGeometry != nil {
-				f.updateGeometry(lastGeometry.x, lastGeometry.y, lastGeometry.width, lastGeometry.height, lastGeometry.force)
-				change = false
-			} else {
-				blanks++
-				if blanks > 1000 { // if 1000 ticks pass no resize pending
-					f.endConfigureLoop()
+			if !flushArmed {
+				flush.Reset(coalesceWindow)
+				flushArmed = true
+			}
+			if !idle.Stop() {
+				select {
+				case <-idle.C:
+				default:
 				}
 			}
+			idle.Reset(idleTimeout)
+		case <-flush.C:
+			apply()
+			flushArmed = false
+		case <-idle.C:
+			exit()
+			f.pendingMu.Lock()
+			// channel may already have been replaced by a newer queueGeometry;
+			// only close ours.
+			if ch != nil {
+				// drain any buffered messages so a future close doesn't deadlock
+				select {
+				case <-ch:
+				default:
+				}
+			}
+			f.pendingMu.Unlock()
+			return
 		}
 	}
 }
 
+// endConfigureLoop signals the running configureLoop (if any) to exit by
+// closing the channel. Holds pendingMu so a concurrent queueGeometry can't
+// send into the channel after we close it.
 func (f *frame) endConfigureLoop() {
-	if f.pendingGeometry != nil {
-		close(f.pendingGeometry)
+	f.pendingMu.Lock()
+	ch := f.pendingGeometry
+	f.pendingGeometry = nil
+	f.pendingMu.Unlock()
+	if ch != nil {
+		close(ch)
 	}
 }
 
@@ -936,11 +989,26 @@ func (f *frame) unmaximizeApply() {
 }
 
 func (f *frame) queueGeometry(x int16, y int16, width uint16, height uint16, force bool) {
+	f.pendingMu.Lock()
 	if f.pendingGeometry == nil {
 		f.pendingGeometry = make(chan *configureGeometry, 50)
-		go f.configureLoop()
+		go f.configureLoop(f.pendingGeometry)
 	}
-	f.pendingGeometry <- &configureGeometry{x, y, width, height, force}
+	ch := f.pendingGeometry
+	g := &configureGeometry{x, y, width, height, force}
+	f.pendingMu.Unlock()
+
+	// Non-blocking send: if the loop has just exited (channel closed but not
+	// yet nil), drop this update rather than panicking. Real drags fill the
+	// 50-slot buffer fast enough that next pointer event will create a fresh
+	// channel.
+	defer func() {
+		recover() // send-on-closed-channel panic — safe to ignore here
+	}()
+	select {
+	case ch <- g:
+	default:
+	}
 }
 
 func (f *frame) updateGeometry(x, y int16, w, h uint16, force bool) {
