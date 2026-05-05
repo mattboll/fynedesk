@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -406,10 +407,12 @@ func getPicturesDir() (fyne.ListableURI, error) {
 		cmd := exec.Command(xdg, "PICTURES")
 
 		out, err := cmd.Output()
-		location := string(out[:len(out)-1]) // Remove \n at the end
-		if err == nil && location != home {
-			uri := storage.NewFileURI(location)
-			return storage.ListerForURI(uri)
+		if err == nil {
+			location := strings.TrimRight(string(out), "\n")
+			if location != "" && location != home {
+				uri := storage.NewFileURI(location)
+				return storage.ListerForURI(uri)
+			}
 		}
 	}
 
