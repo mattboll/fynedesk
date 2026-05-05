@@ -2,6 +2,8 @@
 package notes
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"os"
@@ -175,5 +177,7 @@ func (s *Store) Flush() {
 }
 
 func genID() string {
-	return time.Now().Format("20060102150405.000")
+	var suffix [4]byte
+	_, _ = rand.Read(suffix[:])
+	return time.Now().Format("20060102150405.000") + "-" + hex.EncodeToString(suffix[:])
 }
