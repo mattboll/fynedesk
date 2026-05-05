@@ -53,6 +53,22 @@ func (s *server) watchModeRequests() {
 	// Write initial desktop state
 	s.writeDesktopState()
 
+	// Track consecutive parse failures per path. After maxParseRetries the
+	// file is removed and the failure logged — keeps a malformed (or stuck
+	// partial) file from spamming the JSON parser indefinitely.
+	const maxParseRetries = 5
+	parseFailures := make(map[string]int)
+	logAndRemoveIfStuck := func(path string, err error) {
+		parseFailures[path]++
+		if parseFailures[path] >= maxParseRetries {
+			log.Printf("[IPC] giving up on %s after %d parse failures: %v",
+				filepath.Base(path), parseFailures[path], err)
+			removeIPC(path)
+			delete(parseFailures, path)
+		}
+	}
+	clearFailures := func(path string) { delete(parseFailures, path) }
+
 	ticker := time.NewTicker(100 * time.Millisecond) // Faster polling for desktop switching
 	defer ticker.Stop()
 
@@ -67,13 +83,17 @@ func (s *server) watchModeRequests() {
 			if len(data) > 0 {
 				if locked {
 					removeIPC(modeRequestPath)
+					clearFailures(modeRequestPath)
 				} else {
 					var req ModeRequest
-					if err := json.Unmarshal(data, &req); err == nil {
+					if perr := json.Unmarshal(data, &req); perr == nil {
 						removeIPC(modeRequestPath)
+						clearFailures(modeRequestPath)
 						r := req
 						s.mainThreadActions <- func() { s.setResolution(r) }
 						s.triggerWakeup()
+					} else {
+						logAndRemoveIfStuck(modeRequestPath, perr)
 					}
 				}
 			}
@@ -84,13 +104,17 @@ func (s *server) watchModeRequests() {
 			if len(data) > 0 {
 				if locked {
 					removeIPC(scaleRequestPath)
+					clearFailures(scaleRequestPath)
 				} else {
 					var req ScaleRequest
-					if err := json.Unmarshal(data, &req); err == nil {
+					if perr := json.Unmarshal(data, &req); perr == nil {
 						removeIPC(scaleRequestPath)
+						clearFailures(scaleRequestPath)
 						r := req
 						s.mainThreadActions <- func() { s.setOutputScale(r) }
 						s.triggerWakeup()
+					} else {
+						logAndRemoveIfStuck(scaleRequestPath, perr)
 					}
 				}
 			}
@@ -101,13 +125,17 @@ func (s *server) watchModeRequests() {
 			if len(data) > 0 {
 				if locked {
 					removeIPC(desktopRequestPath)
+					clearFailures(desktopRequestPath)
 				} else {
 					var req DesktopRequest
-					if err := json.Unmarshal(data, &req); err == nil {
+					if perr := json.Unmarshal(data, &req); perr == nil {
 						removeIPC(desktopRequestPath)
+						clearFailures(desktopRequestPath)
 						desk := req.Desktop
 						s.mainThreadActions <- func() { s.switchDesk(desk) }
 						s.triggerWakeup()
+					} else {
+						logAndRemoveIfStuck(desktopRequestPath, perr)
 					}
 				}
 			}
@@ -204,15 +232,18 @@ func (s *server) watchModeRequests() {
 			}
 			if locked {
 				removeIPC(windowActionPath)
+				clearFailures(windowActionPath)
 			} else {
 				var req wlipc.WindowActionRequest
-				if err := json.Unmarshal(data, &req); err == nil {
+				if perr := json.Unmarshal(data, &req); perr == nil {
 					removeIPC(windowActionPath)
+					clearFailures(windowActionPath)
 					r := req
 					s.mainThreadActions <- func() { s.handleWindowAction(r) }
 					s.triggerWakeup()
+				} else {
+					logAndRemoveIfStuck(windowActionPath, perr)
 				}
-				// Don't remove on parse failure — may be a partial write
 			}
 		}
 
