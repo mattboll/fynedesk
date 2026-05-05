@@ -136,6 +136,14 @@ func (b *battery) triggerHibernate(val float64) {
 	// Wait a moment for the notification to display
 	time.Sleep(2 * time.Second)
 
+	// Re-check the AC state right before exec — the user may have plugged
+	// in during the 2s notification window.
+	if on, err := b.powered(); err == nil && on {
+		log.Printf("[battery] AC connected during hibernate countdown, aborting")
+		b.hibernateTriggered = false
+		return
+	}
+
 	// Try hibernate first, fall back to suspend
 	if err := exec.Command("systemctl", "hibernate").Run(); err != nil {
 		log.Printf("[battery] hibernate failed: %v, trying suspend", err)
