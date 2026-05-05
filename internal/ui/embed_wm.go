@@ -293,7 +293,7 @@ func (e *embededWM) setupSocketEventHandlers(client *wlipc.IPCClient) {
 	client.OnEvent(wlipc.EventClipboardHist, func(data json.RawMessage) {
 		var hist wlipc.ClipboardHistory
 		if json.Unmarshal(data, &hist) == nil {
-			clipboardHistoryCache = hist.Entries
+			setClipboardHistory(hist.Entries)
 		}
 	})
 	client.OnEvent(wlipc.EventScreenshot, func(data json.RawMessage) {
@@ -385,7 +385,7 @@ func (e *embededWM) startFileIPCWatcher() {
 	}, done)
 
 	wlipc.WatchClipboardHistory(func(hist *wlipc.ClipboardHistory) {
-		clipboardHistoryCache = hist.Entries
+		setClipboardHistory(hist.Entries)
 	}, done)
 
 	wlipc.WatchScreenshotEvent(func(evt *wlipc.ScreenshotEvent) {

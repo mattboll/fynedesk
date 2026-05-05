@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -17,8 +18,30 @@ import (
 
 var clipboardPicker *clipboardPickerWindow
 
-// clipboardHistoryCache is the local cache of clipboard history updated via IPC.
-var clipboardHistoryCache []wlipc.ClipboardEntry
+// clipboardHistoryCache is the local cache of clipboard history updated via
+// IPC. Reads happen on the UI thread (ShowClipboardManager); writes happen
+// from the IPC watcher goroutine (embed_wm.go). Guard with a mutex.
+var (
+	clipboardHistoryMu    sync.Mutex
+	clipboardHistoryCache []wlipc.ClipboardEntry
+)
+
+// setClipboardHistory replaces the cached entries (called from IPC watchers).
+func setClipboardHistory(entries []wlipc.ClipboardEntry) {
+	clipboardHistoryMu.Lock()
+	clipboardHistoryCache = entries
+	clipboardHistoryMu.Unlock()
+}
+
+// getClipboardHistory returns a snapshot of the cached entries (the caller
+// can mutate the returned slice freely).
+func getClipboardHistory() []wlipc.ClipboardEntry {
+	clipboardHistoryMu.Lock()
+	defer clipboardHistoryMu.Unlock()
+	out := make([]wlipc.ClipboardEntry, len(clipboardHistoryCache))
+	copy(out, clipboardHistoryCache)
+	return out
+}
 
 type clipboardPickerWindow struct {
 	win        fyne.Window
@@ -89,10 +112,10 @@ func ShowClipboardManager() {
 
 	// If the cache is empty (panel just started, no broadcast yet),
 	// load directly from the persisted file on disk.
-	entries := clipboardHistoryCache
+	entries := getClipboardHistory()
 	if len(entries) == 0 {
 		entries = wlipc.ReadClipboardHistory()
-		clipboardHistoryCache = entries
+		setClipboardHistory(entries)
 	}
 
 	p := &clipboardPickerWindow{
@@ -150,7 +173,7 @@ func ShowClipboardManager() {
 	// Clear button
 	clearBtn := widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
 		wlipc.RequestClipboardClear()
-		clipboardHistoryCache = nil
+		setClipboardHistory(nil)
 		p.close()
 	})
 	clearBtn.Importance = widget.LowImportance
