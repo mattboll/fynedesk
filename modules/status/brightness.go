@@ -42,6 +42,7 @@ type brightness struct {
 func (b *brightness) Destroy() {
 	if b.done != nil {
 		close(b.done)
+		b.done = nil
 	}
 }
 
