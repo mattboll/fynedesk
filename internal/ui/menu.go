@@ -83,7 +83,9 @@ func (w *widgetPanel) askLogout() {
 	restart := widget.NewButtonWithIcon(locale.T("menu.restart"), theme.ViewRefreshIcon(), func() {
 		closeAndDo(func() {
 			if wlipc.IsWaylandSession() {
-				exec.Command("systemctl", "reboot").Run()
+				if err := exec.Command("systemctl", "reboot").Run(); err != nil {
+					fyne.LogError("systemctl reboot failed", err)
+				}
 			} else {
 				os.Exit(5)
 			}
