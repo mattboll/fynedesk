@@ -2,6 +2,7 @@
 package wlipc
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -108,8 +109,13 @@ func getConfigDir() string {
 }
 
 // atomicWriteFile writes data to a file atomically using write-to-temp + rename
-// to avoid race conditions with concurrent readers.
+// to avoid race conditions with concurrent readers. If the target path is a
+// symlink, refuse to write rather than silently replacing it (defense in depth
+// — the parent directory should be 0700 anyway).
 func atomicWriteFile(path string, data []byte) error {
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to overwrite symlink: %s", path)
+	}
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".ipc-*")
 	if err != nil {
@@ -127,5 +133,9 @@ func atomicWriteFile(path string, data []byte) error {
 		return err
 	}
 
-	return os.Rename(tmpName, path)
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	return nil
 }
