@@ -20,6 +20,7 @@ func (x *x11WM) transientChildRemove(leader xproto.Window, child xproto.Window) 
 	for i, win := range x.transientMap[leader] {
 		if win == child {
 			x.transientMap[leader] = append(x.transientMap[leader][:i], x.transientMap[leader][i+1:]...)
+			return
 		}
 	}
 }
