@@ -64,6 +64,8 @@ type x11WM struct {
 	menuPos      fyne.Position
 	transientMap map[xproto.Window][]xproto.Window
 	oldRoot      *xgraphics.Image
+
+	shutdown chan struct{} // closed on Close() to signal long-lived watchers
 }
 
 type moveResizeType uint32
@@ -116,7 +118,7 @@ func NewX11WindowManager(a fyne.App) (fynedesk.WindowManager, error) {
 		return nil, err
 	}
 
-	mgr := &x11WM{x: conn}
+	mgr := &x11WM{x: conn, shutdown: make(chan struct{})}
 	root := conn.RootWin()
 	mgr.takeSelectionOwnership()
 	mgr.transientMap = make(map[xproto.Window][]xproto.Window)
@@ -198,6 +200,14 @@ func (x *x11WM) Capture() image.Image {
 }
 
 func (x *x11WM) Close() {
+	if x.shutdown != nil {
+		select {
+		case <-x.shutdown:
+			// already closed
+		default:
+			close(x.shutdown)
+		}
+	}
 	for _, child := range x.clients {
 		child.Close()
 	}

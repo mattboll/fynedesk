@@ -29,14 +29,21 @@ func (x *x11WM) initScreensaver() {
 }
 
 func (x *x11WM) watchScreensaver() {
-	// more complex than time.Timer so that when the OS sleeps it does not stack ticks...
-	wait := make(chan struct{})
-	time.AfterFunc(time.Second, func() {
-		wait <- struct{}{}
-	})
+	// time.NewTicker drops ticks when the OS sleeps (the runtime can't deliver
+	// them while suspended), so we still notice the gap via the wall-clock
+	// delta below — same behavior as the previous AfterFunc chain but with a
+	// proper exit path.
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
 	previous := time.Now()
 
-	for range wait {
+	for {
+		select {
+		case <-x.shutdown:
+			return
+		case <-ticker.C:
+		}
+
 		info, err := screensaver.QueryInfo(x.x.Conn(), xproto.Drawable(x.x.Screen().Root)).Reply()
 		if err != nil {
 			fyne.LogError("Failed to query screensaver info", err)
@@ -51,10 +58,6 @@ func (x *x11WM) watchScreensaver() {
 		} else if info.MsSinceUserInput <= 1500 {
 			fynedesk.Instance().DelayScreenSaver()
 		}
-
-		time.AfterFunc(time.Second, func() {
-			wait <- struct{}{}
-		})
 	}
 }
 
