@@ -232,6 +232,11 @@ func (s *IPCServer) acceptLoop() {
 	}
 }
 
+// idleTimeout is the per-connection read timeout. A client that does not send
+// a complete message within this window is disconnected so it can't tie up a
+// goroutine indefinitely.
+const idleTimeout = 60 * time.Second
+
 func (s *IPCServer) handleClient(c *ipcClient) {
 	defer func() {
 		s.mu.Lock()
@@ -243,7 +248,11 @@ func (s *IPCServer) handleClient(c *ipcClient) {
 	scanner := bufio.NewScanner(c.conn)
 	scanner.Buffer(make([]byte, 256*1024), 256*1024) // 256KB max message
 
-	for scanner.Scan() {
+	for {
+		_ = c.conn.SetReadDeadline(time.Now().Add(idleTimeout))
+		if !scanner.Scan() {
+			break
+		}
 		var msg Message
 		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
 			log.Printf("[IPC] Parse error: %v\n", err)
