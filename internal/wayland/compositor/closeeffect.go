@@ -176,6 +176,12 @@ func (s *server) createCloseAnim(thumb *image.NRGBA, x, y float64, displayW, dis
 
 	ovTree := (*C.struct_wlr_scene_tree)(s.overlayTree)
 	sceneBuf := C.scene_buffer_create(ovTree, &pixBuf.base)
+	if sceneBuf == nil {
+		// scene_buffer_create takes ownership of the buffer on success only;
+		// on failure we still own pixBuf and must release it.
+		C.pixel_buffer_destroy(&pixBuf.base)
+		return
+	}
 	C.scene_buffer_set_dest_size(sceneBuf, C.int(displayW), C.int(displayH))
 	C.scene_node_set_position(&sceneBuf.node, C.int(int(x)), C.int(int(y)))
 
