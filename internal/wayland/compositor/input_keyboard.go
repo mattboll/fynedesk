@@ -240,7 +240,15 @@ func (s *server) startKeyRepeat(keyCode uint32, action string) {
 			case <-stop:
 				return
 			case <-ticker.C:
-				s.dispatchAction(action)
+			}
+			// dispatchAction touches wlroots APIs (seat, scene, cursor) that
+			// are not thread-safe — run it on the main thread.
+			act := action
+			select {
+			case s.mainThreadActions <- func() { s.dispatchAction(act) }:
+				s.triggerWakeup()
+			case <-stop:
+				return
 			}
 		}
 	}()
