@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BurntSushi/xgb"
@@ -216,14 +218,15 @@ func (x *x11WM) Close() {
 		return
 	}
 
-	cancel := false
-	exit := make(chan interface{})
+	var cancel atomic.Bool
+	exit := make(chan struct{})
+	exitOnce := &sync.Once{}
+	closeExit := func() { exitOnce.Do(func() { close(exit) }) }
 	go func() {
-		for !cancel && len(x.clients) > 0 {
+		for !cancel.Load() && len(x.clients) > 0 {
 			time.Sleep(time.Millisecond * 100)
 		}
-
-		close(exit)
+		closeExit()
 	}()
 
 	go func() {
@@ -234,7 +237,9 @@ func (x *x11WM) Close() {
 		case <-time.NewTimer(time.Second * 10).C:
 			notify := wm.NewNotification("Log Out", "Log Out was cancelled by an open application")
 			wm.SendNotification(notify)
-			cancel = true
+			cancel.Store(true)
+			// Unblock the watcher in case it is mid-sleep when cancel flips.
+			closeExit()
 		}
 	}()
 }
