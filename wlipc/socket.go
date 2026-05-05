@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -137,11 +138,15 @@ func NewIPCServer(handler RequestHandler) (*IPCServer, error) {
 	// Remove stale socket
 	os.Remove(sockPath)
 
+	// Set a tight umask before bind so the socket is created mode 0700
+	// instead of being briefly world-accessible between Listen and Chmod.
+	prevMask := syscall.Umask(0077)
 	listener, err := net.Listen("unix", sockPath)
+	syscall.Umask(prevMask)
 	if err != nil {
 		return nil, fmt.Errorf("listen %s: %w", sockPath, err)
 	}
-	// Restrict to owner only (UNIX socket in /run/user/$UID/).
+	// Belt-and-braces: enforce 0700 even if the umask path didn't take.
 	os.Chmod(sockPath, 0700)
 
 	srv := &IPCServer{
