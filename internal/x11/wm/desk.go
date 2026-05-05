@@ -578,11 +578,13 @@ func (x *x11WM) destroyWindow(win xproto.Window) {
 	} else if transient > 0 && transient == win {
 		x.transientLeaderRemove(transient)
 	}
-	windowClientListUpdate(x)
-	windowClientListStackingUpdate(x)
 
 	xproto.DestroyWindow(x.x.Conn(), c.FrameID())
-	xproto.DestroyWindow(x.x.Conn(), c.ChildID())
+	// The child window is already gone (it sent DestroyNotify); don't ask the
+	// server to destroy it again — that produces BadWindow noise.
+	x.RemoveWindow(c)
+	windowClientListUpdate(x)
+	windowClientListStackingUpdate(x)
 }
 
 func (x *x11WM) exposeWindow(win xproto.Window) {
