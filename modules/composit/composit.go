@@ -1,6 +1,8 @@
 package composit
 
 import (
+	"sync"
+
 	"fyne.io/fyne/v2"
 	"fyshos.com/fynedesk"
 )
@@ -11,7 +13,8 @@ var compMeta = fynedesk.ModuleMetadata{
 }
 
 type comp struct {
-	done chan struct{}
+	done    chan struct{}
+	closeMu sync.Once
 }
 
 func (c *comp) Destroy() {
@@ -23,7 +26,9 @@ func (c *comp) Metadata() fynedesk.ModuleMetadata {
 }
 
 func (c *comp) disable() {
-	close(c.done)
+	c.closeMu.Do(func() {
+		close(c.done)
+	})
 }
 
 func (c *comp) enable() {
