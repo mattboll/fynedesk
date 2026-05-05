@@ -51,6 +51,15 @@ func atomicWriteFile(path string, data []byte) error {
 	return nil
 }
 
+// writeAtomic is a fire-and-forget wrapper around atomicWriteFile that logs
+// failures (disk full, permission denied, ...) so they show up in the journal
+// instead of silently desyncing the panel.
+func writeAtomic(path string, data []byte) {
+	if err := atomicWriteFile(path, data); err != nil {
+		log.Printf("[IPC] failed to write %s: %v", filepath.Base(path), err)
+	}
+}
+
 // readPrefs reads settings, preferring TOML config over Fyne preferences JSON.
 func (s *server) readPrefs() (map[string]interface{}, string, error) {
 	// Try TOML config first (source of truth)

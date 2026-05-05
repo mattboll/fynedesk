@@ -220,7 +220,7 @@ func (s *server) notifyScreenshot(filePath string) {
 		Timestamp: time.Now().UnixMilli(),
 	}
 	data, _ := json.Marshal(evt)
-	atomicWriteFile(filepath.Join(configDir, "screenshot-event.json"), data)
+	writeAtomic(filepath.Join(configDir, "screenshot-event.json"), data)
 
 	// Copy to Wayland clipboard (best-effort)
 	go func() {
@@ -502,7 +502,7 @@ func (s *server) writeVolumeEvent() {
 	configDir := s.getConfigDir()
 	eventPath := filepath.Join(configDir, "volume-event.json")
 	data := fmt.Sprintf(`{"timestamp":%d}`, time.Now().UnixNano())
-	atomicWriteFile(eventPath, []byte(data))
+	writeAtomic(eventPath, []byte(data))
 }
 
 // saveVolumeState persists current volume and mute state to disk
@@ -527,7 +527,7 @@ func (s *server) saveVolumeState() {
 		Muted  bool    `json:"muted"`
 	}{Volume: vol, Muted: muted}
 	data, _ := json.Marshal(state)
-	atomicWriteFile(filepath.Join(s.getConfigDir(), "volume-state.json"), data)
+	writeAtomic(filepath.Join(s.getConfigDir(), "volume-state.json"), data)
 }
 
 // restoreVolume restores saved volume and mute state at startup

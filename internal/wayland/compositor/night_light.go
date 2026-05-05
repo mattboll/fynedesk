@@ -123,7 +123,7 @@ func (s *server) persistNightLight() {
 	if err != nil {
 		return
 	}
-	atomicWriteFile(prefsPath, out)
+	writeAtomic(prefsPath, out)
 }
 
 // colorTempToRGB converts a color temperature in Kelvin to RGB multipliers (0.0-1.0).

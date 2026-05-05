@@ -404,7 +404,7 @@ func (s *server) requestLauncher() {
 		CursorY:   float32(s.cursor.Y()),
 	}
 	data, _ := json.Marshal(req)
-	atomicWriteFile(filepath.Join(configDir, "launcher-request.json"), data)
+	writeAtomic(filepath.Join(configDir, "launcher-request.json"), data)
 
 	if s.ipcServer != nil {
 		s.ipcServer.Broadcast(wlipc.EventLauncherRequest, req)
@@ -564,7 +564,7 @@ func (s *server) showWindowContextMenu(xdgV *xdgView, xwayV *xwayView) {
 		Y:        s.cursor.Y(),
 	}
 	data, _ := json.Marshal(ctxReq)
-	atomicWriteFile(reqPath, data)
+	writeAtomic(reqPath, data)
 
 	if s.ipcServer != nil {
 		s.ipcServer.Broadcast(wlipc.EventContextMenu, ctxReq)
@@ -583,7 +583,7 @@ func (s *server) requestCommandPalette() {
 	configDir := s.getConfigDir()
 	os.MkdirAll(configDir, 0700)
 	data, _ := json.Marshal(ts)
-	atomicWriteFile(filepath.Join(configDir, "command-palette-request.json"), data)
+	writeAtomic(filepath.Join(configDir, "command-palette-request.json"), data)
 
 	// Focus the panel so it can receive keyboard input
 	s.focusPanelKeyboard()

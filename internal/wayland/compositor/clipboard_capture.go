@@ -146,7 +146,7 @@ func (s *server) requestShowClipboard() {
 
 	ts := map[string]int64{"timestamp": time.Now().UnixMilli()}
 	data, _ := json.Marshal(ts)
-	atomicWriteFile(filepath.Join(configDir, "clipboard-show-request.json"), data)
+	writeAtomic(filepath.Join(configDir, "clipboard-show-request.json"), data)
 
 	if s.ipcServer != nil {
 		s.ipcServer.Broadcast(wlipc.EventClipboardShow, ts)

@@ -54,7 +54,7 @@ func (s *server) writeDesktopState() {
 		return
 	}
 
-	atomicWriteFile(statePath, data)
+	writeAtomic(statePath, data)
 
 	// Also broadcast to socket clients
 	if s.ipcServer != nil {
@@ -162,7 +162,7 @@ func (s *server) startIPCFlusher() {
 			if err != nil {
 				continue
 			}
-			atomicWriteFile(statePath, data)
+			writeAtomic(statePath, data)
 			if s.ipcServer != nil {
 				s.ipcServer.Broadcast(wlipc.EventWindowsState, st)
 			}
