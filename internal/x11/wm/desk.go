@@ -484,6 +484,31 @@ func (x *x11WM) runLoop() {
 	fyne.LogError("X11 connection terminated!", nil)
 }
 
+// safeInt16 clamps v to the int16 range and logs once when it had to.
+// X11 protocol uses int16 for window coordinates so we must not silently
+// wrap negative when a virtual screen origin exceeds 32767.
+func safeInt16(v int) int16 {
+	if v > math.MaxInt16 {
+		fyne.LogError("X11 coord overflow (clamped)", nil)
+		return math.MaxInt16
+	}
+	if v < math.MinInt16 {
+		fyne.LogError("X11 coord underflow (clamped)", nil)
+		return math.MinInt16
+	}
+	return int16(v)
+}
+
+func safeUint16(v int) uint16 {
+	if v < 0 {
+		return 0
+	}
+	if v > math.MaxUint16 {
+		return math.MaxUint16
+	}
+	return uint16(v)
+}
+
 func (x *x11WM) configureRoots() {
 	if fynedesk.Instance() == nil {
 		return
@@ -508,8 +533,15 @@ func (x *x11WM) configureRoots() {
 				continue
 			}
 
+			// X11 ConfigureNotifyEvent X/Y are int16 (-32768..32767). On
+			// extreme multi-monitor setups (or odd virtual outputs) the
+			// origin can exceed that — naked truncation flips the sign and
+			// places the screen at a wildly wrong spot. Clamp + warn so the
+			// failure mode is visible.
+			x16, y16 := safeInt16(screen.X), safeInt16(screen.Y)
+			w16, h16 := safeUint16(screen.Width), safeUint16(screen.Height)
 			notifyEv := xproto.ConfigureNotifyEvent{Event: x.rootID, Window: x.rootID, AboveSibling: 0,
-				X: int16(screen.X), Y: int16(screen.Y), Width: uint16(screen.Width), Height: uint16(screen.Height),
+				X: x16, Y: y16, Width: w16, Height: h16,
 				BorderWidth: 0, OverrideRedirect: false}
 			xproto.SendEvent(x.x.Conn(), false, x.rootID, xproto.EventMaskStructureNotify, string(notifyEv.Bytes()))
 
