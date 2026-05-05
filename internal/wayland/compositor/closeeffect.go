@@ -94,6 +94,7 @@ type closeAnim struct {
 	w, h      int     // display size (original window dimensions)
 	duration  time.Duration
 	srcImg    *image.NRGBA
+	dstImg    *image.NRGBA       // reused per-frame glitch buffer (allocated lazily)
 	buf       unsafe.Pointer // *C.struct_wlr_scene_buffer
 	pixBuf    unsafe.Pointer // *C.struct_pixel_buffer
 	matrixCol *matrixCloseColumns // per-column rain state (matrix style only)
@@ -222,11 +223,18 @@ func (s *server) tickCloseAnims() bool {
 		}
 
 		progress := float64(elapsed) / float64(a.duration)
+		// Reuse the same destination buffer across frames (saves ~thumbnail
+		// bytes of allocation per frame, thousands of times per second when
+		// multiple close animations run concurrently).
+		b := a.srcImg.Bounds()
+		if a.dstImg == nil || a.dstImg.Bounds() != b {
+			a.dstImg = image.NewNRGBA(b)
+		}
 		var glitched *image.NRGBA
 		if s.backgroundType == "matrix" {
-			glitched = applyMatrixGlitch(a.srcImg, progress, a.matrixCol)
+			glitched = applyMatrixGlitch(a.srcImg, a.dstImg, progress, a.matrixCol)
 		} else {
-			glitched = applyGlitch(a.srcImg, progress)
+			glitched = applyGlitch(a.srcImg, a.dstImg, progress)
 		}
 
 		tw, th := glitched.Bounds().Dx(), glitched.Bounds().Dy()
@@ -257,10 +265,9 @@ func destroyCloseAnim(a *closeAnim) {
 
 // applyGlitch renders the source image with progressive glitch effects.
 // progress goes from 0 (clean) to 1 (fully corrupted and faded).
-func applyGlitch(src *image.NRGBA, progress float64) *image.NRGBA {
+func applyGlitch(src, dst *image.NRGBA, progress float64) *image.NRGBA {
 	b := src.Bounds()
 	w, h := b.Dx(), b.Dy()
-	dst := image.NewNRGBA(image.Rect(0, 0, w, h))
 
 	// 1. RGB channel shift: R shifted right, B shifted left
 	shift := int(progress * 5)
@@ -414,10 +421,9 @@ func initMatrixCloseColumns(w, h int) *matrixCloseColumns {
 // Rain columns fall from top to bottom. The head glyph is opaque, trailing
 // glyphs fade to transparent over matrixTrailLen positions. Above the trail
 // the image is fully transparent. Glyphs rotate as they descend.
-func applyMatrixGlitch(src *image.NRGBA, progress float64, cols *matrixCloseColumns) *image.NRGBA {
+func applyMatrixGlitch(src, dst *image.NRGBA, progress float64, cols *matrixCloseColumns) *image.NRGBA {
 	b := src.Bounds()
 	w, h := b.Dx(), b.Dy()
-	dst := image.NewNRGBA(image.Rect(0, 0, w, h))
 	copy(dst.Pix, src.Pix)
 
 	pix := dst.Pix
