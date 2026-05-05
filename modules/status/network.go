@@ -27,9 +27,14 @@ const networkNameEthernet = "Ethernet"
 type network struct {
 	name *widget.Label
 	icon *widget.Button
+	done chan struct{}
 }
 
 func (n *network) Destroy() {
+	if n.done != nil {
+		close(n.done)
+		n.done = nil
+	}
 }
 
 func (n *network) wirelessName() (string, error) {
@@ -120,8 +125,10 @@ func (n *network) networkName() string {
 }
 
 func (n *network) tick() {
+	n.done = make(chan struct{})
 	tick := time.NewTicker(time.Second * 10)
 	go func() {
+		defer tick.Stop()
 		for {
 			val := n.networkName()
 			if val != n.name.Text {
@@ -137,7 +144,11 @@ func (n *network) tick() {
 					}
 				})
 			}
-			<-tick.C
+			select {
+			case <-n.done:
+				return
+			case <-tick.C:
+			}
 		}
 	}()
 }
