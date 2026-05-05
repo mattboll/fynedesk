@@ -24,9 +24,10 @@ type Note struct {
 
 // Store manages note persistence to ~/.config/fynedesk/notes.json.
 type Store struct {
-	mu       sync.Mutex
-	notes    []Note
-	path     string
+	mu        sync.Mutex
+	saveMu    sync.Mutex // serializes concurrent saveNow calls (timer vs Flush)
+	notes     []Note
+	path      string
 	saveTimer *time.Timer
 }
 
@@ -34,7 +35,7 @@ type Store struct {
 func NewStore() *Store {
 	home := os.Getenv("HOME")
 	dir := filepath.Join(home, ".config", "fynedesk")
-	os.MkdirAll(dir, 0755)
+	os.MkdirAll(dir, 0700)
 
 	s := &Store{
 		path: filepath.Join(dir, "notes.json"),
@@ -154,14 +155,17 @@ func (s *Store) saveNow() {
 		log.Printf("[notes] failed to marshal: %v", err)
 		return
 	}
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 	// Atomic write: temp file + rename
 	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
 		log.Printf("[notes] failed to write %s: %v", tmp, err)
 		return
 	}
 	if err := os.Rename(tmp, s.path); err != nil {
 		log.Printf("[notes] failed to rename %s: %v", s.path, err)
+		_ = os.Remove(tmp)
 	}
 }
 
