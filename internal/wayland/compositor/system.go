@@ -321,7 +321,15 @@ func (s *server) watchIdleTimeout() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
+	for {
+		select {
+		case <-s.shutdown:
+			return
+		case <-ticker.C:
+		}
+		if s.shuttingDown.Load() {
+			return
+		}
 		// Skip idle actions if screensaver is inhibited
 		if s.screenSaverDBus != nil && s.screenSaverDBus.IsInhibited() {
 			continue
