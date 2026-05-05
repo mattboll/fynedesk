@@ -412,14 +412,24 @@ func (s *server) lockScreen() {
 			// In that case, force-unlock to prevent a permanent black screen.
 			// Route through mainThreadActions to avoid data race on idleLocked/locked.
 			go func() {
-				time.Sleep(10 * time.Second)
-				s.mainThreadActions <- func() {
+				select {
+				case <-s.shutdown:
+					return
+				case <-time.After(10 * time.Second):
+				}
+				if s.shuttingDown.Load() {
+					return
+				}
+				select {
+				case s.mainThreadActions <- func() {
 					if s.idleLocked && !s.locked {
 						log.Println("[LOCK] Lock client launched but never connected — clearing idle lock")
 						s.idleLocked = false
 					}
+				}:
+					s.triggerWakeup()
+				case <-s.shutdown:
 				}
-				s.triggerWakeup()
 			}()
 			return
 		}
