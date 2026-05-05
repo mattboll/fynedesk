@@ -1253,6 +1253,15 @@ func Run() {
 	// Restore saved volume level
 	srv.restoreVolume()
 
+	// If a previous compositor instance died (crash, kill -9) while the screen
+	// was locked, re-lock immediately. Defends against an attacker killing the
+	// compositor to bypass the lock screen.
+	if srv.wasPreviouslyLocked() {
+		log.Println("[LOCK] Previous instance was locked — locking screen immediately on startup")
+		srv.idleLocked = true
+		go srv.lockScreen()
+	}
+
 	// In nested mode, start a private D-Bus session so that child processes
 	// (panel, apps) use their own bus instead of the host session bus.
 	// This must happen BEFORE registering any D-Bus services.

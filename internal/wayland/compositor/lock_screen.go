@@ -276,6 +276,7 @@ func (s *server) activateBuiltinLock() {
 	// Set locked state
 	s.locked = true
 	s.suspendLockPending = false // Lock acquired
+	s.markLocked()
 
 	// Enable lock tree
 	if s.lockTree != nil {
@@ -625,6 +626,7 @@ func (s *server) deactivateBuiltinLock() {
 	zeroPassword(s.builtinLock.password)
 	s.builtinLock.active = false
 	s.builtinLock = nil
+	s.markUnlocked()
 
 	// Use cleanupLock pattern to restore focus
 	s.cleanupLock()

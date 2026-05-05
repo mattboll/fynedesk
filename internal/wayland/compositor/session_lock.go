@@ -284,6 +284,7 @@ func (s *server) handleSessionLockNewLock(lock *C.struct_wlr_session_lock_v1) {
 	s.suspendLockPending = false   // Lock acquired — allow normal idle reset
 	s.currentLock = unsafe.Pointer(lock)
 	s.lockCrashCount = 0 // Reset crash counter on successful lock connection
+	s.markLocked()
 
 	// Enable lock layer (above everything)
 	lockTree := (*C.struct_wlr_scene_tree)(s.lockTree)
@@ -513,6 +514,7 @@ func (s *server) handleSessionLockDestroy() {
 func (s *server) cleanupLock() {
 	s.locked = false
 	s.lockedSent = false
+	s.markUnlocked()
 
 	// Clear BOTH keyboard and pointer focus from lock surfaces BEFORE destroying
 	// scene nodes. This ensures the seat doesn't reference surfaces about to be freed.
