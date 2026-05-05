@@ -490,6 +490,7 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 		}))
 
 		v.listeners = append(v.listeners, wlrSurface.OnUnmap(func(Surface wlr.Surface) {
+			s.ensureThumbXway(v) // capture thumbnail before unmap for close animation
 			v.mapped = false
 			destroyModalScrim(&v.scrimRect)
 			C.scene_node_set_enabled(&viewTree.node, 0)

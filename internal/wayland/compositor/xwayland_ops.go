@@ -81,6 +81,7 @@ func (s *server) positionNewXwayWindow(v *xwayView) {
 
 // closeXwayWindow closes an XWayland window
 func (s *server) closeXwayWindow(v *xwayView) {
+	s.ensureThumbXway(v) // capture thumbnail for close animation
 	v.surface.Close()
 }
 

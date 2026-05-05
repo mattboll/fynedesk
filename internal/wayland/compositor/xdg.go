@@ -298,6 +298,7 @@ func (s *server) handleNewXDGSurface(surface wlr.XDGSurface) {
 	}))
 
 	v.listeners = append(v.listeners, surface.Surface().OnUnmap(func(Surface wlr.Surface) {
+		s.ensureThumbXdg(v) // capture thumbnail before unmap for close animation
 		v.mapped = false
 		destroyModalScrim(&v.scrimRect)
 		C.scene_node_set_enabled(&viewTree.node, 0)
@@ -471,6 +472,7 @@ func (s *server) positionNewXdgWindow(v *xdgView, winWidth, winHeight int) {
 }
 
 func (s *server) closeXdgWindow(v *xdgView) {
+	s.ensureThumbXdg(v) // capture thumbnail for close animation
 	v.xdgToplevel.SendClose()
 }
 

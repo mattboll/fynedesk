@@ -604,6 +604,38 @@ func (s *server) captureWlrThumbDirect(v *xwayView, pix []byte, maxW, maxH int) 
 	return s.shmFallbackThumb(surf, maxW, maxH)
 }
 
+// ensureThumbXdg captures a thumbnail for an XDG view on demand if cachedThumb is nil.
+// Called before close/unmap so the close animation has a snapshot to work with.
+func (s *server) ensureThumbXdg(v *xdgView) {
+	if v.cachedThumb != nil || !v.mapped {
+		return
+	}
+	if C.begin_thumb_capture() == 0 {
+		return
+	}
+	defer C.end_thumb_capture()
+	pix := make([]byte, thumbMaxW*thumbMaxH*4)
+	if thumb := s.captureXDGThumbDirect(v, pix, thumbMaxW, thumbMaxH); thumb != nil {
+		v.cachedThumb = thumb
+	}
+}
+
+// ensureThumbXway captures a thumbnail for an XWayland view on demand if cachedThumb is nil.
+// Called before close/unmap so the close animation has a snapshot to work with.
+func (s *server) ensureThumbXway(v *xwayView) {
+	if v.cachedThumb != nil || !v.mapped {
+		return
+	}
+	if C.begin_thumb_capture() == 0 {
+		return
+	}
+	defer C.end_thumb_capture()
+	pix := make([]byte, thumbMaxW*thumbMaxH*4)
+	if thumb := s.captureWlrThumbDirect(v, pix, thumbMaxW, thumbMaxH); thumb != nil {
+		v.cachedThumb = thumb
+	}
+}
+
 // thumbFromPixels creates an NRGBA image from GL readback data (already at thumbnail size).
 // Forces alpha=255 for opaque thumbnails. Reuses existing image if dimensions match.
 func (s *server) thumbFromPixels(pix []byte, w, h int, existing *image.NRGBA) *image.NRGBA {
