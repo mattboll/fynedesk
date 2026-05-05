@@ -553,8 +553,7 @@ func (s *server) updateBottomCorners(
 	parent *C.struct_wlr_scene_tree,
 	width, height int, active bool,
 ) {
-	bColor := s.activeBorderColor(active)
-	bc := color.NRGBA{R: bColor.R, G: bColor.G, B: bColor.B, A: bColor.A}
+	bc := color.NRGBAModel.Convert(s.activeBorderColor(active)).(color.NRGBA)
 
 	sc := decoScale
 	cornerSize := borderWidth * sc

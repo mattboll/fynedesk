@@ -118,7 +118,7 @@ func (s *server) renderDecoComposite(width1x int, title string, iconW1x int, act
 	if active {
 		bg = titlebarActiveColor
 	}
-	bgN := color.NRGBA{R: bg.R, G: bg.G, B: bg.B, A: bg.A}
+	bgN := color.NRGBAModel.Convert(bg).(color.NRGBA)
 	fillRoundedTopBg(img, bgN, float64(cornerRadius*sc))
 
 	// Buttons at 2x
