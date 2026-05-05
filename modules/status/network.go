@@ -1,6 +1,8 @@
 package status
 
 import (
+	"bufio"
+	"bytes"
 	"errors"
 	"log"
 	"os/exec"
@@ -38,50 +40,78 @@ func (n *network) Destroy() {
 }
 
 func (n *network) wirelessName() (string, error) {
-	net := ""
 	iw, _ := exec.LookPath("iw")
 	if iw == "" {
 		iw, _ = exec.LookPath("/usr/sbin/iw")
 	}
 	if iw != "" {
-		out, err := exec.Command("bash", []string{"-c", iw + " dev | grep ssid | cut -d ' ' -f2"}...).Output()
+		out, err := exec.Command(iw, "dev").Output()
 		if err != nil {
 			log.Println("Error running iw", err)
 			return "", err
 		}
-		net = strings.TrimSpace(string(out))
-		if net == "" {
-			return "", errors.New("no network connected")
+		// Parse 'iw dev' output for the first 'ssid <name>' line.
+		scanner := bufio.NewScanner(bytes.NewReader(out))
+		for scanner.Scan() {
+			fields := strings.Fields(scanner.Text())
+			if len(fields) >= 2 && fields[0] == "ssid" {
+				return strings.Join(fields[1:], " "), nil
+			}
 		}
-	} else {
-		out, err := exec.Command("bash", []string{"-c", "/System/Library/PrivateFrameworks/Apple80211.framework/Resources/airport -I  | awk -F' SSID: '  '/ SSID: / {print $2}'"}...).Output()
-		if err != nil {
-			log.Println("Error getting network info from airport utility", err)
-			return "", err
-		}
-
-		net = string(out)
+		return "", errors.New("no network connected")
 	}
-	return strings.TrimSpace(net), nil
+
+	// macOS fallback: 'airport -I' returns key/value lines including SSID.
+	const airport = "/System/Library/PrivateFrameworks/Apple80211.framework/Resources/airport"
+	out, err := exec.Command(airport, "-I").Output()
+	if err != nil {
+		log.Println("Error getting network info from airport utility", err)
+		return "", err
+	}
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if k, v, ok := strings.Cut(line, ": "); ok && strings.TrimSpace(k) == "SSID" {
+			return strings.TrimSpace(v), nil
+		}
+	}
+	return "", errors.New("no network connected")
 }
 
 func (n *network) isEthernetConnected() (bool, error) {
 	if ip, _ := exec.LookPath("ip"); ip != "" {
-		out, err := exec.Command("bash", []string{"-c", "ip link | grep \",UP,\" | grep -v LOOPBACK | grep -v \": wl\" | wc -l"}...).Output()
+		out, err := exec.Command(ip, "link").Output()
 		if err != nil {
 			log.Println("Error running ip tool", err)
 			return false, err
 		}
-		if strings.TrimSpace(string(out)) == "0" {
+		// Count interfaces that are UP, not LOOPBACK, and not wireless (wl*).
+		count := 0
+		scanner := bufio.NewScanner(bytes.NewReader(out))
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.Contains(line, ",UP,") {
+				continue
+			}
+			if strings.Contains(line, "LOOPBACK") {
+				continue
+			}
+			if strings.Contains(line, ": wl") {
+				continue
+			}
+			count++
+		}
+		if count == 0 {
 			return false, nil
 		}
 	} else if scutil, _ := exec.LookPath("scutil"); scutil != "" {
-		out, err := exec.Command("bash", []string{"-c", "scutil --nwi | grep address | wc -l"}...).Output()
+		cmd := exec.Command(scutil, "--nwi")
+		out, err := cmd.Output()
 		if err != nil {
 			log.Println("Error running scutil tool", err)
 			return false, err
 		}
-		if strings.TrimSpace(string(out)) == "0" {
+		if !bytes.Contains(out, []byte("address")) {
 			return false, nil
 		}
 	} else {
