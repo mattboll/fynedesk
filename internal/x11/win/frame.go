@@ -573,7 +573,7 @@ func (f *frame) mouseDrag(x, y int16) {
 		f.moveY += moveDeltaY
 		f.queueGeometry(f.moveX, f.moveY, f.width, f.height, false)
 	}
-	if f.resizeTop || f.resizeBottom || f.resizeLeft || f.resizeRight && !windowSizeFixed(f.client.wm.X(), f.client.win) {
+	if (f.resizeTop || f.resizeBottom || f.resizeLeft || f.resizeRight) && !windowSizeFixed(f.client.wm.X(), f.client.win) {
 		deltaX := x - f.resizeStartX
 		deltaY := y - f.resizeStartY
 		width := int16(f.resizeStartWidth)
