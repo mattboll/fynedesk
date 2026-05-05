@@ -224,6 +224,9 @@ func (s *server) scheduleAnimWakeup(lastTick time.Time) {
 			s.scheduleAllOutputFrames()
 		}:
 		default:
+			// Channel full — animation will skip this frame. Always trigger
+			// the wakeup so the next drain at least catches up later.
+			log.Printf("[anim] mainThreadActions full, frame schedule dropped")
 		}
 		s.triggerWakeup()
 	})
