@@ -1322,6 +1322,14 @@ func Run() {
 	cleanupSessionLock() // Remove all lock listeners before display.Destroy() to avoid wlroots assertion
 	srv.display.Destroy()
 	log.Println("Compositor terminated")
+
+	// If a "restart" IPC arrived (instead of a clean shutdown), exit with the
+	// runner's restart sentinel so fynedesk_runner relaunches us. Doing this
+	// after Destroy() — instead of os.Exit(5) from the IPC handler — means
+	// wlroots/X resources are released cleanly.
+	if srv.wantRestart.Load() {
+		os.Exit(5)
+	}
 }
 
 // setupPortalConfig creates an XDG portal configuration so that

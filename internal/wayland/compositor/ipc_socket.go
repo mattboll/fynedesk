@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -213,8 +212,11 @@ func (s *server) handleSocketRequest(msg *wlipc.Message) (json.RawMessage, error
 		return nil, nil
 
 	case wlipc.ReqRestart:
-		log.Println("Restart requested via socket IPC, exiting with code 5")
-		os.Exit(5)
+		log.Println("Restart requested via socket IPC, terminating event loop")
+		s.wantRestart.Store(true)
+		s.shuttingDown.Store(true)
+		s.saveSessionState()
+		s.display.Terminate()
 		return nil, nil
 
 	case wlipc.ReqShutdown:

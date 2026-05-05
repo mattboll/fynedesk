@@ -162,8 +162,12 @@ func (s *server) watchModeRequests() {
 				log.Println("[IPC] restart request rejected: screen is locked")
 			} else {
 				removeIPC(restartRequestPath)
-				log.Println("Restart requested via IPC, exiting with code 5")
-				os.Exit(5)
+				log.Println("Restart requested via IPC, terminating event loop")
+				s.wantRestart.Store(true)
+				s.shuttingDown.Store(true)
+				s.saveSessionState()
+				s.display.Terminate()
+				return
 			}
 		}
 
