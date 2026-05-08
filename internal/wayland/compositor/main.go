@@ -1194,12 +1194,35 @@ func Run() {
 		// XDG_CURRENT_DESKTOP. This is needed in both nested and real session
 		// modes: in nested mode xdpw would otherwise stay connected to the
 		// host compositor and screen sharing would fail.
+		//
+		// Skip silently when the unit is not installed (some distros ship
+		// xdg-desktop-portal-gtk only). Capture stderr on real failures so
+		// the audit log shows *why* — the previous code just logged the
+		// exit code, which was useless for debugging.
 		for _, svc := range []string{"xdg-desktop-portal-wlr", "xdg-desktop-portal"} {
+			// Pre-check unit presence — `systemctl is-enabled` returns 0 for
+			// enabled, 1 for disabled, but exit 4 ("unit not found") clearly
+			// signals the unit doesn't exist on this system.
+			checkCmd := exec.Command("systemctl", "--user", "show", "-p", "LoadState", "--value", svc)
+			if out, err := checkCmd.Output(); err == nil {
+				state := strings.TrimSpace(string(out))
+				if state == "not-found" || state == "" {
+					log.Printf("[PORTAL] skipping %s restart: unit not installed", svc)
+					continue
+				}
+			}
+
 			restartCmd := exec.Command("systemctl", "--user", "restart", svc)
+			var stderr strings.Builder
+			restartCmd.Stderr = &stderr
 			if err := restartCmd.Run(); err != nil {
-				log.Printf("Warning: could not restart %s: %v\n", svc, err)
+				msg := strings.TrimSpace(stderr.String())
+				if msg == "" {
+					msg = err.Error()
+				}
+				log.Printf("[PORTAL] could not restart %s: %s", svc, msg)
 			} else {
-				log.Printf("%s restarted with new environment\n", svc)
+				log.Printf("[PORTAL] %s restarted with new environment", svc)
 			}
 		}
 	}()
