@@ -94,6 +94,8 @@ import "C"
 import (
 	"fmt"
 	"log"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"time"
 	"unsafe"
@@ -586,12 +588,20 @@ func (s *server) updateFullscreenLayerVisibility(focusingFullscreen bool) {
 
 // enqueueAction sends an action to the main thread with a timeout.
 // Returns an error if the main thread is too busy to accept the action.
+// A dropped action is logged with the caller site so operators can spot
+// chronic backpressure (e.g., heavy frame stalls vs. transient bursts).
 func (s *server) enqueueAction(action func()) error {
 	select {
 	case s.mainThreadActions <- action:
 		s.triggerWakeup()
 		return nil
 	case <-time.After(500 * time.Millisecond):
+		caller := "<unknown>"
+		if _, file, line, ok := runtime.Caller(1); ok {
+			caller = fmt.Sprintf("%s:%d", filepath.Base(file), line)
+		}
+		log.Printf("[ENQUEUE] dropped action from %s — main thread busy >500ms (chan len=%d/%d)\n",
+			caller, len(s.mainThreadActions), cap(s.mainThreadActions))
 		return fmt.Errorf("main thread busy, action dropped")
 	}
 }
