@@ -24,23 +24,24 @@ extern void goWakeupDrain();
 extern struct wlr_screencopy_manager_v1 *g_screencopy_mgr;
 
 // Wakeup event source: reads from eventfd, drains pending Go actions, and
-// schedules a frame on the output. The direct goWakeupDrain() call ensures
-// actions are processed even when the backend doesn't deliver frame callbacks
-// (e.g. nested Wayland compositor with idle window).
+// schedules a frame on every connected output. The direct goWakeupDrain()
+// call ensures actions are processed even when the backend doesn't deliver
+// frame callbacks (e.g. nested Wayland compositor with idle window). The
+// Go side iterates outputs at fire time so primary-output changes (monitor
+// hot-plug) don't leave wakeups pointing at a freed wlr_output.
 static int wakeup_handler(int fd, uint32_t mask, void *data) {
     uint64_t val;
     read(fd, &val, sizeof(val));
-    // Drain pending actions directly (runs on main/event-loop thread)
+    // Drain pending actions and schedule frames on current outputs (Go-side).
     goWakeupDrain();
-    struct wlr_output *output = (struct wlr_output *)data;
-    if (output) {
-        wlr_output_schedule_frame(output);
-    }
     return 0;
 }
 static void setup_wakeup_fd(struct wl_display *display, struct wlr_output *output, int fd) {
     struct wl_event_loop *loop = wl_display_get_event_loop(display);
-    wl_event_loop_add_fd(loop, fd, WL_EVENT_READABLE, wakeup_handler, output);
+    // output is unused — kept for ABI continuity with Go-side callers; frame
+    // scheduling now happens on the Go side over all outputs.
+    (void)output;
+    wl_event_loop_add_fd(loop, fd, WL_EVENT_READABLE, wakeup_handler, NULL);
 }
 
 static void keyboard_clear_focus(struct wlr_seat *seat) {
@@ -608,9 +609,11 @@ func (s *server) enqueueAction(action func()) error {
 
 func (s *server) drainMainThreadActions() {
 	deadline := time.Now().Add(100 * time.Millisecond)
+	ranAny := false
 	for {
 		select {
 		case action := <-s.mainThreadActions:
+			ranAny = true
 			t0 := time.Now()
 			action()
 			if d := time.Since(t0); d > 50*time.Millisecond {
@@ -620,9 +623,19 @@ func (s *server) drainMainThreadActions() {
 				log.Println("[STALL] drainMainThreadActions hit 100ms budget, deferring remaining actions")
 				// Re-trigger wakeup so remaining actions get drained on the next event loop iteration
 				s.triggerWakeup()
+				if ranAny {
+					s.scheduleAllOutputFrames()
+				}
 				return
 			}
 		default:
+			if ranAny {
+				// Ensure the changes from these actions get flushed to the screen
+				// even if the actions themselves didn't schedule frames. Iterating
+				// here (rather than binding a single output to the wakeup handler)
+				// keeps us correct across primary-output hotplug changes.
+				s.scheduleAllOutputFrames()
+			}
 			return
 		}
 	}
