@@ -210,7 +210,7 @@ func (x *x11WM) Close() {
 			close(x.shutdown)
 		}
 	}
-	for _, child := range x.clients {
+	for _, child := range x.clientsSnapshot() {
 		child.Close()
 	}
 	if x.died {
@@ -223,7 +223,7 @@ func (x *x11WM) Close() {
 	exitOnce := &sync.Once{}
 	closeExit := func() { exitOnce.Do(func() { close(exit) }) }
 	go func() {
-		for !cancel.Load() && len(x.clients) > 0 {
+		for !cancel.Load() && x.clientsLen() > 0 {
 			time.Sleep(time.Millisecond * 100)
 		}
 		closeExit()
@@ -710,7 +710,7 @@ func (x *x11WM) isRootTitle(title string) bool {
 }
 
 func (x *x11WM) refreshBorders() {
-	for _, c := range x.clients {
+	for _, c := range x.clientsSnapshot() {
 		c.(x11.XWin).SettingsChanged()
 	}
 }
@@ -742,14 +742,14 @@ func (x *x11WM) setupBindings() {
 	fynedesk.Instance().Settings().AddChangeListener(func(_ fynedesk.DeskSettings) {
 		// this uses the state from the previous bind call
 		x.unbindShortcuts(x.rootID)
-		for _, c := range x.clients {
+		for _, c := range x.clientsSnapshot() {
 			x.unbindShortcuts(c.(x11.XWin).ChildID())
 		}
 		x.currentBindings = nil
 
 		// this call sets up the new cache of shortcuts
 		x.bindShortcuts(x.rootID)
-		for _, c := range x.clients {
+		for _, c := range x.clientsSnapshot() {
 			x.bindShortcuts(c.(x11.XWin).ChildID())
 		}
 

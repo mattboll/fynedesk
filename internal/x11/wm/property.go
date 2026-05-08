@@ -35,14 +35,14 @@ func windowActiveSet(x *xgbutil.XUtil, win xproto.Window) {
 }
 
 func windowClientListUpdate(wm *x11WM) {
-	err := ewmh.ClientListSet(wm.X(), wm.getWindowsFromClients(wm.mappingOrder))
+	err := ewmh.ClientListSet(wm.X(), wm.getWindowsFromClients(wm.mappingOrderSnapshot()))
 	if err != nil {
 		fyne.LogError("", err)
 	}
 }
 
 func windowClientListStackingUpdate(wm *x11WM) {
-	err := ewmh.ClientListStackingSet(wm.X(), wm.getWindowsFromClients(wm.clients))
+	err := ewmh.ClientListStackingSet(wm.X(), wm.getWindowsFromClients(wm.clientsSnapshot()))
 	if err != nil {
 		fyne.LogError("", err)
 	}

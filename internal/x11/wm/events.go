@@ -70,7 +70,7 @@ func (x *x11WM) handleActiveWin(ev xproto.ClientMessageEvent) {
 }
 
 func (x *x11WM) handleButtonPress(ev xproto.ButtonPressEvent) {
-	for _, c := range x.clients {
+	for _, c := range x.clientsSnapshot() {
 		if c.(x11.XWin).FrameID() == ev.Event {
 			c.(x11.XWin).NotifyMousePress(ev.RootX, ev.RootY, ev.Detail, ev.State)
 		}
@@ -79,7 +79,7 @@ func (x *x11WM) handleButtonPress(ev xproto.ButtonPressEvent) {
 }
 
 func (x *x11WM) handleButtonRelease(ev xproto.ButtonReleaseEvent) {
-	for _, c := range x.clients {
+	for _, c := range x.clientsSnapshot() {
 		if c.(x11.XWin).FrameID() == ev.Event {
 			if !x.moveResizing {
 				c.(x11.XWin).NotifyMouseRelease(ev.RootX, ev.RootY, ev.Detail)
@@ -254,7 +254,7 @@ func (x *x11WM) handleMouseLeave(ev xproto.LeaveNotifyEvent) {
 		}
 	}
 
-	for _, c := range x.clients {
+	for _, c := range x.clientsSnapshot() {
 		if c.(x11.XWin).FrameID() == ev.Event {
 			if ev.State&xproto.ButtonMask1 == 0 {
 				c.(x11.XWin).NotifyMouseMotion(-1, -1)
@@ -271,7 +271,7 @@ func (x *x11WM) handleMouseLeave(ev xproto.LeaveNotifyEvent) {
 }
 
 func (x *x11WM) handleMouseMotion(ev xproto.MotionNotifyEvent) {
-	for _, c := range x.clients {
+	for _, c := range x.clientsSnapshot() {
 		if c.(x11.XWin).FrameID() == ev.Event {
 			if x.moveResizing {
 				x.moveResize(ev.RootX, ev.RootY, c.(x11.XWin))
@@ -355,7 +355,7 @@ func (x *x11WM) handleStateActionRequest(ev xproto.ClientMessageEvent, removeSta
 			addState()
 		}
 	}
-	for _, c := range x.clients {
+	for _, c := range x.clientsSnapshot() {
 		if c.(x11.XWin).ChildID() == ev.Window {
 			x.NotifyWindowMoved(c)
 			break
