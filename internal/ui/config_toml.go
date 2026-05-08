@@ -145,14 +145,18 @@ type KeyBindingTOML struct {
 
 // configPath returns the path to config.toml.
 func configPath() string {
-	home := os.Getenv("HOME")
-	return filepath.Join(home, ".config", "fynedesk", "config.toml")
+	return filepath.Join(configDir(), "config.toml")
 }
 
 // configDir returns the config directory, creating it if needed.
+// Honors XDG_CONFIG_HOME so nested or sandboxed instances can keep their
+// state isolated from a host compositor sharing the same UID.
 func configDir() string {
-	home := os.Getenv("HOME")
-	dir := filepath.Join(home, ".config", "fynedesk")
+	base, err := os.UserConfigDir()
+	if err != nil {
+		base = filepath.Join(os.Getenv("HOME"), ".config")
+	}
+	dir := filepath.Join(base, "fynedesk")
 	os.MkdirAll(dir, 0755)
 	return dir
 }

@@ -17,8 +17,7 @@ import (
 )
 
 func (s *server) getConfigDir() string {
-	home := os.Getenv("HOME")
-	configDir := filepath.Join(home, ".config", "fynedesk")
+	configDir := wlipc.ConfigDir()
 	os.MkdirAll(configDir, 0700)
 	return configDir
 }
@@ -68,9 +67,13 @@ func (s *server) readPrefs() (map[string]interface{}, string, error) {
 		return prefs, tomlPath, nil
 	}
 
-	// Fall back to Fyne preferences JSON
-	home := os.Getenv("HOME")
-	prefsPath := filepath.Join(home, ".config", "fyne", "com.fyshos.fynedesk", "preferences.json")
+	// Fall back to Fyne preferences JSON. Fyne itself uses os.UserConfigDir()
+	// when reading/writing its prefs, so we must do the same to find them.
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return nil, "", err
+	}
+	prefsPath := filepath.Join(configDir, "fyne", "com.fyshos.fynedesk", "preferences.json")
 
 	data, err := os.ReadFile(prefsPath)
 	if err != nil {
@@ -734,8 +737,11 @@ func (s *server) applyThemeColors(colorsStr string) {
 // readThemeFileColors reads the active theme.json from Fyne's storage and extracts
 // fynedesk titlebar colors as a pipe-delimited string for applyThemeColors.
 func (s *server) readThemeFileColors() string {
-	home := os.Getenv("HOME")
-	themePath := filepath.Join(home, ".config", "fyne", "com.fyshos.fynedesk", "theme.json")
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	themePath := filepath.Join(configDir, "fyne", "com.fyshos.fynedesk", "theme.json")
 	data, err := os.ReadFile(themePath)
 	if err != nil {
 		return ""

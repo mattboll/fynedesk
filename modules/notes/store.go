@@ -33,8 +33,11 @@ type Store struct {
 
 // NewStore loads (or creates) the notes store.
 func NewStore() *Store {
-	home := os.Getenv("HOME")
-	dir := filepath.Join(home, ".config", "fynedesk")
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		configDir = os.Getenv("HOME") + "/.config"
+	}
+	dir := filepath.Join(configDir, "fynedesk")
 	os.MkdirAll(dir, 0700)
 
 	s := &Store{

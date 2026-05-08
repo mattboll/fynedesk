@@ -376,11 +376,11 @@ func (d *settingsUI) loadAppearanceScreen() fyne.CanvasObject {
 // readOutputNames reads compositor state to get available output names.
 // Returns nil if compositor state is unavailable or has only 1 output.
 func readOutputNames() []string {
-	home, err := os.UserHomeDir()
+	configDir, err := os.UserConfigDir()
 	if err != nil {
 		return nil
 	}
-	statePath := filepath.Join(home, ".config", "fynedesk", "compositor-state.json")
+	statePath := filepath.Join(configDir, "fynedesk", "compositor-state.json")
 	data, err := os.ReadFile(statePath)
 	if err != nil {
 		return nil

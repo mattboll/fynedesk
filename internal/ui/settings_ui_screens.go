@@ -117,12 +117,11 @@ func (d *settingsUI) loadScreensGroup() fyne.CanvasObject {
 }
 
 func (d *settingsUI) loadResolutionSelector() fyne.CanvasObject {
-	home, err := os.UserHomeDir()
+	configDir, err := os.UserConfigDir()
 	if err != nil {
 		return nil
 	}
-
-	statePath := filepath.Join(home, ".config", "fynedesk", "compositor-state.json")
+	statePath := filepath.Join(configDir, "fynedesk", "compositor-state.json")
 	data, err := os.ReadFile(statePath)
 	if err != nil {
 		return nil

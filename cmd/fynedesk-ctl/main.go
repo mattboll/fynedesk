@@ -369,8 +369,11 @@ func cmdSimple(client *wlipc.IPCClient, reqName string) {
 }
 
 func cmdConfig() {
-	home := os.Getenv("HOME")
-	configPath := filepath.Join(home, ".config", "fynedesk", "config.toml")
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		configDir = filepath.Join(os.Getenv("HOME"), ".config")
+	}
+	configPath := filepath.Join(configDir, "fynedesk", "config.toml")
 
 	if _, err := os.Stat(configPath); err != nil {
 		fmt.Printf("Config file: %s (not yet created)\n", configPath)

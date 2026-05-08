@@ -104,8 +104,11 @@ func (s *server) toggleNightLight() {
 // persistNightLight writes the current night light state to Fyne preferences JSON
 // so the panel sidebar checkbox stays in sync and the setting survives restarts.
 func (s *server) persistNightLight() {
-	home := os.Getenv("HOME")
-	prefsPath := filepath.Join(home, ".config", "fyne", "com.fyshos.fynedesk", "preferences.json")
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return
+	}
+	prefsPath := filepath.Join(configDir, "fyne", "com.fyshos.fynedesk", "preferences.json")
 
 	data, err := os.ReadFile(prefsPath)
 	if err != nil {

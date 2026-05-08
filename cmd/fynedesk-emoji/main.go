@@ -183,8 +183,11 @@ func main() {
 // --- IPC helpers ---
 
 func getConfigDir() string {
-	home := os.Getenv("HOME")
-	return filepath.Join(home, ".config", "fynedesk")
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		configDir = filepath.Join(os.Getenv("HOME"), ".config")
+	}
+	return filepath.Join(configDir, "fynedesk")
 }
 
 func atomicWriteFile(path string, data []byte) error {

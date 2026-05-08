@@ -103,7 +103,14 @@ func IsWaylandSession() bool {
 	return os.Getenv("WAYLAND_DISPLAY") != ""
 }
 
-func getConfigDir() string {
+// ConfigDir returns the FyneDesk configuration directory, honoring
+// XDG_CONFIG_HOME so that nested instances (or user-level sandboxing) can
+// keep their state isolated from a host compositor sharing the same UID.
+//
+// Without this every place that hardcoded $HOME/.config/fynedesk would
+// stomp on a parallel instance — see history of split state files between
+// compositor.go and panel.go callers.
+func ConfigDir() string {
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		configDir = os.Getenv("HOME")
@@ -114,6 +121,8 @@ func getConfigDir() string {
 	}
 	return filepath.Join(configDir, "fynedesk")
 }
+
+func getConfigDir() string { return ConfigDir() }
 
 // atomicWriteFile writes data to a file atomically using write-to-temp + rename
 // to avoid race conditions with concurrent readers. If the target path is a
