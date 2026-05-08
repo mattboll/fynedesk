@@ -824,9 +824,12 @@ func (s *server) fullscreenXwayWindow(v *xwayView, enable bool) {
 		}
 		outGeo := s.getOutputGeometry(out)
 
-		// Check if the surface wants a different resolution than the output
+		// Only switch output mode if the surface demands a HIGHER resolution
+		// than the output offers (legacy XWayland games). Surfaces smaller
+		// than the output will be told to grow to fill it; switching modes
+		// for them would churn the panel layout for nothing.
 		surfW, surfH := v.surface.Width(), v.surface.Height()
-		if surfW > 0 && surfH > 0 && (surfW != outGeo.width || surfH != outGeo.height) {
+		if surfW > outGeo.width || surfH > outGeo.height {
 			outGeo = s.switchModeForFullscreen(out, surfW, surfH)
 		}
 

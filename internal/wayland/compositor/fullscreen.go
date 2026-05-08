@@ -260,13 +260,16 @@ func goXwaySurfaceResized(surface unsafe.Pointer, w, h C.int) {
 				s.updateXwayViewDecorations(v)
 			}
 
-			// If fullscreen and surface size differs from output, scale to match
+			// If a fullscreen surface commits at a HIGHER resolution than
+			// the output, switch the output mode to match (legacy XWayland
+			// game case). Smaller surfaces will be told via Configure to
+			// grow to the output size, no mode switch needed.
 			if v.fullscreen && width > 0 && height > 0 {
 				out := s.getOutputForPosition(v.x, v.y)
 				if out == nil {
 					out = s.primaryOutput()
 				}
-				if out != nil && (width != out.width || height != out.height) {
+				if out != nil && (width > out.width || height > out.height) {
 					log.Printf("[FULLSCREEN] Surface commit resize: %dx%d (output=%dx%d), adjusting scale\n",
 						width, height, out.width, out.height)
 					newGeo := s.switchModeForFullscreen(out, width, height)

@@ -573,9 +573,14 @@ func (s *server) fullscreenXdgWindow(v *xdgView, enable bool) {
 		outGeo := s.getOutputGeometry(out)
 		log.Printf("[FULLSCREEN] outGeo=%dx%d at (%d,%d)", outGeo.width, outGeo.height, outGeo.x, outGeo.y)
 
-		// Check if the client wants a different resolution than the output
+		// Only switch the output mode if the client demands a HIGHER
+		// resolution than the output offers — that's the legacy game case
+		// (e.g. native 1920x1080 mode on a 4K screen). For everything else
+		// the client will simply expand to fill the output we configure it
+		// to, so swapping modes here would just churn the panel layout for
+		// no reason and trigger a heavy panel restart on unfullscreen.
 		clientW, clientH := geo.Dx(), geo.Dy()
-		if clientW > 0 && clientH > 0 && (clientW != outGeo.width || clientH != outGeo.height) {
+		if clientW > outGeo.width || clientH > outGeo.height {
 			outGeo = s.switchModeForFullscreen(out, clientW, clientH)
 		}
 
