@@ -85,9 +85,11 @@ func (s *server) checkHotCorners() {
 }
 
 // fireHotCorner executes the action for a hot corner.
+// Leaves activeHotCorner set so the same visit cannot re-fire — the cursor
+// must leave the corner zone (which resets activeHotCorner in checkHotCorners)
+// before another fire is allowed.
 func (s *server) fireHotCorner(action string) {
 	s.lastHotCornerTime = time.Now()
-	s.activeHotCorner = -1
 
 	log.Printf("[HOTCORNER] Activated: %s\n", action)
 
