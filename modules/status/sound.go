@@ -234,6 +234,21 @@ func (i *volItem) Launch() {
 	}
 }
 
+// startsWith implements lenient prefix matching for the launcher: it returns
+// true when one string is a prefix of the other. The launcher uses this so
+// the user can type a partial keyword (e.g. "vol") and still match the
+// keyword "volume", AND so the keyword "vol " can match a fully-typed
+// "volume up". The original buggy implementation used strings.IndexAny
+// which made unrelated strings match by character (e.g. "mug" → "mute");
+// commit bd1be76 over-corrected to HasPrefix only, which broke partial
+// typing. This restores the intended bidirectional prefix semantic without
+// the IndexAny char-matching bug.
 func startsWith(haystack, needle string) bool {
-	return strings.HasPrefix(haystack, needle)
+	if haystack == "" {
+		return false
+	}
+	if len(haystack) >= len(needle) {
+		return strings.HasPrefix(haystack, needle)
+	}
+	return strings.HasPrefix(needle, haystack)
 }
