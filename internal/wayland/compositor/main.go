@@ -993,6 +993,11 @@ func Run() {
 	// Create text input / input method managers (text-input-v3 + input-method-v2 for IME)
 	setupTextInput(srv)
 
+	// Create virtual keyboard manager (zwp_virtual_keyboard_v1) so on-screen
+	// keyboards, accessibility tools, IME helpers, and QA automation (wtype,
+	// dotool) can inject synthetic key events.
+	setupVirtualKeyboard(srv)
+
 	// Create security context manager (wp_security_context_v1 for Flatpak sandboxing)
 	setupSecurityContext(srv)
 
