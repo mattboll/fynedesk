@@ -9,6 +9,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BurntSushi/xgb/xproto"
@@ -54,6 +55,12 @@ type frame struct {
 	pendingGeometry chan *configureGeometry
 	pendingMu       sync.Mutex // guards pendingGeometry create/close/send transitions
 	transparency    int
+
+	// destroyed is set when the frame's X resources have been torn down.
+	// Deferred goroutines (mouseRelease decorate, doubleClick wait) check it
+	// before touching f.client.id / f.client.wm.Conn() — calling X11 ops on a
+	// destroyed Drawable produces BadDrawable noise and risks UAF.
+	destroyed atomic.Bool
 
 	canvas test.WindowlessCanvas
 	client *client
@@ -480,6 +487,16 @@ func (f *frame) drawDecoration(pidTop xproto.Pixmap, drawTop xproto.Gcontext, pi
 	f.copyDecorationPixels(uint32(rightWidthPix), uint32(heightPix), uint32(uint16(img.Bounds().Dx())-rightWidthPix), 0, img, pidTopRight, drawTopRight, depth)
 }
 
+// markDestroyed signals deferred goroutines (mouseRelease decorate, doubleClick
+// wait) to short-circuit instead of touching X resources that no longer exist.
+// Called by the WM after the X frame window has been destroyed.
+func (f *frame) markDestroyed() {
+	f.destroyed.Store(true)
+	if f.cancelFunc != nil {
+		f.cancelFunc()
+	}
+}
+
 func (f *frame) freePixmaps() {
 	if f.borderTop != 0 {
 		xproto.FreePixmap(f.client.wm.Conn(), f.borderTop)
@@ -854,6 +871,9 @@ func (f *frame) mouseRelease(x, y int16, b xproto.Button) {
 
 	go func() {
 		time.Sleep(time.Second / 2)
+		if f.destroyed.Load() {
+			return
+		}
 		f.decorate(true)
 	}()
 	go f.mouseReleaseWaitForDoubleClick(int(relX), int(relY))
@@ -869,6 +889,9 @@ func (f *frame) mouseReleaseWaitForDoubleClick(relX int, relY int) {
 	}
 
 	<-ctx.Done()
+	if f.destroyed.Load() {
+		return
+	}
 	if f.clickCount == 2 {
 		obj := wm.FindObjectAtPixelPositionMatching(relX, relY, f.canvas,
 			func(obj fyne.CanvasObject) bool {

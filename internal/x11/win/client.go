@@ -78,10 +78,12 @@ func (c *client) ChildID() xproto.Window {
 }
 
 // FreeResources releases server-side X resources held by the frame
-// (pixmaps, GContexts). Idempotent; safe to call after the frame has been
-// destroyed.
+// (pixmaps, GContexts). Also marks the frame as destroyed so any
+// in-flight mouseRelease goroutines stop touching X resources.
+// Idempotent; safe to call after the frame has been destroyed.
 func (c *client) FreeResources() {
 	if c.frame != nil {
+		c.frame.markDestroyed()
 		c.frame.freePixmaps()
 	}
 }
