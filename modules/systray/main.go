@@ -436,11 +436,22 @@ func (t *tray) launchAppFallback(wmClass string) {
 		log.Printf("[SYSTRAY] launchAppFallback: failed: %v", err)
 		return
 	}
-	// Don't wait — the process may exit immediately (single-instance) or run
-	go cmd.Wait()
 
-	// After launch triggers the remap, raise the window
-	time.Sleep(1 * time.Second)
+	// Wait up to 1s for the process to either run (single-instance hand-off,
+	// keeps running) or exit cleanly (single-instance forwarder that quits
+	// after activating the existing app). If it exits with a non-zero status,
+	// the launch failed and raising would target a stale window.
+	exitCh := make(chan error, 1)
+	go func() { exitCh <- cmd.Wait() }()
+	select {
+	case err := <-exitCh:
+		if err != nil {
+			log.Printf("[SYSTRAY] launchAppFallback: process exited with error, skipping raise: %v", err)
+			return
+		}
+	case <-time.After(1 * time.Second):
+		// Still running — likely a normal app, fall through to raise
+	}
 	wlipc.RequestRaiseByClass(wmClass)
 }
 
