@@ -760,7 +760,11 @@ func (s *server) startPanel() {
 		return
 	}
 
-	// Watch for panel crash and auto-restart
+	// Watch for panel crash and auto-restart. The relaunch is enqueued onto
+	// the main thread so it runs in the same serial context as the callers
+	// of restartPanel (setOutputLayout, output destroy, primary change) —
+	// otherwise the goroutine would race those callers reading s.panelCmd.
+	cmd := s.panelCmd // capture this goroutine's Cmd; future restarts get a new one
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -768,7 +772,7 @@ func (s *server) startPanel() {
 			}
 		}()
 
-		err := s.panelCmd.Wait()
+		err := cmd.Wait()
 		if err != nil {
 			log.Printf("Panel exited unexpectedly: %v\n", err)
 		} else {
@@ -776,9 +780,18 @@ func (s *server) startPanel() {
 		}
 		// Restart after a short delay unless compositor is shutting down
 		time.Sleep(1 * time.Second)
-		if !s.shuttingDown.Load() {
-			log.Println("Restarting panel...")
-			s.startPanel()
+		if s.shuttingDown.Load() {
+			return
+		}
+		log.Println("Restarting panel...")
+		// Hop to the main thread so startPanel's writes to s.panelCmd
+		// are serialized with restartPanel's reads.
+		if err := s.enqueueAction(func() {
+			if !s.shuttingDown.Load() {
+				s.startPanel()
+			}
+		}); err != nil {
+			log.Printf("[PANEL] failed to schedule restart on main thread: %v", err)
 		}
 	}()
 }
