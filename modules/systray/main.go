@@ -313,8 +313,12 @@ func (t *tray) RegisterStatusNotifierItem(service string, sender dbus.Sender) (e
 func (t *tray) RegisterStatusNotifierHost(service string, sender dbus.Sender) (err *dbus.Error) {
 	log.Println("Register Host", service, sender)
 
+	// The signal Path is the OBJECT PATH from which the watcher emits — i.e.
+	// /StatusNotifierWatcher, not the registering host's bus name (":1.2").
+	// Wrapping the bus name in ObjectPath produced "dbus: invalid path name"
+	// on every panel start because ":" is not legal in a path component.
 	e := watcher.Emit(t.conn, &watcher.StatusNotifierWatcher_StatusNotifierHostRegisteredSignal{
-		Path: dbus.ObjectPath(service),
+		Path: dbus.ObjectPath(path),
 		Body: &watcher.StatusNotifierWatcher_StatusNotifierHostRegisteredSignalBody{},
 	})
 	if e != nil {
