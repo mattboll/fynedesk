@@ -520,9 +520,10 @@ func (s *server) handleNewOutput(output wlr.Output) {
 	out.frameListener = unsafe.Pointer(
 		C.create_frame_listener(displayPtr(s.display), outputPtr(output)))
 
-	// Handle output disconnect
+	// Handle output disconnect. Pass fromDestroyEvent=true so the cleanup
+	// path skips Destroy()-ing this in-flight OnDestroy listener.
 	out.listeners = append(out.listeners, output.OnDestroy(func(output wlr.Output) {
-		s.handleOutputDestroy(out)
+		s.handleOutputDestroyImpl(out, true)
 	}))
 
 	// Write compositor state for panel to read available modes
@@ -715,9 +716,37 @@ func (s *server) loadDefaultBackground(out *outputState) {
 	s.loadWallpaperForOutput(out, img)
 }
 
-// handleOutputDestroy removes a disconnected output from the server
+// handleOutputDestroy removes a disconnected output from the server.
+// Called from two paths:
+//  1. The OnDestroy listener registered at output map time — wlroots is
+//     tearing down the output, the OnDestroy listener is in flight and
+//     must NOT be Destroy()ed here (would corrupt the signal list).
+//  2. disableOutput — the wlr_output is still alive; we clean up our
+//     side preemptively so its later destruction doesn't try to fire
+//     our listeners again.
+//
+// In both cases we want to free the rest of out.listeners. The destroy
+// event path passes fromDestroyEvent=true so we skip listener[0] (the
+// in-flight OnDestroy).
 func (s *server) handleOutputDestroy(out *outputState) {
+	s.handleOutputDestroyImpl(out, false)
+}
+
+// handleOutputDestroyImpl is the inner implementation; see handleOutputDestroy.
+func (s *server) handleOutputDestroyImpl(out *outputState, fromDestroyEvent bool) {
 	wasPrimary := s.primaryOutput() == out
+
+	// Clean up wlr signal listeners attached to this output. listener[0] is
+	// the OnDestroy listener — if we got here from the destroy event, it's
+	// in flight and Destroy()-ing it would corrupt the signal list (same
+	// pattern as xdg/xway view destruction).
+	for i, lis := range out.listeners {
+		if fromDestroyEvent && i == 0 {
+			continue
+		}
+		lis.Destroy()
+	}
+	out.listeners = nil
 
 	// Clean up per-output frame listener
 	if out.frameListener != nil {
