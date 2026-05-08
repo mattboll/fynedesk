@@ -317,18 +317,20 @@ func (x *x11WM) bindShortcut(short *fynedesk.Shortcut, win xproto.Window) {
 }
 
 func (x *x11WM) bindShortcuts(win xproto.Window) {
-	if _, ok := fynedesk.Instance().(wm.ShortcutManager); !ok {
+	mgr, ok := fynedesk.Instance().(wm.ShortcutManager)
+	if !ok {
 		return
 	}
 
-	shortcutList := fynedesk.Instance().(wm.ShortcutManager).Shortcuts()
+	// Snapshot the current shortcut list so unbindShortcuts later can ungrab
+	// the same set, even if the manager has been mutated in between
+	// (e.g., a module registered a runtime shortcut). Always overwrite the
+	// cache — the previous nil-only update missed runtime additions.
+	shortcutList := mgr.Shortcuts()
 	for _, shortcut := range shortcutList {
 		x.bindShortcut(shortcut, win)
 	}
-
-	if x.currentBindings == nil {
-		x.currentBindings = shortcutList
-	}
+	x.currentBindings = shortcutList
 }
 
 // firstKeycode returns the first keycode for the named symbol, or 0 if the
