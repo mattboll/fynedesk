@@ -80,7 +80,7 @@ func (s *server) setupKeyboard(device wlr.InputDevice) {
 		}
 
 		// When locked, check for emergency logout before forwarding to lock client
-		if s.locked {
+		if s.locked.Load() {
 			if state == wlr.KeyStatePressed {
 				symsLock := kb.XKBState().Syms(xkb.KeyCode(keyCode + 8))
 				mods := kb.GetModifiers()

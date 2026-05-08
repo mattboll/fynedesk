@@ -173,7 +173,7 @@ func goSwipeEnd(timeMsec C.uint32_t, cancelled C.int) {
 
 // processSwipeGesture interprets the completed swipe gesture.
 func (s *server) processSwipeGesture() {
-	if s.locked {
+	if s.locked.Load() {
 		return
 	}
 

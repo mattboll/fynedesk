@@ -468,7 +468,7 @@ import (
 // Returns true if thumbnails were actually captured (false if throttled).
 func (s *server) captureViewThumbnails() bool {
 	hasPending := len(s.previewPendingIDs) > 0
-	if s.locked || (!s.switcherActive && !hasPending) {
+	if s.locked.Load() || (!s.switcherActive && !hasPending) {
 		return false
 	}
 	now := time.Now()

@@ -48,7 +48,7 @@ func (s *server) watchdogRecovery() {
 		// Don't trigger restart while locked or display blanked — no frames
 		// are produced when outputs are disabled (DPMS off). Killing the
 		// compositor while locked destroys the entire user session.
-		if s.locked || s.displayBlanked {
+		if s.locked.Load() || s.displayBlanked {
 			continue
 		}
 

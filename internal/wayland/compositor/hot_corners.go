@@ -31,7 +31,7 @@ const (
 // checkHotCorners detects if the cursor is in a hot corner zone and
 // triggers the configured action instantly (with cooldown to prevent rapid re-fire).
 func (s *server) checkHotCorners() {
-	if s.switcherActive || s.overviewActive || s.locked || s.grab != grabNone {
+	if s.switcherActive || s.overviewActive || s.locked.Load() || s.grab != grabNone {
 		return
 	}
 

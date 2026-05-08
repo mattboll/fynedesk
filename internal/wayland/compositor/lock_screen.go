@@ -274,7 +274,7 @@ func (s *server) activateBuiltinLock() {
 	s.builtinLock.blurredBg = s.createLockBackground()
 
 	// Set locked state
-	s.locked = true
+	s.locked.Store(true)
 	s.suspendLockPending = false // Lock acquired
 	s.markLocked()
 

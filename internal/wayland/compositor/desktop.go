@@ -587,6 +587,28 @@ func (s *server) updateFullscreenLayerVisibility(focusingFullscreen bool) {
 	}
 }
 
+// runOnMainThread runs fn on the main thread and waits for the result.
+// Used by IPC goroutine handlers that need to read state shared with the
+// main thread (xdgViews/xwayViews iteration, currentDesk/numDesks reads,
+// etc.) — running them inline would race with main-thread mutations.
+//
+// Returns an error if the main thread is too busy to accept the action
+// within 500ms (same budget as enqueueAction). Result type is via generics
+// so each call site can return whatever shape it needs.
+func runOnMainThread[T any](s *server, fn func() T) (T, error) {
+	var zero T
+	resultCh := make(chan T, 1)
+	if err := s.enqueueAction(func() { resultCh <- fn() }); err != nil {
+		return zero, err
+	}
+	select {
+	case result := <-resultCh:
+		return result, nil
+	case <-time.After(2 * time.Second):
+		return zero, fmt.Errorf("main thread did not respond within 2s")
+	}
+}
+
 // enqueueAction sends an action to the main thread with a timeout.
 // Returns an error if the main thread is too busy to accept the action.
 // A dropped action is logged with the caller site so operators can spot

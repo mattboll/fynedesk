@@ -217,7 +217,7 @@ func goSessionLockNewLock(lock unsafe.Pointer) {
 	lockPtr := (*C.struct_wlr_session_lock_v1)(lock)
 
 	// Reject second lock client while already locked
-	if s.locked && s.currentLock != nil {
+	if s.locked.Load() && s.currentLock != nil {
 		log.Println("[LOCK] Rejecting second lock client — already locked")
 		C.destroy_lock(lockPtr)
 		return
@@ -279,7 +279,7 @@ func goSessionLockSurfaceDestroy(lockSurfacePtr unsafe.Pointer) {
 func (s *server) handleSessionLockNewLock(lock *C.struct_wlr_session_lock_v1) {
 	log.Println("[LOCK] New lock session requested")
 
-	s.locked = true
+	s.locked.Store(true)
 	s.lockedSent = false           // Reset for each new lock session
 	s.suspendLockPending = false   // Lock acquired — allow normal idle reset
 	s.currentLock = unsafe.Pointer(lock)
@@ -459,7 +459,7 @@ const maxLockCrashes = 3
 
 // handleSessionLockDestroy processes lock object destruction
 func (s *server) handleSessionLockDestroy() {
-	if s.locked {
+	if s.locked.Load() {
 		log.Println("[LOCK] Lock client crashed while still locked")
 
 		// Clean up surface scene nodes.
@@ -541,7 +541,7 @@ func (s *server) handleSessionLockDestroy() {
 
 // cleanupLock restores the compositor to unlocked state
 func (s *server) cleanupLock() {
-	s.locked = false
+	s.locked.Store(false)
 	s.lockedSent = false
 	s.markUnlocked()
 

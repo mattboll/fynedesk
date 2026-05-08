@@ -72,7 +72,7 @@ func (s *server) handleCursorButton(p wlr.Pointer, t time.Time, button wlr.Curso
 	}
 
 	// When locked, forward button events to the lock surface (if it exists)
-	if s.locked {
+	if s.locked.Load() {
 		if s.currentLock != nil && len(s.lockSurfaceStates) > 0 {
 			s.seat.PointerNotifyButton(t, button, state)
 			s.seat.PointerNotifyFrame()
@@ -628,7 +628,7 @@ func (s *server) handleCursorAxis(p wlr.Pointer, t time.Time, source wlr.AxisSou
 		deltaDiscrete = -deltaDiscrete
 	}
 
-	if s.locked {
+	if s.locked.Load() {
 		return
 	}
 
@@ -676,7 +676,7 @@ func (s *server) processCursorMotion(t time.Time) {
 	}
 
 	// When locked, route pointer to the lock surface under cursor
-	if s.locked {
+	if s.locked.Load() {
 		s.processLockedCursorMotion(t)
 		return
 	}

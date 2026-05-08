@@ -244,7 +244,7 @@ func (s *server) resetIdleTimer() {
 	// Don't clear idleLocked if:
 	// - a session lock client is active (it handles auth)
 	// - a suspend-triggered lock is pending (race between resume input and lock launch)
-	if !s.locked && !s.suspendLockPending {
+	if !s.locked.Load() && !s.suspendLockPending {
 		s.idleLocked = false
 	}
 
@@ -257,7 +257,7 @@ func (s *server) resetIdleTimer() {
 		// keyboard events reach it. The DRM disable/enable cycle can cause
 		// the seat's keyboard focus to go stale (client may have re-created
 		// its surface, or the focus target may have become invalid).
-		if s.locked {
+		if s.locked.Load() {
 			s.focusLockSurface()
 		}
 	}
@@ -376,7 +376,7 @@ func (s *server) setDisplayBlanked(blank bool) {
 		out.output.Commit()
 		scheduleOutputFrame(out.output)
 	}
-	log.Printf("Display unblanked, render loop restarted (locked=%v)\n", s.locked)
+	log.Printf("Display unblanked, render loop restarted (locked=%v)\n", s.locked.Load())
 }
 
 func (s *server) lockScreen() {
@@ -422,7 +422,7 @@ func (s *server) lockScreen() {
 				}
 				select {
 				case s.mainThreadActions <- func() {
-					if s.idleLocked && !s.locked {
+					if s.idleLocked && !s.locked.Load() {
 						log.Println("[LOCK] Lock client launched but never connected — clearing idle lock")
 						s.idleLocked = false
 					}

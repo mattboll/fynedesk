@@ -79,7 +79,7 @@ func (s *server) watchSuspendResume() {
 			log.Println("[SUSPEND] PrepareForSleep(true) — locking before suspend")
 			s.mainThreadActions <- func() {
 				s.suspendLockPending = true
-				if !s.locked {
+				if !s.locked.Load() {
 					s.idleLocked = true
 					go s.lockScreen()
 				}
@@ -89,7 +89,7 @@ func (s *server) watchSuspendResume() {
 			// System just resumed — ensure we're locked.
 			log.Println("[SUSPEND] PrepareForSleep(false) — resume detected")
 			s.mainThreadActions <- func() {
-				if !s.locked {
+				if !s.locked.Load() {
 					log.Println("[SUSPEND] Not locked after resume — locking now")
 					s.suspendLockPending = true
 					s.idleLocked = true

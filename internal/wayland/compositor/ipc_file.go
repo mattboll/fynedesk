@@ -76,7 +76,7 @@ func (s *server) watchModeRequests() {
 		if s.shuttingDown.Load() {
 			return
 		}
-		locked := s.locked
+		locked := s.locked.Load()
 
 		// Check for mode change request
 		if data, err := os.ReadFile(modeRequestPath); err == nil {

@@ -305,8 +305,10 @@ type server struct {
 	activeTextInput unsafe.Pointer   // *C.struct_wlr_text_input_v3 — focused
 	activeInputMethod unsafe.Pointer // *C.struct_wlr_input_method_v2 — connected IME
 
-	// Session lock state
-	locked            bool
+	// Session lock state. locked is read by goroutines (IPC handlers, watchdog,
+	// suspend watcher) and written from the main thread — atomic.Bool keeps the
+	// hot path lock-free while satisfying the race detector.
+	locked            atomic.Bool
 	lockedSent        bool // true after send_locked; prevents double-send crash
 	lockSurfaceStates map[string]*lockSurfaceState
 	lockBlackRects    map[string]unsafe.Pointer

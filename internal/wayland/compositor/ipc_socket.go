@@ -27,7 +27,7 @@ func (s *server) startSocketIPC() {
 // Requests are queued to the main thread via mainThreadActions.
 func (s *server) handleSocketRequest(msg *wlipc.Message) (json.RawMessage, error) {
 	// Security: while locked, only allow safe read-only or lock-related requests.
-	if s.locked {
+	if s.locked.Load() {
 		switch msg.Name {
 		case wlipc.ReqListWindows, wlipc.ReqGetDesktop, wlipc.ReqLock,
 			wlipc.ReqSettingsChanged, wlipc.ReqKeyboardLayout:
@@ -39,12 +39,26 @@ func (s *server) handleSocketRequest(msg *wlipc.Message) (json.RawMessage, error
 
 	switch msg.Name {
 	case wlipc.ReqListWindows:
-		// Synchronous: build and return current window state
-		state := s.buildWindowsState()
+		// Synchronous: build and return current window state.
+		// Runs on the main thread to avoid racing with view list mutations.
+		state, err := runOnMainThread(s, func() wlipc.WindowsState {
+			return s.buildWindowsState()
+		})
+		if err != nil {
+			return nil, err
+		}
 		return json.Marshal(state)
 
 	case wlipc.ReqGetDesktop:
-		state := DesktopState{Current: s.currentDesk, NumDesks: s.numDesks, Names: s.desktopNames}
+		// Read currentDesk/numDesks/desktopNames on the main thread to
+		// avoid racing with switchDesk and desktop-name updates.
+		state, err := runOnMainThread(s, func() DesktopState {
+			names := append([]string(nil), s.desktopNames...)
+			return DesktopState{Current: s.currentDesk, NumDesks: s.numDesks, Names: names}
+		})
+		if err != nil {
+			return nil, err
+		}
 		return json.Marshal(state)
 
 	case wlipc.ReqWindowAction:
@@ -173,13 +187,25 @@ func (s *server) handleSocketRequest(msg *wlipc.Message) (json.RawMessage, error
 		if err := json.Unmarshal(msg.Data, &req); err != nil {
 			return nil, fmt.Errorf("invalid window preview: %w", err)
 		}
-		result, err := s.handleWindowPreview(req.WindowID)
-		if err != nil {
-			log.Printf("[PREVIEW] request for %s failed: %v", req.WindowID, err)
-		} else {
-			log.Printf("[PREVIEW] request for %s succeeded (%d bytes)", req.WindowID, len(result))
+		// handleWindowPreview iterates xdgViews/xwayViews — must run on
+		// main thread to avoid racing with view destruction.
+		type previewResult struct {
+			data json.RawMessage
+			err  error
 		}
-		return result, err
+		res, err := runOnMainThread(s, func() previewResult {
+			data, err := s.handleWindowPreview(req.WindowID)
+			return previewResult{data, err}
+		})
+		if err != nil {
+			return nil, err
+		}
+		if res.err != nil {
+			log.Printf("[PREVIEW] request for %s failed: %v", req.WindowID, res.err)
+		} else {
+			log.Printf("[PREVIEW] request for %s succeeded (%d bytes)", req.WindowID, len(res.data))
+		}
+		return res.data, res.err
 
 	case wlipc.ReqOverlay:
 		var req wlipc.OverlayRequest
@@ -193,13 +219,15 @@ func (s *server) handleSocketRequest(msg *wlipc.Message) (json.RawMessage, error
 			Width:  req.Width,
 			Height: req.Height,
 		}
-		s.pendingOverlay = oReq
-		// If an overlay with this title is already mapped, reposition it now.
-		// This handles animation frames and position updates after initial map.
-		s.mainThreadActions <- func() {
+		// Set pendingOverlay AND reposition any already-mapped overlay together
+		// on the main thread — writing pendingOverlay from the IPC goroutine
+		// races with map handlers that read it.
+		if err := s.enqueueAction(func() {
+			s.pendingOverlay = oReq
 			s.repositionMappedOverlay(oReq)
+		}); err != nil {
+			return nil, err
 		}
-		s.triggerWakeup()
 		return nil, nil
 
 	case wlipc.ReqLock:

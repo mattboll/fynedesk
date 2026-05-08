@@ -34,7 +34,7 @@ func (s *server) handleKeybinding(mods wlr.KeyboardModifier, sym xkb.KeySym) boo
 
 	// While locked, only allow emergency logout (prevents permanent lockout
 	// if the lock client crashes and can't be relaunched)
-	if s.locked {
+	if s.locked.Load() {
 		if action == wlipc.ActionEmergencyLogout {
 			return s.dispatchAction(action)
 		}
@@ -47,7 +47,7 @@ func (s *server) handleKeybinding(mods wlr.KeyboardModifier, sym xkb.KeySym) boo
 func (s *server) dispatchAction(action string) bool {
 	// Security: block all actions while locked except emergency logout.
 	// Defense-in-depth — callers (handleKeybinding, IPC) should also check.
-	if s.locked && action != wlipc.ActionEmergencyLogout {
+	if s.locked.Load() && action != wlipc.ActionEmergencyLogout {
 		log.Printf("[DISPATCH] blocked while locked: %q", action)
 		return false
 	}
