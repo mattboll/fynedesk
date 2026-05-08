@@ -674,20 +674,34 @@ func (s *server) startPanel() {
 		return
 	}
 
-	// Find the panel binary (check local build first for development)
+	// Find the panel binary. FYNEDESK_PANEL_BIN wins so QA harnesses, dev
+	// builds and packaged installs can pin a specific binary; otherwise fall
+	// back to the historical search order.
 	home := os.Getenv("HOME")
-	panelPath := "./fynedesk-panel" // root dir: always the freshest go build output
-	if _, err := os.Stat(panelPath); os.IsNotExist(err) {
-		panelPath = "cmd/fynedesk-panel/fynedesk-panel"
+	var panelPath string
+	if env := os.Getenv("FYNEDESK_PANEL_BIN"); env != "" {
+		panelPath = env
+	} else {
+		for _, candidate := range []string{
+			"./fynedesk-panel",
+			"cmd/fynedesk-panel/fynedesk-panel",
+			home + "/.local/bin/fynedesk-panel",
+			"/tmp/fynedesk-panel",
+		} {
+			if _, err := os.Stat(candidate); err == nil {
+				panelPath = candidate
+				break
+			}
+		}
 	}
-	if _, err := os.Stat(panelPath); os.IsNotExist(err) {
-		panelPath = home + "/.local/bin/fynedesk-panel"
+	if panelPath == "" {
+		log.Println("Warning: Panel binary not found (set FYNEDESK_PANEL_BIN to override)")
+		log.Println("Launching fallback terminal instead")
+		s.launchTerminal()
+		return
 	}
-	if _, err := os.Stat(panelPath); os.IsNotExist(err) {
-		panelPath = "/tmp/fynedesk-panel"
-	}
-	if _, err := os.Stat(panelPath); os.IsNotExist(err) {
-		log.Println("Warning: Panel binary not found at", panelPath)
+	if _, err := os.Stat(panelPath); err != nil {
+		log.Printf("Warning: Panel binary %q not accessible: %v", panelPath, err)
 		log.Println("Launching fallback terminal instead")
 		s.launchTerminal()
 		return
