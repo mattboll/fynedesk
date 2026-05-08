@@ -5,6 +5,7 @@ import (
 	"math"
 	"os/exec"
 	"strconv"
+	"sync"
 
 	"github.com/FyshOS/appie"
 
@@ -48,6 +49,11 @@ type desktop struct {
 	root       fyne.Window
 	desk       int
 	background *background // stored for direct settings updates
+
+	// settingsListenersOnce guards addSettingsChangeListener — Fyne provides
+	// no RemoveListener, so duplicate adds would leak listener entries that
+	// fire on every settings change forever.
+	settingsListenersOnce sync.Once
 }
 
 // setScreenAreaVisible shows or hides screen area modules (desktop icons).
@@ -385,11 +391,13 @@ func (l *desktop) fireSettingsChangeListener(s fynedesk.DeskSettings) {
 }
 
 func (l *desktop) addSettingsChangeListener() {
-	l.Settings().AddChangeListener(l.fireSettingsChangeListener)
+	l.settingsListenersOnce.Do(func() {
+		l.Settings().AddChangeListener(l.fireSettingsChangeListener)
 
-	l.app.Settings().AddListener(func(_ fyne.Settings) {
-		bgType := fyne.CurrentApp().Preferences().String("background_type")
-		l.updateBackgrounds(l.Settings().Background(), bgType)
+		l.app.Settings().AddListener(func(_ fyne.Settings) {
+			bgType := fyne.CurrentApp().Preferences().String("background_type")
+			l.updateBackgrounds(l.Settings().Background(), bgType)
+		})
 	})
 }
 
