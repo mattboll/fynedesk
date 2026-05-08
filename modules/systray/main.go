@@ -257,6 +257,13 @@ func (t *tray) RegisterStatusNotifierItem(service string, sender dbus.Sender) (e
 		dest = service
 		objPath = "/StatusNotifierItem"
 	}
+	// Reject malformed paths — godbus would later log "invalid path name"
+	// when we try to call methods on the proxy, with no way to clean up
+	// the half-registered tray entry.
+	if !objPath.IsValid() {
+		log.Printf("[SYSTRAY] RegisterStatusNotifierItem: rejecting invalid object path %q from sender=%q", service, sender)
+		return dbus.MakeFailedError(fmt.Errorf("invalid object path: %q", service))
+	}
 	log.Printf("[SYSTRAY] RegisterStatusNotifierItem: service=%q sender=%q dest=%q objPath=%q", service, sender, dest, objPath)
 	ni := notifier.NewStatusNotifierItem(t.conn.Object(dest, objPath))
 
