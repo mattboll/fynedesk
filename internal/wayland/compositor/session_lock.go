@@ -290,6 +290,18 @@ func (s *server) handleSessionLockNewLock(lock *C.struct_wlr_session_lock_v1) {
 	lockTree := (*C.struct_wlr_scene_tree)(s.lockTree)
 	C.scene_node_set_enabled_c(&lockTree.node, 1)
 
+	// If a previous lock client crashed, its black rects are still parented
+	// under lockTree (handleSessionLockDestroy keeps them deliberately so the
+	// screen stays black between attempts). Destroy them now before creating
+	// the new ones, otherwise rapid lock-relaunch cycles pile orphan rects in
+	// the scene graph and eventually crash inside wl_display_run.
+	for _, rect := range s.lockBlackRects {
+		if rect != nil {
+			C.scene_node_destroy_c(&(*C.struct_wlr_scene_rect)(rect).node)
+		}
+	}
+	s.lockBlackRects = map[string]unsafe.Pointer{}
+
 	// Create black fallback rects for each output
 	for _, out := range s.outputs {
 		name := out.output.Name()
@@ -499,7 +511,24 @@ func (s *server) handleSessionLockDestroy() {
 		}
 		log.Printf("[LOCK] Relaunching lock client in %v (attempt %d/%d)\n", delay, s.lockCrashCount, maxLockCrashes)
 		go func() {
-			time.Sleep(delay)
+			// Honor shutdown so we don't fight teardown. Without this, a
+			// stress run that kills the lock client repeatedly produced a
+			// pile of pending relaunch goroutines and eventually segfaulted
+			// inside wl_display_run when several of them fired together.
+			select {
+			case <-s.shutdown:
+				return
+			case <-time.After(delay):
+			}
+			if s.shuttingDown.Load() {
+				return
+			}
+			// If something else already re-locked the screen meanwhile
+			// (user pressed lock again, ext-session-lock client reconnected,
+			// fallback built-in lock kicked in), don't pile on a second one.
+			if s.currentLock != nil || (s.builtinLock != nil && s.builtinLock.active) {
+				return
+			}
 			s.lockScreen()
 		}()
 		return
