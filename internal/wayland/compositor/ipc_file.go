@@ -2,6 +2,7 @@ package compositor
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -536,3 +537,209 @@ func (s *server) handleWindowAction(req wlipc.WindowActionRequest) {
 	}
 }
 
+func (s *server) requestLauncher() {
+	configDir := s.getConfigDir()
+	os.MkdirAll(configDir, 0700)
+
+	req := wlipc.LauncherRequest{
+		Timestamp: time.Now().UnixMilli(),
+		CursorX:   float32(s.cursor.X()),
+		CursorY:   float32(s.cursor.Y()),
+	}
+	data, _ := json.Marshal(req)
+	writeAtomic(filepath.Join(configDir, "launcher-request.json"), data)
+
+	if s.ipcServer != nil {
+		s.ipcServer.Broadcast(wlipc.EventLauncherRequest, req)
+	}
+
+	// Focus the panel so it can receive keyboard input for the launcher.
+	s.focusPanelKeyboard()
+}
+
+// requestEmojiPicker sends an emoji picker request to the panel via IPC and focuses it
+func (s *server) requestEmojiPicker() {
+	// Save the currently active window so we can refocus it after the picker closes
+	s.preOverlayXdg = s.activeXdg
+	s.preOverlayXway = s.activeXway
+	if s.preOverlayXdg != nil {
+		log.Printf("[emoji] saving pre-overlay: XDG %s\n", s.preOverlayXdg.id)
+	} else if s.preOverlayXway != nil {
+		log.Printf("[emoji] saving pre-overlay: XWay %s\n", s.preOverlayXway.id)
+	} else {
+		log.Printf("[emoji] no active window to save as pre-overlay\n")
+	}
+
+	configDir := s.getConfigDir()
+	os.MkdirAll(configDir, 0700)
+
+	emojiReq := struct {
+		X         float64 `json:"x"`
+		Y         float64 `json:"y"`
+		Timestamp int64   `json:"timestamp"`
+	}{
+		X:         s.cursor.X(),
+		Y:         s.cursor.Y(),
+		Timestamp: time.Now().UnixMilli(),
+	}
+	data, _ := json.Marshal(emojiReq)
+	ipcPath := filepath.Join(configDir, "emoji-picker-request.json")
+	if err := atomicWriteFile(ipcPath, data); err != nil {
+		log.Printf("Error writing emoji picker IPC: %v\n", err)
+	}
+
+	if s.ipcServer != nil {
+		s.ipcServer.Broadcast(wlipc.EventEmojiPicker, emojiReq)
+	}
+
+	// Focus the panel so it can process the request
+	s.focusPanelKeyboard()
+}
+
+// refocusPreOverlayWindow restores focus to the window that was active before the overlay
+func (s *server) refocusPreOverlayWindow() {
+	activeXwayID := ""
+	if s.activeXway != nil {
+		activeXwayID = s.activeXway.id
+	}
+	activeXdgID := ""
+	if s.activeXdg != nil {
+		activeXdgID = s.activeXdg.id
+	}
+	preXwayID := ""
+	if s.preOverlayXway != nil {
+		preXwayID = s.preOverlayXway.id
+	}
+	preXdgID := ""
+	if s.preOverlayXdg != nil {
+		preXdgID = s.preOverlayXdg.id
+	}
+	log.Printf("[REFOCUS] activeXway=%s activeXdg=%s preOverlayXway=%s preOverlayXdg=%s",
+		activeXwayID, activeXdgID, preXwayID, preXdgID)
+
+	// If a new non-panel, non-overlay window was focused while the overlay
+	// was open (e.g. Settings opened from the sidebar), don't override it.
+	if s.activeXway != nil && !s.activeXway.isPanel && !s.activeXway.isOverlay &&
+		s.activeXway != s.preOverlayXway {
+		log.Printf("[REFOCUS] skip: new xway window %s focused during overlay", s.activeXway.id)
+		s.preOverlayXdg = nil
+		s.preOverlayXway = nil
+		return
+	}
+	if s.activeXdg != nil && s.activeXdg != s.preOverlayXdg {
+		log.Printf("[REFOCUS] skip: new xdg window %s focused during overlay", s.activeXdg.id)
+		s.preOverlayXdg = nil
+		s.preOverlayXway = nil
+		return
+	}
+
+	if s.preOverlayXdg != nil && s.preOverlayXdg.mapped {
+		log.Printf("[REFOCUS] restoring pre-overlay XDG: %s", s.preOverlayXdg.id)
+		s.focusXdgView(s.preOverlayXdg)
+	} else if s.preOverlayXway != nil && s.preOverlayXway.mapped && !s.preOverlayXway.isPanel {
+		log.Printf("[REFOCUS] restoring pre-overlay XWay: %s", s.preOverlayXway.id)
+		restackXwaylandSurfaceAbove(s.preOverlayXway.surface)
+		s.focusXwayView(s.preOverlayXway)
+	} else {
+		log.Printf("[REFOCUS] fallback: focusTopmostOnDesk")
+		s.focusTopmostOnDesk(s.currentDesk)
+	}
+	s.preOverlayXdg = nil
+	s.preOverlayXway = nil
+}
+
+// handleEmojiPaste reads the emoji from the IPC file and sets the compositor-owned
+// clipboard so it's available to all Wayland and XWayland clients.
+func (s *server) handleEmojiPaste() {
+	configDir := s.getConfigDir()
+	pastePath := filepath.Join(configDir, "emoji-paste.json")
+
+	data, err := os.ReadFile(pastePath)
+	if err != nil {
+		return
+	}
+	removeIPC(pastePath)
+
+	var req wlipc.EmojiPasteRequest
+	if err := json.Unmarshal(data, &req); err != nil || req.Emoji == "" {
+		return
+	}
+
+	s.setClipboard(req.Emoji)
+	log.Printf("[emoji] clipboard set to %q\n", req.Emoji)
+}
+
+// showWindowContextMenu writes a context menu request for the panel to display
+func (s *server) showWindowContextMenu(xdgV *xdgView, xwayV *xwayView) {
+	var windowID, title string
+	if xdgV != nil {
+		for i, v := range s.xdgViews {
+			if v == xdgV {
+				windowID = fmt.Sprintf("xdg-%d", i)
+				break
+			}
+		}
+		title = xdgV.xdgToplevel.Title()
+	} else if xwayV != nil {
+		for i, v := range s.xwayViews {
+			if v == xwayV {
+				windowID = fmt.Sprintf("xway-%d", i)
+				break
+			}
+		}
+		title = xwayV.surface.Title()
+	}
+	if windowID == "" {
+		return
+	}
+
+	configDir := s.getConfigDir()
+	reqPath := filepath.Join(configDir, "context-menu-request.json")
+	ctxReq := struct {
+		WindowID string  `json:"window_id"`
+		Title    string  `json:"title"`
+		X        float64 `json:"x"`
+		Y        float64 `json:"y"`
+	}{
+		WindowID: windowID,
+		Title:    title,
+		X:        s.cursor.X(),
+		Y:        s.cursor.Y(),
+	}
+	data, _ := json.Marshal(ctxReq)
+	writeAtomic(reqPath, data)
+
+	if s.ipcServer != nil {
+		s.ipcServer.Broadcast(wlipc.EventContextMenu, ctxReq)
+	}
+}
+
+// requestCommandPalette sends a command palette request to the panel via IPC
+func (s *server) requestCommandPalette() {
+	ts := map[string]int64{"timestamp": time.Now().UnixMilli()}
+
+	if s.ipcServer != nil {
+		s.ipcServer.Broadcast(wlipc.EventCommandPalette, ts)
+	}
+
+	// File-based fallback
+	configDir := s.getConfigDir()
+	os.MkdirAll(configDir, 0700)
+	data, _ := json.Marshal(ts)
+	writeAtomic(filepath.Join(configDir, "command-palette-request.json"), data)
+
+	// Focus the panel so it can receive keyboard input
+	s.focusPanelKeyboard()
+}
+
+// requestSidebar sends a sidebar toggle event to the panel via IPC.
+func (s *server) requestSidebar() {
+	ts := map[string]int64{"timestamp": time.Now().UnixMilli()}
+
+	if s.ipcServer != nil {
+		s.ipcServer.Broadcast(wlipc.EventSidebar, ts)
+	}
+
+	// Focus the panel so it can interact with the sidebar
+	s.focusPanelKeyboard()
+}
