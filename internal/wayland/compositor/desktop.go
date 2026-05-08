@@ -564,12 +564,18 @@ func (s *server) updateFullscreenLayerVisibility(focusingFullscreen bool) {
 	if s.fullscreenTree == nil {
 		return
 	}
-	if !focusingFullscreen {
-		log.Printf("[FULLSCREEN] Disabling fullscreenTree (focusingFullscreen=%v)", focusingFullscreen)
+	// Skip the CGO call (and the log) when nothing changes — every focus
+	// change used to fire this, producing 12+ identical log lines per
+	// second during e.g. a desktop-switch stress and one redundant
+	// scene_node_set_enabled per call.
+	if s.fullscreenLayerEnabled == focusingFullscreen {
+		return
 	}
+	s.fullscreenLayerEnabled = focusingFullscreen
 	if focusingFullscreen {
 		C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.fullscreenTree).node, 1)
 	} else {
+		log.Printf("[FULLSCREEN] Disabling fullscreenTree (focusingFullscreen=%v)", focusingFullscreen)
 		C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.fullscreenTree).node, 0)
 	}
 }

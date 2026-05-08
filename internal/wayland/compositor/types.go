@@ -294,7 +294,8 @@ type server struct {
 	panelTree      unsafe.Pointer // *C.struct_wlr_scene_tree — panel XWayland surface
 	windowsTree    unsafe.Pointer // *C.struct_wlr_scene_tree — normal windows (sorted by focus)
 	overrideTree   unsafe.Pointer // *C.struct_wlr_scene_tree — override-redirect popups/menus
-	fullscreenTree unsafe.Pointer // *C.struct_wlr_scene_tree — fullscreen window layer
+	fullscreenTree         unsafe.Pointer // *C.struct_wlr_scene_tree — fullscreen window layer
+	fullscreenLayerEnabled bool           // cached state of fullscreenTree visibility
 	overlayTree    unsafe.Pointer // *C.struct_wlr_scene_tree — overlay menu (FyneDesk Menu)
 	switcherTree   unsafe.Pointer // *C.struct_wlr_scene_tree — Alt-Tab overlay
 	lockTree       unsafe.Pointer // *C.struct_wlr_scene_tree — Session lock layer (above all)
