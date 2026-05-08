@@ -139,6 +139,16 @@ func main() {
 	case "action":
 		requireArg(args, "action name")
 		cmdAction(client, args[0])
+	case "simulate-click":
+		if len(args) < 2 {
+			fatal("simulate-click requires <x> <y>")
+		}
+		cmdSimulateInput(client, "simulate-click", args[0], args[1])
+	case "simulate-move":
+		if len(args) < 2 {
+			fatal("simulate-move requires <x> <y>")
+		}
+		cmdSimulateInput(client, "simulate-move", args[0], args[1])
 	case "subscribe":
 		cmdSubscribe(client, args)
 	default:
@@ -413,6 +423,29 @@ func cmdAction(client *wlipc.IPCClient, action string) {
 		Action string `json:"action"`
 	}{Action: action}
 	resp, err := client.Request(wlipc.ReqCompositorAction, req)
+	if err != nil {
+		fatal("request failed: %v", err)
+	}
+	if resp != nil && resp.Name == "error" {
+		fmt.Fprintf(os.Stderr, "fynedesk-ctl: %s\n", string(resp.Data))
+		os.Exit(1)
+	}
+}
+
+func cmdSimulateInput(client *wlipc.IPCClient, kind, xs, ys string) {
+	x, err := strconv.ParseFloat(xs, 64)
+	if err != nil {
+		fatal("invalid x: %s", xs)
+	}
+	y, err := strconv.ParseFloat(ys, 64)
+	if err != nil {
+		fatal("invalid y: %s", ys)
+	}
+	req := struct {
+		X float64 `json:"x"`
+		Y float64 `json:"y"`
+	}{X: x, Y: y}
+	resp, err := client.Request(kind, req)
 	if err != nil {
 		fatal("request failed: %v", err)
 	}

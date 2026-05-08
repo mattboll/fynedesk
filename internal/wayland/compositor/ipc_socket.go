@@ -310,6 +310,20 @@ func (s *server) handleSocketRequest(msg *wlipc.Message) (json.RawMessage, error
 		s.triggerWakeup()
 		return nil, nil
 
+	case "simulate-move":
+		var req struct {
+			X float64 `json:"x"`
+			Y float64 `json:"y"`
+		}
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			return nil, fmt.Errorf("invalid simulate-move: %w", err)
+		}
+		s.mainThreadActions <- func() {
+			s.simulateMove(req.X, req.Y)
+		}
+		s.triggerWakeup()
+		return nil, nil
+
 	default:
 		return nil, fmt.Errorf("unknown request: %s", msg.Name)
 	}

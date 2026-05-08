@@ -526,6 +526,17 @@ func (s *server) simulateClick(x, y float64) {
 	log.Printf("[SIMULATE] Click at (%.0f, %.0f)", x, y)
 }
 
+// simulateMove warps the cursor to (x,y) and triggers cursor motion processing
+// (hot-corner detection, hover updates) without sending a button event.
+// Used by QA scenarios to test edge/corner behavior.
+func (s *server) simulateMove(x, y float64) {
+	type curPtr struct{ p *C.struct_wlr_cursor }
+	cp := (*curPtr)(unsafe.Pointer(&s.cursor))
+	C.cursor_warp_closest(cp.p, C.double(x), C.double(y))
+	s.processCursorMotion(time.Now())
+	log.Printf("[SIMULATE] Move to (%.0f, %.0f)", x, y)
+}
+
 // injectCtrlV sends a synthetic Ctrl+V key sequence to the focused client.
 // Uses the CGO helper which properly updates XKB modifier state.
 func (s *server) injectCtrlV(kb wlr.Keyboard) {
