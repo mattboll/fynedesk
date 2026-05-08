@@ -461,10 +461,9 @@ func (s *server) setOutputLayout(req LayoutRequest) {
 		return
 	}
 
-	// Handle primary change alongside position
-	if req.Primary {
-		s.primaryOutputName = req.OutputName
-	}
+	// Note: primary change is deferred to setPrimaryOutput() below so it can
+	// observe the truly-old primary and decide whether to restart vs reposition
+	// the panel based on the resolution change.
 
 	// Calculate position relative to reference
 	refGeo := s.getOutputGeometry(ref)
