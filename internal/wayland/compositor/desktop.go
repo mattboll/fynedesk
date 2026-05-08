@@ -111,17 +111,21 @@ func (s *server) setupWakeup(output wlr.Output) {
 		log.Printf("Warning: could not create eventfd for wakeup: %v\n", err)
 		return
 	}
-	s.wakeupFd = fd
+	s.wakeupFd.Store(int64(fd))
 	wakeupServer = s
 	C.setup_wakeup_fd(displayPtr(s.display), outputPtr(output), C.int(fd))
 }
 
 // triggerWakeup wakes the Wayland event loop from a goroutine.
 // Thread-safe: eventfd writes are atomic and safe from any goroutine.
+// The atomic.Load on wakeupFd avoids a data race against setupWakeup
+// (which may run on the main thread while goroutines are already firing
+// triggerWakeup at startup).
 func (s *server) triggerWakeup() {
-	if s.wakeupFd > 0 {
+	fd := int(s.wakeupFd.Load())
+	if fd > 0 {
 		buf := [8]byte{1, 0, 0, 0, 0, 0, 0, 0} // uint64(1) little-endian
-		unix.Write(s.wakeupFd, buf[:])
+		unix.Write(fd, buf[:])
 	}
 }
 

@@ -509,7 +509,7 @@ func (s *server) handleNewOutput(output wlr.Output) {
 
 	// Setup event loop wakeup for the primary output (allows goroutines to
 	// trigger frame processing by writing to the eventfd).
-	if s.wakeupFd == 0 {
+	if s.wakeupFd.Load() == 0 {
 		s.setupWakeup(output)
 	}
 

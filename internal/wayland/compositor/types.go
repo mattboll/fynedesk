@@ -428,7 +428,7 @@ type server struct {
 
 	// Thread-safe action queue: goroutines enqueue, main thread (frame callback) executes
 	mainThreadActions chan func()
-	wakeupFd          int // eventfd for waking the event loop when actions are queued
+	wakeupFd          atomic.Int64 // eventfd for waking the event loop when actions are queued (>0 once setup, 0 unset)
 
 	// Debounced IPC write: snapshot on main thread, serialize+write in background
 	windowsStateDirty bool
