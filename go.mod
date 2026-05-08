@@ -36,6 +36,7 @@ require github.com/creack/pty v1.1.21 // indirect
 
 require (
 	deedles.dev/wlr v0.0.0-20250321002055-d5699d447b5c
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/fyne-io/terminal v0.0.0-20251011215138-c2ed69d5a2d6
 	golang.org/x/image v0.25.0
 	golang.org/x/sys v0.30.0
@@ -50,7 +51,6 @@ require (
 	github.com/BurntSushi/graphics-go v0.0.0-20160129215708-b43f31a4a966 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/fredbi/uri v1.1.1 // indirect
-	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fyne-io/gl-js v0.2.0 // indirect
 	github.com/fyne-io/glfw-js v0.3.0 // indirect
 	github.com/go-gl/gl v0.0.0-20231021071112-07e5d0ea2e71 // indirect
