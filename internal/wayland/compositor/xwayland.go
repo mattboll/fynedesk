@@ -614,7 +614,7 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 
 	// Handle runtime MOTIF hint changes (some apps set hints after map)
 	v.listeners = append(v.listeners, surface.OnSetDecorations(func(surf wlr.XwaylandSurface) {
-		if !v.mapped || v.isPanel || v.isOverlay {
+		if !v.mapped || v.isPanel || v.isOverlay || v.overrideRedirect {
 			return
 		}
 		decoHints := surf.Decorations()
@@ -622,7 +622,8 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 			decoHints&wlr.XwaylandSurfaceDecorationsNoTitle != 0
 		log.Printf("[DECO] XWayland OnSetDecorations: class=%q hints=0x%x hasCSD=%v was_decorated=%v\n",
 			getXwaylandSurfaceClass(surf), decoHints, hasCSD, v.decorated)
-		if hasCSD && v.decorated {
+		switch {
+		case hasCSD && v.decorated:
 			v.decorated = false
 			// Remove existing decorations
 			if v.surfaceTree != nil {
@@ -631,6 +632,15 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 			s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
 			v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
 			v.decoTitlebar, v.decoTitlePix = nil, nil
+			setXwayScenePos(v)
+		case !hasCSD && !v.decorated:
+			v.decorated = true
+			w, h := surf.Width(), surf.Height()
+			if v.surfaceTree != nil {
+				C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, C.int(titlebarHeight))
+			}
+			_, _, v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = s.createDecoNodes(viewTree, w, h, v == s.activeXway)
+			s.updateXwayViewDecorations(v)
 			setXwayScenePos(v)
 		}
 	}))
