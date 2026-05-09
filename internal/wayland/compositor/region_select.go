@@ -111,6 +111,16 @@ func (s *server) layoutRegionRects() {
 		return
 	}
 
+	// Before the first click, the "selection" is a degenerate point between
+	// regionStartX/Y (cursor position at startRegionSelect time) and the
+	// current cursor — which would render a stray border line at the cursor
+	// as the user moves. Show only the full-screen dim until the anchor is
+	// placed by handleRegionClick.
+	if !s.regionAnchorSet {
+		s.layoutRegionFullDim(totalW, totalH)
+		return
+	}
+
 	// Convert to overlay-relative coordinates
 	sx := int(s.regionStartX) - minX
 	sy := int(s.regionStartY) - minY
@@ -185,6 +195,23 @@ func (s *server) layoutRegionRects() {
 	r = (*C.struct_wlr_scene_rect)(s.regionBorderRects[3])
 	C.rs_scene_rect_set_size(r, C.int(bw), C.int(selH))
 	C.rs_scene_node_set_position(&r.node, C.int(x2), C.int(y1))
+}
+
+// layoutRegionFullDim covers the whole screen with the first dim rect and
+// collapses the others (and all border rects) to zero size, so nothing is
+// drawn at the cursor before the first click.
+func (s *server) layoutRegionFullDim(totalW, totalH int) {
+	r := (*C.struct_wlr_scene_rect)(s.regionDimRects[0])
+	C.rs_scene_rect_set_size(r, C.int(totalW), C.int(totalH))
+	C.rs_scene_node_set_position(&r.node, 0, 0)
+	for i := 1; i < 4; i++ {
+		r := (*C.struct_wlr_scene_rect)(s.regionDimRects[i])
+		C.rs_scene_rect_set_size(r, 0, 0)
+	}
+	for i := 0; i < 4; i++ {
+		r := (*C.struct_wlr_scene_rect)(s.regionBorderRects[i])
+		C.rs_scene_rect_set_size(r, 0, 0)
+	}
 }
 
 // finishRegionSelect captures the selected region and cleans up the overlay.
