@@ -5,6 +5,8 @@ import "fyshos.com/fynedesk"
 
 func init() {
 	// system area (bottom of widget panel) - order is top to bottom
+	fynedesk.RegisterModule(agendaMeta)
+	fynedesk.RegisterModule(calendarMeta)
 	fynedesk.RegisterModule(keyboardMeta)
 	fynedesk.RegisterModule(networkMeta)
 	fynedesk.RegisterModule(batteryMeta)
