@@ -19,15 +19,16 @@ import (
 	"fyshos.com/fynedesk/locale"
 )
 
-// calendarPopupSize is the natural size of the popup. The agenda panel
-// pushes the width well past the original 340; the height stays roughly
-// the same as before.
-var calendarPopupSize = fyne.NewSize(580, 340)
+// calendarPopupSize is the natural size of the popup. Vertical layout:
+// header on top, month grid in the middle, agenda below. Width is the
+// month grid's natural size plus padding; height accommodates ~6 weeks
+// of grid plus the agenda scroll.
+var calendarPopupSize = fyne.NewSize(380, 500)
 
 // calendarPopup builds the navigable month + agenda popup. When a calendar
 // service is running, day cells gain coloured event dots and clicking a
-// day populates the agenda panel on the right; otherwise it falls back to
-// the same plain month grid the popup used before calendar integration
+// day populates the agenda panel below the grid; otherwise it falls back
+// to the plain month grid the popup used before calendar integration
 // landed.
 func calendarPopup(now time.Time) fyne.CanvasObject {
 	state := &calendarPopupState{
@@ -36,7 +37,7 @@ func calendarPopup(now time.Time) fyne.CanvasObject {
 		viewYear:    now.Year(),
 		viewMonth:   now.Month(),
 		agendaBody:  container.NewVBox(),
-		gridContent: container.New(layout.NewGridWrapLayout(fyne.NewSize(38, 30))),
+		gridContent: container.New(layout.NewGridWrapLayout(fyne.NewSize(46, 34))),
 	}
 
 	state.headerLabel = widget.NewLabelWithStyle(
@@ -73,26 +74,35 @@ func calendarPopup(now time.Time) fyne.CanvasObject {
 	})
 	todayBtn.Importance = widget.LowImportance
 
-	header := container.NewBorder(nil, nil, prevBtn, container.NewHBox(todayBtn, nextBtn), state.headerLabel)
+	filterBtn := widget.NewButtonWithIcon("", theme.ListIcon(), nil)
+	filterBtn.Importance = widget.LowImportance
+	filterBtn.OnTapped = func() {
+		state.showFilterPopup(filterBtn)
+	}
+
+	rightHeader := container.NewHBox(filterBtn, todayBtn, nextBtn)
+	header := container.NewBorder(nil, nil, prevBtn, rightHeader, state.headerLabel)
 
 	state.refreshGrid()
 
 	sep := canvas.NewRectangle(color.NRGBA{R: 128, G: 128, B: 128, A: 64})
 	sep.SetMinSize(fyne.NewSize(0, 1))
 
-	monthSide := container.NewVBox(header, sep, state.gridContent)
-
-	// Build the agenda side: a fixed-width panel with the date heading and
-	// a scrollable event list. On systems with no service, we show a quiet
-	// "no calendar connected" hint instead.
+	monthBlock := container.NewVBox(header, sep, state.gridContent)
 	agenda := state.buildAgenda()
 
-	root := container.NewBorder(nil, nil, nil, agenda, monthSide)
+	// Vertical stack: month grid on top (fixed natural size), agenda
+	// below taking the remaining height. A second separator visually
+	// splits the two zones.
+	sep2 := canvas.NewRectangle(color.NRGBA{R: 128, G: 128, B: 128, A: 64})
+	sep2.SetMinSize(fyne.NewSize(0, 1))
+
+	root := container.NewBorder(monthBlock, nil, nil, nil,
+		container.NewBorder(sep2, nil, nil, nil, agenda))
 	state.refreshAgenda()
 
 	// Subscribe to store changes so the popup repaints when sync brings in
-	// new events (or when the user toggles a calendar in Settings while
-	// the popup is open).
+	// new events or the user toggles a calendar via the filter / Settings.
 	if svc := calendar.Get(); svc != nil && svc.Store() != nil {
 		unsub := svc.Store().Subscribe(func() {
 			fyne.Do(func() {
@@ -100,11 +110,7 @@ func calendarPopup(now time.Time) fyne.CanvasObject {
 				state.refreshAgenda()
 			})
 		})
-		// The popup window is short-lived; a Tappable wrapper has no
-		// destructor hook exposed by Fyne, so we settle for unsubscribing
-		// when the popup is rebuilt next time. In the meantime the
-		// listener is cheap (a slice append).
-		_ = unsub
+		_ = unsub // popup is short-lived; rebuild next time replaces it
 	}
 
 	return root
@@ -139,7 +145,6 @@ func (s *calendarPopupState) buildGrid() []fyne.CanvasObject {
 
 	daysInMonth := time.Date(s.viewYear, s.viewMonth+1, 0, 0, 0, 0, 0, loc).Day()
 
-	// Count events per day for colored dots, keyed by day-of-month.
 	dotsByDay := s.eventDotsForMonth()
 
 	dayNames := []string{
@@ -203,9 +208,6 @@ func (s *calendarPopupState) buildDayCell(day int, date time.Time, dots []color.
 	}
 
 	stack := []fyne.CanvasObject{}
-
-	// Background highlight: filled circle for today, ring for the
-	// currently selected day (if not today).
 	if isToday {
 		bg := canvas.NewRectangle(theme.Color(theme.ColorNamePrimary))
 		bg.CornerRadius = 4
@@ -219,8 +221,6 @@ func (s *calendarPopupState) buildDayCell(day int, date time.Time, dots []color.
 	}
 	stack = append(stack, label)
 
-	// Coloured dots row at the bottom of the cell. Capped at 3 dots; the
-	// row is centered horizontally.
 	if len(dots) > 0 {
 		const maxDots = 3
 		shown := dots
@@ -231,14 +231,11 @@ func (s *calendarPopupState) buildDayCell(day int, date time.Time, dots []color.
 		dotRow.Add(layout.NewSpacer())
 		for _, c := range shown {
 			circle := canvas.NewCircle(c)
-			// canvas.Circle has no MinSize; wrap in a fixed-size spacer
-			// rectangle so the dot reliably renders at 4x4.
 			sizer := canvas.NewRectangle(color.Transparent)
 			sizer.SetMinSize(fyne.NewSize(4, 4))
 			dotRow.Add(container.NewStack(sizer, circle))
 		}
 		dotRow.Add(layout.NewSpacer())
-		// Push to bottom of the cell with a top spacer.
 		stack = append(stack, container.NewBorder(nil, dotRow, nil, nil))
 	}
 
@@ -252,9 +249,9 @@ func (s *calendarPopupState) buildDayCell(day int, date time.Time, dots []color.
 }
 
 // eventDotsForMonth returns, for each day of the month being viewed, the
-// list of distinct calendar colours that have at least one event that
-// day. We keep it cheap: O(n) over the cached events for the displayed
-// month, no API calls.
+// list of distinct calendar colours that have at least one event on that
+// day. Multi-day events contribute a dot to every day they cover, so a
+// 3-day trip lights up three cells, not just the start.
 func (s *calendarPopupState) eventDotsForMonth() map[int][]color.Color {
 	out := map[int][]color.Color{}
 	svc := calendar.Get()
@@ -262,25 +259,48 @@ func (s *calendarPopupState) eventDotsForMonth() map[int][]color.Color {
 		return out
 	}
 	loc := s.today.Location()
-	from := time.Date(s.viewYear, s.viewMonth, 1, 0, 0, 0, 0, loc)
-	to := from.AddDate(0, 1, 0)
-	events := svc.Store().EventsBetween(from, to)
+	monthStart := time.Date(s.viewYear, s.viewMonth, 1, 0, 0, 0, 0, loc)
+	monthEnd := monthStart.AddDate(0, 1, 0)
+	events := svc.Store().EventsBetween(monthStart, monthEnd)
 	if len(events) == 0 {
 		return out
 	}
 	colors := buildCalendarColorMap(svc.Store())
 	seen := map[int]map[string]struct{}{}
+
 	for _, ev := range events {
-		day := ev.Start.In(loc).Day()
-		key := ev.CalendarID
-		if _, ok := seen[day]; !ok {
-			seen[day] = map[string]struct{}{}
+		col := colors[ev.CalendarID]
+		// Clamp event range to the month being viewed.
+		evStart := ev.Start.In(loc)
+		evEnd := ev.End.In(loc)
+		// Google all-day events have an exclusive end date (next-day
+		// midnight). Treat one-second-before-end so the loop below
+		// stops on the right day.
+		if ev.AllDay {
+			evEnd = evEnd.Add(-time.Second)
 		}
-		if _, dup := seen[day][key]; dup {
-			continue
+		if evStart.Before(monthStart) {
+			evStart = monthStart
 		}
-		seen[day][key] = struct{}{}
-		out[day] = append(out[day], colors[key])
+		if evEnd.After(monthEnd) {
+			evEnd = monthEnd
+		}
+
+		cur := time.Date(evStart.Year(), evStart.Month(), evStart.Day(), 0, 0, 0, 0, loc)
+		endDay := time.Date(evEnd.Year(), evEnd.Month(), evEnd.Day(), 0, 0, 0, 0, loc)
+		for !cur.After(endDay) {
+			if cur.Year() == s.viewYear && cur.Month() == s.viewMonth {
+				day := cur.Day()
+				if _, ok := seen[day]; !ok {
+					seen[day] = map[string]struct{}{}
+				}
+				if _, dup := seen[day][ev.CalendarID]; !dup {
+					seen[day][ev.CalendarID] = struct{}{}
+					out[day] = append(out[day], col)
+				}
+			}
+			cur = cur.AddDate(0, 0, 1)
+		}
 	}
 	return out
 }
@@ -320,12 +340,7 @@ func parseHexColor(s string) color.Color {
 func (s *calendarPopupState) buildAgenda() fyne.CanvasObject {
 	s.agendaTitle = widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	scroll := container.NewVScroll(s.agendaBody)
-	scroll.SetMinSize(fyne.NewSize(220, 260))
-	wrap := container.NewBorder(s.agendaTitle, nil, nil, nil, scroll)
-	// A little left padding so the agenda doesn't bump into the month grid.
-	pad := canvas.NewRectangle(color.Transparent)
-	pad.SetMinSize(fyne.NewSize(8, 0))
-	return container.NewBorder(nil, nil, pad, nil, wrap)
+	return container.NewBorder(s.agendaTitle, nil, nil, nil, scroll)
 }
 
 func (s *calendarPopupState) refreshAgenda() {
@@ -361,20 +376,20 @@ func (s *calendarPopupState) refreshAgenda() {
 	colors := buildCalendarColorMap(svc.Store())
 	objects := make([]fyne.CanvasObject, 0, len(events))
 	for _, ev := range events {
-		objects = append(objects, buildEventRow(ev, colors[ev.CalendarID]))
+		objects = append(objects, buildEventRow(ev, colors[ev.CalendarID], dayStart))
 	}
 	s.agendaBody.Objects = objects
 	s.agendaBody.Refresh()
 }
 
-func buildEventRow(ev calendar.Event, col color.Color) fyne.CanvasObject {
+func buildEventRow(ev calendar.Event, col color.Color, dayStart time.Time) fyne.CanvasObject {
 	if col == nil {
 		col = theme.Color(theme.ColorNamePrimary)
 	}
 	bar := canvas.NewRectangle(col)
 	bar.SetMinSize(fyne.NewSize(3, 0))
 
-	timeText := formatEventRange(ev)
+	timeText := formatEventTimeForDay(ev, dayStart)
 	timeLbl := widget.NewLabelWithStyle(timeText, fyne.TextAlignLeading, fyne.TextStyle{Monospace: true})
 	timeLbl.Importance = widget.MediumImportance
 
@@ -399,8 +414,6 @@ func buildEventRow(ev calendar.Event, col color.Color) fyne.CanvasObject {
 	body := container.NewVBox(timeLbl, container.NewVBox(rows...))
 	row := container.NewBorder(nil, nil, bar, nil, body)
 
-	// Click anywhere on the row to open the upstream event link, falling
-	// back to the meeting URL if HTMLLink is empty (rare).
 	target := ev.HTMLLink
 	if target == "" {
 		target = ev.MeetingURL
@@ -409,6 +422,97 @@ func buildEventRow(ev calendar.Event, col color.Color) fyne.CanvasObject {
 		return row
 	}
 	return newTappableContainer(row, func() { openURL(target) })
+}
+
+// --- calendar filter popup ---
+
+// showFilterPopup opens a small popup listing every calendar across all
+// accounts with a checkbox for its Enabled flag. Toggling immediately
+// persists the change and triggers a refresh; the popup itself observes
+// no state — the store's listener pushes the new colours/dots back into
+// the popup on the next sync (and the cached events the user already
+// has remain visible until then).
+func (s *calendarPopupState) showFilterPopup(anchor fyne.CanvasObject) {
+	svc := calendar.Get()
+	if svc == nil || svc.Store() == nil {
+		return
+	}
+	store := svc.Store()
+	accounts := store.Accounts()
+	if len(accounts) == 0 {
+		return
+	}
+
+	canv := fyne.CurrentApp().Driver().CanvasForObject(anchor)
+	if canv == nil {
+		return
+	}
+
+	var rows []fyne.CanvasObject
+	for _, acc := range accounts {
+		acc := acc
+		header := widget.NewLabelWithStyle(acc.Display,
+			fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+		rows = append(rows, header)
+
+		cals := store.CalendarsFor(acc.ID)
+		sort.Slice(cals, func(i, j int) bool {
+			if cals[i].Primary != cals[j].Primary {
+				return cals[i].Primary
+			}
+			return cals[i].Name < cals[j].Name
+		})
+		for _, c := range cals {
+			c := c
+			prefs := acc.Calendars[c.ID]
+			row := buildFilterRow(c, prefs.Enabled, func(enabled bool) {
+				updated, ok := store.AccountByID(acc.ID)
+				if !ok {
+					return
+				}
+				if updated.Calendars == nil {
+					updated.Calendars = make(map[string]calendar.CalendarPrefs)
+				}
+				p := updated.Calendars[c.ID]
+				p.Enabled = enabled
+				updated.Calendars[c.ID] = p
+				_ = store.PutAccount(updated)
+				svc.Refresh(acc.ID)
+			})
+			rows = append(rows, row)
+		}
+	}
+
+	body := container.NewVBox(rows...)
+	scroll := container.NewVScroll(body)
+	scroll.SetMinSize(fyne.NewSize(280, 300))
+
+	popup := widget.NewPopUp(scroll, canv)
+	// Anchor the popup just below the filter button, right-aligned with it.
+	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(anchor)
+	popupSize := popup.MinSize()
+	x := pos.X + anchor.Size().Width - popupSize.Width
+	if x < 0 {
+		x = pos.X
+	}
+	y := pos.Y + anchor.Size().Height + 4
+	popup.ShowAtPosition(fyne.NewPos(x, y))
+}
+
+func buildFilterRow(c calendar.Calendar, enabled bool, onToggle func(bool)) fyne.CanvasObject {
+	col := parseHexColor(c.ColorHex)
+	if col == nil {
+		col = theme.Color(theme.ColorNamePrimary)
+	}
+	swatch := canvas.NewCircle(col)
+	swatchSizer := canvas.NewRectangle(color.Transparent)
+	swatchSizer.SetMinSize(fyne.NewSize(10, 10))
+	swatchBox := container.NewStack(swatchSizer, swatch)
+
+	chk := widget.NewCheck(c.Name, onToggle)
+	chk.Checked = enabled
+
+	return container.NewBorder(nil, nil, swatchBox, nil, chk)
 }
 
 // --- helpers ---
@@ -430,11 +534,28 @@ func formatAgendaTitle(selected, today time.Time) string {
 	return selected.Format("Mon 2 Jan")
 }
 
-func formatEventRange(ev calendar.Event) string {
+// formatEventTimeForDay describes an event's time relative to the day
+// being shown. Single-day timed events render as "09:00 – 10:00".
+// Events that started yesterday render as "→ 10:00" (only the end is
+// today). Events that continue past today render as "23:00 →". All-day
+// events render as the localized "all-day" label regardless of span.
+func formatEventTimeForDay(ev calendar.Event, dayStart time.Time) string {
 	if ev.AllDay {
 		return locale.T("cal.allDay")
 	}
-	return fmt.Sprintf("%s – %s", ev.Start.Format("15:04"), ev.End.Format("15:04"))
+	dayEnd := dayStart.AddDate(0, 0, 1)
+	startsToday := !ev.Start.Before(dayStart)
+	endsToday := !ev.End.After(dayEnd)
+	switch {
+	case startsToday && endsToday:
+		return fmt.Sprintf("%s – %s", ev.Start.Format("15:04"), ev.End.Format("15:04"))
+	case !startsToday && endsToday:
+		return "→ " + ev.End.Format("15:04")
+	case startsToday && !endsToday:
+		return ev.Start.Format("15:04") + " →"
+	default:
+		return locale.T("cal.allDay")
+	}
 }
 
 func centeredHint(text string) fyne.CanvasObject {
