@@ -144,6 +144,18 @@ func (p *wifiPickerWindow) buildNetworkRow(n WifiNetwork) fyne.CanvasObject {
 		} else if !n.IsSecured() {
 			p.setStatus(fmt.Sprintf("Connecting to %s...", n.SSID))
 			go p.doConnect(n.SSID, "", n.Security)
+		} else if hasSavedWifiProfile(n.SSID) {
+			// Reuse the saved password — only fall back to the password
+			// prompt if activation fails (e.g. the saved key is now wrong).
+			p.setStatus(fmt.Sprintf("Connecting to %s...", n.SSID))
+			go func() {
+				if err := connectSavedWifi(n.SSID); err != nil {
+					fyne.Do(func() { p.showPasswordForm(n.SSID, n.Security) })
+					return
+				}
+				p.setStatus("Connected!")
+				p.refreshNetworks()
+			}()
 		} else {
 			p.showPasswordForm(n.SSID, n.Security)
 		}

@@ -74,6 +74,41 @@ func rescanWifi() {
 	_ = exec.Command("nmcli", "device", "wifi", "rescan").Run()
 }
 
+// hasSavedWifiProfile reports whether NetworkManager already has a saved
+// connection profile matching the given SSID. The profile name is normally
+// the SSID itself when the profile was created via this UI, but NM may also
+// store profiles under different names — so we additionally match on the
+// 802-11-wireless.ssid setting.
+func hasSavedWifiProfile(ssid string) bool {
+	out, err := exec.Command("nmcli", "-t", "-f", "NAME,TYPE", "connection", "show").Output()
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := parseTerseLine(line)
+		if len(fields) < 2 || fields[1] != "802-11-wireless" {
+			continue
+		}
+		if fields[0] == ssid {
+			return true
+		}
+		// Profile name may differ from SSID — check the wireless ssid setting.
+		nameOut, err := exec.Command("nmcli", "-t", "-g", "802-11-wireless.ssid",
+			"connection", "show", fields[0]).Output()
+		if err == nil && strings.TrimSpace(string(nameOut)) == ssid {
+			return true
+		}
+	}
+	return false
+}
+
+// connectSavedWifi activates an existing NetworkManager profile for the SSID
+// without re-prompting for a password. Returns an error if no profile exists
+// or activation fails (e.g. the saved key is now wrong).
+func connectSavedWifi(ssid string) error {
+	return runNmcli("connection", "up", ssid)
+}
+
 // connectWifi connects to the given SSID, optionally with a password.
 // For secured networks, it creates a connection profile with the correct
 // key-mgmt setting derived from the security field (e.g. "WPA2 WPA3").
