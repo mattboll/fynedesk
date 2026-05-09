@@ -367,8 +367,8 @@ func (w *widgetPanel) showCalendar() {
 	win.SetContent(cal)
 	win.SetOnClosed(func() { w.calendarWin = nil })
 
-	calW := float32(340)
-	calH := float32(290)
+	calW := calendarPopupSize.Width
+	calH := calendarPopupSize.Height
 	win.Resize(fyne.NewSize(calW, calH))
 
 	screen := fynedesk.Instance().Screens().Primary()
