@@ -57,6 +57,9 @@ func main() {
 	case "config":
 		cmdConfig()
 		return
+	case "calendar", "cal":
+		cmdCalendar(args)
+		return
 	}
 
 	client, err := wlipc.Connect()
@@ -184,6 +187,7 @@ Commands:
   restart                     Restart compositor
   subscribe [events...]       Subscribe and stream events (JSON lines)
   config                      Show config file path
+  calendar <sub>              Manage calendar accounts (run 'calendar help')
 
 Window IDs have the form "xdg-N" or "xway-N" (see: fynedesk-ctl windows).
 
