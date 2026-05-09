@@ -588,14 +588,15 @@ func (d *deskSettings) load() {
 
 	d.moduleNames = cfg.Modules.Enabled
 	if len(d.moduleNames) == 0 {
-		defaultModules := "Battery|Brightness|Compositor|Sound|Keyboard Layout|Launcher: Calculate|Launcher: Convert units|Launcher: Open URLs|Network|Notifications|Virtual Desktops|SystemTray|Terminal Overlay|Desktop Files"
+		defaultModules := "Next Meeting|Today's Agenda|Battery|Brightness|Compositor|Sound|Keyboard Layout|Launcher: Calculate|Launcher: Convert units|Launcher: Open URLs|Network|Notifications|Virtual Desktops|SystemTray|Terminal Overlay|Desktop Files"
 		if runtime.GOOS == "darwin" || runtime.GOOS == "windows" { // testing
 			defaultModules = "Battery|Brightness|Sound|Launcher: Calculate|Launcher: Open URLs|Network|Virtual Desktops"
 		}
 		d.moduleNames = strings.Split(defaultModules, "|")
 	}
 	// Auto-migrate: add new modules for existing users
-	d.migrateModules("Keyboard Layout", "Notifications", "Power Profile", "Notes")
+	d.migrateModules("Keyboard Layout", "Notifications", "Power Profile", "Notes",
+		"Next Meeting", "Today's Agenda")
 
 	if cfg.Input.KeyboardModifier == "Alt" {
 		d.modifier = fyne.KeyModifierAlt
