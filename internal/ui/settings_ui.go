@@ -55,6 +55,7 @@ func (w *widgetPanel) showSettings() {
 		{Text: locale.T("settings.keyboard"), Icon: wmtheme.KeyboardIcon, Content: ui.loadKeyboardScreen()},
 		{Text: locale.T("settings.windowRules"), Icon: theme.ListIcon(), Content: ui.loadWindowRulesScreen()},
 		{Text: locale.T("settings.power"), Icon: wmtheme.BatteryIcon, Content: ui.loadPowerScreen()},
+		{Text: locale.T("settings.calendar"), Icon: theme.HistoryIcon(), Content: ui.loadCalendarScreen()},
 		{Text: locale.T("settings.advanced"), Icon: theme.SettingsIcon(),
 			Content: ui.loadAdvancedScreen()},
 	}
