@@ -11,9 +11,16 @@ func (s *server) positionNewXwayWindow(v *xwayView) {
 	winWidth := v.surface.Width()
 	winHeight := v.surface.Height()
 
-	// Small windows (popups, menus, tooltips) keep their X11-requested position
+	// Small windows: honour an X11-requested position only when the client
+	// actually set one. Fyne splash windows (panel overlays like the calendar
+	// popup) arrive with v.x = v.y = 0 between map and OnSetTitle's overlay
+	// reclassification — short-circuiting there pins them to layout (0,0),
+	// which on a multi-monitor setup lands on whichever output starts at the
+	// origin (often the secondary). Let them fall through to content-area
+	// placement; positionOverlay will move them to the IPC-requested spot
+	// once the title arrives.
 	isPopup := winWidth < 400 || winHeight < 300
-	if isPopup {
+	if isPopup && (v.x != 0 || v.y != 0) {
 		v.surface.Configure(int16(v.x), int16(v.y), uint16(winWidth), uint16(winHeight))
 		return
 	}
