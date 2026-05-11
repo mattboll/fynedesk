@@ -37,7 +37,7 @@ func calendarPopup(now time.Time) fyne.CanvasObject {
 		viewYear:    now.Year(),
 		viewMonth:   now.Month(),
 		agendaBody:  container.NewVBox(),
-		gridContent: container.New(layout.NewGridWrapLayout(fyne.NewSize(46, 34))),
+		gridContent: container.New(layout.NewGridLayoutWithColumns(8)),
 	}
 
 	state.headerLabel = widget.NewLabelWithStyle(
@@ -207,7 +207,9 @@ func (s *calendarPopupState) buildDayCell(day int, date time.Time, dots []color.
 		label.Importance = widget.HighImportance
 	}
 
-	stack := []fyne.CanvasObject{}
+	sizer := canvas.NewRectangle(color.Transparent)
+	sizer.SetMinSize(fyne.NewSize(40, 32))
+	stack := []fyne.CanvasObject{sizer}
 	if isToday {
 		bg := canvas.NewRectangle(theme.Color(theme.ColorNamePrimary))
 		bg.CornerRadius = 4
