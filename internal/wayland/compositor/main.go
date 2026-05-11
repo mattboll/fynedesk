@@ -27,6 +27,19 @@ package compositor
 #include <drm_fourcc.h>
 #include <EGL/egl.h>
 #include <wlr/types/wlr_screencopy_v1.h>
+#include <wlr/types/wlr_presentation_time.h>
+
+// wp_presentation_time: lets clients (video players, browsers) sync to vblank.
+// Without this, mpv/Firefox fall back to timer heuristics and stutter — the
+// scene already calls wlr_presentation_surface_sampled_on_output when set.
+static void create_presentation(struct wl_display *display,
+                                struct wlr_backend *backend,
+                                struct wlr_scene *scene) {
+	struct wlr_presentation *p = wlr_presentation_create(display, backend);
+	if (p != NULL && scene != NULL) {
+		wlr_scene_set_presentation(scene, p);
+	}
+}
 
 // Screencopy manager pointer, shared with desktop.go for idle-frame handling.
 // Non-static: accessed via extern in desktop.go's CGO preamble.
@@ -738,6 +751,11 @@ func displayPtr(d wlr.Display) *C.struct_wl_display {
 	return *(**C.struct_wl_display)(unsafe.Pointer(&d))
 }
 
+// backendPtr extracts the *C.struct_wlr_backend from a wlr.Backend value.
+func backendPtr(b wlr.Backend) *C.struct_wlr_backend {
+	return *(**C.struct_wlr_backend)(unsafe.Pointer(&b))
+}
+
 // getOutputPhysSize returns the physical dimensions in mm from the wlr_output.
 func getOutputPhysSize(out *outputState) (int, int) {
 	p := outputPtr(out.output)
@@ -955,6 +973,10 @@ func Run() {
 	srv.scene = unsafe.Pointer(C.create_scene())
 	scene := (*C.struct_wlr_scene)(srv.scene)
 	sceneTree := &scene.tree
+
+	// wp_presentation_time: required for clients (mpv, browsers) to sync to
+	// vblank. The scene wires per-surface feedback via wlr_scene_set_presentation.
+	C.create_presentation(displayPtr(srv.display), backendPtr(srv.backend), scene)
 
 	// Create layer trees (render order: background < panel < windows < override < fullscreen < overlay < switcher)
 	srv.backgroundTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
