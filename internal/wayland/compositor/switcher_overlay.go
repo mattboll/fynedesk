@@ -116,11 +116,16 @@ func (s *server) focusSwitcherSelection() {
 		}
 		s.activeXdg = v
 		v.xdgToplevel.SetActivated(true)
-		// Send keyboard focus but do NOT raise or reorder
+		// Send keyboard focus but do NOT raise or reorder.
+		// Pass an empty keycodes slice: the modifier + Tab (or arrows) are
+		// physically held while cycling, but their releases are swallowed by
+		// the switcher and never forwarded. If we reported them as pressed
+		// here, the client would never see the release and the key would
+		// stay "stuck" after the switcher closes.
 		keyboard := s.seat.Keyboard()
 		if keyboardValid(keyboard) {
 			surface := v.xdgToplevel.Base().Surface()
-			s.seat.KeyboardNotifyEnter(surface, keyboard.Keycodes(), keyboard.Modifiers())
+			s.seat.KeyboardNotifyEnter(surface, nil, keyboard.Modifiers())
 		}
 	case *xwayView:
 		if !v.mapped {
@@ -140,7 +145,7 @@ func (s *server) focusSwitcherSelection() {
 		if keyboardValid(keyboard) {
 			surface := v.surface.Surface()
 			if surface.Valid() {
-				s.seat.KeyboardNotifyEnter(surface, keyboard.Keycodes(), keyboard.Modifiers())
+				s.seat.KeyboardNotifyEnter(surface, nil, keyboard.Modifiers())
 			}
 		}
 	}
