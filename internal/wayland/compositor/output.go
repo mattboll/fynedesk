@@ -97,32 +97,47 @@ static void scene_buffer_set_dest_size(struct wlr_scene_buffer *buf, int w, int 
 // wl_signal_add call, leaving earlier outputs with no frame callbacks.
 extern void goOnFrame(struct wlr_output *output);
 extern void goOnFrameAll(void);
+
+// Frame-pacing watchdog: catches stalls in the page-flip → frame → render →
+// commit → frame_done chain. When the chain breaks (kernel missed a page
+// flip, dmabuf damage dropped, DRM EBUSY swallowed, nested host that doesn't
+// deliver wl_callback.done reliably), clients waiting on frame_done freeze
+// until something external — cursor movement, an animation tick — wakes the
+// render loop. Mouse-idle video playback hits this regularly.
+//
+// Every real backend frame event defers the watchdog FRAME_WATCHDOG_MS into
+// the future. If another real frame arrives within that window the watchdog
+// never fires (zero overhead when the chain is healthy). If not, the watchdog
+// fires goOnFrameAll() and re-arms — clients stay unblocked at ~30 FPS floor
+// even when the chain is fully broken.
+//
+// 32ms gives roughly a 30Hz floor, which is well below the freeze-perception
+// threshold for video while still letting the CPU enter mid-depth idle states
+// on a quiet desktop. Mutter/KWin run a similar clock at native refresh rate,
+// using presentation feedback to predict vblank — that's the next refinement
+// if 30Hz turns out to be visibly choppy under a fully broken backend.
+#define FRAME_WATCHDOG_MS 32
+
 static struct wl_event_source *frame_timer = NULL;
-static int frame_timer_active = 0;
-static int frame_callbacks_working = 0;
 
 static void handle_frame(struct wl_listener *listener, void *data) {
     struct wlr_output *output = data;
-    // Frame callback received — disable the fallback timer since the backend works
-    if (!frame_callbacks_working) {
-        frame_callbacks_working = 1;
-        if (frame_timer && frame_timer_active) {
-            wl_event_source_timer_update(frame_timer, 0);
-            frame_timer_active = 0;
-        }
+    // Real backend frame event arrived — defer the watchdog. As long as
+    // backend frames keep arriving on cadence, this update keeps pushing
+    // the deadline out and the watchdog never fires.
+    if (frame_timer) {
+        wl_event_source_timer_update(frame_timer, FRAME_WATCHDOG_MS);
     }
     goOnFrame(output);
 }
 
-// Fallback timer: fires when the backend doesn't deliver frame callbacks
-// (e.g. nested Wayland compositor where host doesn't send wl_callback.done).
-// Renders ALL outputs since we can't know which ones need frames.
 static int frame_timer_handler(void *data) {
+    // No backend frame in FRAME_WATCHDOG_MS — assume the chain stalled and
+    // force a render so any client waiting on frame_done gets unblocked.
+    // Re-arm so we keep watching: if the backend resumes, handle_frame will
+    // defer the next firing further out.
     goOnFrameAll();
-    // Re-arm for ~60 FPS
-    if (frame_timer_active) {
-        wl_event_source_timer_update(frame_timer, 16);
-    }
+    wl_event_source_timer_update(frame_timer, FRAME_WATCHDOG_MS);
     return 0;
 }
 
@@ -135,12 +150,12 @@ static struct wl_listener *create_frame_listener(struct wl_display *display, str
     wl_signal_add(&output->events.frame, listener);
     output->needs_frame = true;
 
-    // Start a fallback timer on the first output only. If the backend delivers
-    // a frame callback before the timer fires, handle_frame disables it.
+    // One global watchdog for all outputs. 500ms initial delay lets the
+    // backend deliver real frame events first on healthy startup — if any
+    // arrive, they push the deadline forward and the watchdog stays quiet.
     if (!frame_timer) {
         struct wl_event_loop *loop = wl_display_get_event_loop(display);
         frame_timer = wl_event_loop_add_timer(loop, frame_timer_handler, NULL);
-        frame_timer_active = 1;
         wl_event_source_timer_update(frame_timer, 500);
     }
     return listener;
