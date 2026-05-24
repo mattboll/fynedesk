@@ -17,6 +17,7 @@ import (
 	"fyshos.com/fynedesk"
 	"fyshos.com/fynedesk/internal/ui"
 	wmtheme "fyshos.com/fynedesk/theme"
+	"fyshos.com/fynedesk/wm"
 )
 
 var networkMeta = fynedesk.ModuleMetadata{
@@ -45,7 +46,7 @@ func (n *network) wirelessName() (string, error) {
 		iw, _ = exec.LookPath("/usr/sbin/iw")
 	}
 	if iw != "" {
-		out, err := exec.Command(iw, "dev").Output()
+		out, err := wm.ExecOutput(iw, "dev")
 		if err != nil {
 			log.Println("Error running iw", err)
 			return "", err
@@ -63,7 +64,7 @@ func (n *network) wirelessName() (string, error) {
 
 	// macOS fallback: 'airport -I' returns key/value lines including SSID.
 	const airport = "/System/Library/PrivateFrameworks/Apple80211.framework/Resources/airport"
-	out, err := exec.Command(airport, "-I").Output()
+	out, err := wm.ExecOutput(airport, "-I")
 	if err != nil {
 		log.Println("Error getting network info from airport utility", err)
 		return "", err
@@ -80,7 +81,7 @@ func (n *network) wirelessName() (string, error) {
 
 func (n *network) isEthernetConnected() (bool, error) {
 	if ip, _ := exec.LookPath("ip"); ip != "" {
-		out, err := exec.Command(ip, "link").Output()
+		out, err := wm.ExecOutput(ip, "link")
 		if err != nil {
 			log.Println("Error running ip tool", err)
 			return false, err
@@ -105,8 +106,7 @@ func (n *network) isEthernetConnected() (bool, error) {
 			return false, nil
 		}
 	} else if scutil, _ := exec.LookPath("scutil"); scutil != "" {
-		cmd := exec.Command(scutil, "--nwi")
-		out, err := cmd.Output()
+		out, err := wm.ExecOutput(scutil, "--nwi")
 		if err != nil {
 			log.Println("Error running scutil tool", err)
 			return false, err
@@ -115,7 +115,7 @@ func (n *network) isEthernetConnected() (bool, error) {
 			return false, nil
 		}
 	} else {
-		out, err := exec.Command("ifconfig").Output()
+		out, err := wm.ExecOutput("ifconfig")
 		if err != nil {
 			log.Println("Error running ifconfig tool", err)
 			return false, err

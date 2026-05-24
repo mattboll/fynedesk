@@ -3,10 +3,7 @@ package ui
 import (
 	"image/color"
 	"log"
-	"os/exec"
 	"os/user"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/disintegration/imaging"
@@ -438,22 +435,6 @@ func adjustedNow() time.Time {
 }
 
 func getOffset() int {
-	ret, err := exec.Command("date", "+%z").Output()
-	if err != nil {
-		fyne.LogError("Failed to load date offset", err)
-		return 0
-	}
-
-	trimmed := strings.TrimSpace(string(ret))
-	if len(trimmed) < 5 {
-		fyne.LogError("Invalid offset format "+trimmed, nil)
-		return 0
-	}
-
-	hourStr := trimmed[:len(trimmed)-2]
-	minStr := trimmed[len(trimmed)-2:]
-
-	hours, _ := strconv.ParseInt(hourStr, 10, 64)
-	mins, _ := strconv.ParseInt(minStr, 10, 0)
-	return int(hours)*60 + int(mins)
+	_, secs := time.Now().Zone()
+	return secs / 60
 }

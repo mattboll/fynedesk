@@ -1,12 +1,21 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
+
+	"fyshos.com/fynedesk/wm"
 )
+
+// nmcliConnectTimeout is the deadline for nmcli connection commands. These
+// genuinely take seconds (DHCP, auth) so they cannot share the short default
+// timeout used for status queries.
+const nmcliConnectTimeout = 30 * time.Second
 
 // WifiNetwork represents a WiFi network detected by NetworkManager.
 type WifiNetwork struct {
@@ -24,7 +33,7 @@ func (w WifiNetwork) IsSecured() bool {
 // scanWifiNetworks returns available WiFi networks via nmcli.
 // Results are sorted: active network first, then by signal descending.
 func scanWifiNetworks() ([]WifiNetwork, error) {
-	out, err := exec.Command("nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY,IN-USE", "device", "wifi", "list").Output()
+	out, err := wm.ExecOutput("nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY,IN-USE", "device", "wifi", "list")
 	if err != nil {
 		return nil, fmt.Errorf("nmcli: %w", err)
 	}
@@ -71,7 +80,7 @@ func scanWifiNetworks() ([]WifiNetwork, error) {
 
 // rescanWifi triggers a WiFi rescan in the background.
 func rescanWifi() {
-	_ = exec.Command("nmcli", "device", "wifi", "rescan").Run()
+	_ = wm.ExecRunCtx(5*time.Second, "nmcli", "device", "wifi", "rescan")
 }
 
 // hasSavedWifiProfile reports whether NetworkManager already has a saved
@@ -80,7 +89,7 @@ func rescanWifi() {
 // store profiles under different names — so we additionally match on the
 // 802-11-wireless.ssid setting.
 func hasSavedWifiProfile(ssid string) bool {
-	out, err := exec.Command("nmcli", "-t", "-f", "NAME,TYPE", "connection", "show").Output()
+	out, err := wm.ExecOutput("nmcli", "-t", "-f", "NAME,TYPE", "connection", "show")
 	if err != nil {
 		return false
 	}
@@ -93,8 +102,8 @@ func hasSavedWifiProfile(ssid string) bool {
 			return true
 		}
 		// Profile name may differ from SSID — check the wireless ssid setting.
-		nameOut, err := exec.Command("nmcli", "-t", "-g", "802-11-wireless.ssid",
-			"connection", "show", fields[0]).Output()
+		nameOut, err := wm.ExecOutput("nmcli", "-t", "-g", "802-11-wireless.ssid",
+			"connection", "show", fields[0])
 		if err == nil && strings.TrimSpace(string(nameOut)) == ssid {
 			return true
 		}
@@ -129,7 +138,7 @@ func connectWifi(ssid, password, security string) error {
 	}
 
 	// Delete any stale profile for this SSID so we start fresh.
-	_ = exec.Command("nmcli", "connection", "delete", ssid).Run()
+	_ = wm.ExecRun("nmcli", "connection", "delete", ssid)
 
 	// Create a new connection profile with explicit key-mgmt.
 	err := runNmcli("connection", "add",
@@ -147,15 +156,19 @@ func connectWifi(ssid, password, security string) error {
 	// Activate the newly created profile.
 	if err := runNmcli("connection", "up", ssid); err != nil {
 		// Clean up on failure.
-		_ = exec.Command("nmcli", "connection", "delete", ssid).Run()
+		_ = wm.ExecRun("nmcli", "connection", "delete", ssid)
 		return err
 	}
 	return nil
 }
 
 // runNmcli executes an nmcli command and returns a user-friendly error.
+// Connect operations legitimately take seconds (DHCP, auth) so this uses a
+// longer timeout than the default ExecRun.
 func runNmcli(args ...string) error {
-	out, err := exec.Command("nmcli", args...).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), nmcliConnectTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "nmcli", args...).CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg != "" {
@@ -172,12 +185,12 @@ func disconnectWifi() error {
 	if dev == "" {
 		return fmt.Errorf("no wifi device found")
 	}
-	return exec.Command("nmcli", "device", "disconnect", dev).Run()
+	return wm.ExecRun("nmcli", "device", "disconnect", dev)
 }
 
 // wifiDevice returns the name of the WiFi network interface.
 func wifiDevice() string {
-	out, err := exec.Command("nmcli", "-t", "-f", "DEVICE,TYPE", "device", "status").Output()
+	out, err := wm.ExecOutput("nmcli", "-t", "-f", "DEVICE,TYPE", "device", "status")
 	if err != nil {
 		return ""
 	}

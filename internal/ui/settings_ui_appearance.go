@@ -404,9 +404,7 @@ func getPicturesDir() (fyne.ListableURI, error) {
 
 	const xdg = "xdg-user-dir"
 	if _, err := exec.LookPath(xdg); err == nil {
-		cmd := exec.Command(xdg, "PICTURES")
-
-		out, err := cmd.Output()
+		out, err := wm.ExecOutput(xdg, "PICTURES")
 		if err == nil {
 			location := strings.TrimRight(string(out), "\n")
 			if location != "" && location != home {

@@ -3,7 +3,6 @@ package status
 import (
 	"errors"
 	"image/color"
-	"os/exec"
 	"strconv"
 	"strings"
 
@@ -16,6 +15,7 @@ import (
 	"fyshos.com/fynedesk"
 	wmtheme "fyshos.com/fynedesk/theme"
 	"fyshos.com/fynedesk/wlipc"
+	"fyshos.com/fynedesk/wm"
 )
 
 var brightnessMeta = fynedesk.ModuleMetadata{
@@ -49,12 +49,12 @@ func (b *brightness) Destroy() {
 func (b *brightness) value() (float64, error) {
 	switch b.mode {
 	case brightnessctl:
-		out, err := exec.Command("brightnessctl", "get").Output()
+		out, err := wm.ExecOutput("brightnessctl", "get")
 		if err != nil {
 			fyne.LogError("Error running brightnessctl", err)
 			return 0, err
 		}
-		maxOut, _ := exec.Command("brightnessctl", "max").Output()
+		maxOut, _ := wm.ExecOutput("brightnessctl", "max")
 		val, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
 		if err != nil {
 			fyne.LogError("Error parsing brightnessctl info", err)
@@ -63,7 +63,7 @@ func (b *brightness) value() (float64, error) {
 		max, _ := strconv.ParseFloat(strings.TrimSpace(string(maxOut)), 64)
 		return val / max, nil
 	default:
-		out, err := exec.Command("xbacklight").Output()
+		out, err := wm.ExecOutput("xbacklight")
 		if err != nil {
 			fyne.LogError("Error running xbacklight", err)
 			return 0, err
@@ -100,13 +100,13 @@ func (b *brightness) setValue(value int) {
 
 	switch b.mode {
 	case brightnessctl:
-		err := exec.Command("brightnessctl", "set", strconv.Itoa(value)+"%").Run()
+		err := wm.ExecRun("brightnessctl", "set", strconv.Itoa(value)+"%")
 		if err != nil {
 			fyne.LogError("Error running brightnessctl", err)
 			return
 		}
 	default:
-		err := exec.Command("xbacklight", "-set", strconv.Itoa(value)).Run()
+		err := wm.ExecRun("xbacklight", "-set", strconv.Itoa(value))
 		if err != nil {
 			fyne.LogError("Error running xbacklight", err)
 			return
@@ -190,11 +190,11 @@ func (b *brightness) StatusAreaWidget() fyne.CanvasObject {
 	icon := container.NewCenter(prop, brightnessIcon)
 
 	less := &widget.Button{Icon: theme.ContentRemoveIcon(), Importance: widget.LowImportance, OnTapped: func() {
-		b.offsetValue(-5)
+		go b.offsetValue(-5)
 	}}
 
 	more := &widget.Button{Icon: theme.ContentAddIcon(), Importance: widget.LowImportance, OnTapped: func() {
-		b.offsetValue(5)
+		go b.offsetValue(5)
 	}}
 
 	bright := container.NewBorder(nil, nil, less, more, b.bar)
@@ -226,15 +226,14 @@ func newBrightness() fynedesk.Module {
 		// The compositor uses brightnessctl, so the panel must too.
 		// Use "brightnessctl get" (not bare "brightnessctl") as some versions
 		// return non-zero with no subcommand even when a device exists.
-		if exec.Command("brightnessctl", "get").Run() == nil {
+		if wm.ExecRun("brightnessctl", "get") == nil {
 			mode = brightnessctl
 		}
 	} else {
 		mode = xbacklight
-		cmd := exec.Command("xbacklight")
-		err := cmd.Run()
-		if err != nil || cmd.ProcessState.ExitCode() != 0 {
-			if exec.Command("brightnessctl", "get").Run() == nil {
+		err := wm.ExecRun("xbacklight")
+		if err != nil {
+			if wm.ExecRun("brightnessctl", "get") == nil {
 				mode = brightnessctl
 			} else {
 				fyne.LogError("Could not launch xbacklight or brightnessctl", err)

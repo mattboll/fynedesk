@@ -6,7 +6,6 @@ import (
 	"image/color"
 	"log"
 	"math"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -99,12 +98,17 @@ func (sb *sidebarPanel) buildContent() {
 	// --- Quick settings ---
 	quickLabel := sectionLabel(locale.T("sidebar.quickSettings"))
 
+	// All widgets reading system state (volume, brightness, wifi, bluetooth,
+	// audio devices, app streams) are built with placeholders here. Their
+	// real values are read from external tools (wpctl, brightnessctl, nmcli,
+	// rfkill, pw-dump) in a background goroutine and applied via fyne.Do so
+	// that an unresponsive daemon cannot freeze the panel UI thread.
+
 	// Volume
 	volIcon := widget.NewIcon(wmtheme.SoundIcon)
 	volSlider := newSliderBar(100, 5, func(v float64) {
 		setVolume(int(v))
 	})
-	volSlider.Value = readCurrentVolume()
 	volRow := container.NewBorder(nil, nil, volIcon, nil, volSlider)
 
 	// Brightness
@@ -112,7 +116,6 @@ func (sb *sidebarPanel) buildContent() {
 	brightSlider := newSliderBar(100, 5, func(v float64) {
 		setBrightness(int(v))
 	})
-	brightSlider.Value = readCurrentBrightness()
 	brightRow := container.NewBorder(nil, nil, brightIcon, nil, brightSlider)
 
 	// Night light toggle
@@ -129,18 +132,13 @@ func (sb *sidebarPanel) buildContent() {
 	wifiCheck := widget.NewCheck("Wi-Fi", func(on bool) {
 		go toggleWifi(on)
 	})
-	wifiCheck.Checked = isWifiEnabled()
-	wifiIcon := widget.NewIcon(wmtheme.WifiIcon)
-	if !wifiCheck.Checked {
-		wifiIcon = widget.NewIcon(wmtheme.WifiOffIcon)
-	}
-	wifiRow := container.NewBorder(nil, nil, wifiIcon, nil, wifiCheck)
+	wifiIconHolder := container.NewStack(widget.NewIcon(wmtheme.WifiOffIcon))
+	wifiRow := container.NewBorder(nil, nil, wifiIconHolder, nil, wifiCheck)
 
 	// Bluetooth toggle
 	btCheck := widget.NewCheck(locale.T("sidebar.bluetooth"), func(on bool) {
 		go toggleBluetooth(on)
 	})
-	btCheck.Checked = isBluetoothEnabled()
 	btRow := container.NewBorder(nil, nil, widget.NewIcon(theme.RadioButtonIcon()), nil, btCheck)
 
 	// Do Not Disturb toggle
@@ -150,14 +148,15 @@ func (sb *sidebarPanel) buildContent() {
 	dndCheck.Checked = wm.DoNotDisturb()
 	dndRow := container.NewBorder(nil, nil, widget.NewIcon(wmtheme.NotificationsIcon), nil, dndCheck)
 
-	// Audio device selectors
-	audioOutput := buildAudioDeviceSelector("sink")
-	audioInput := buildAudioDeviceSelector("source")
-
-	// Per-app volume mixer
-	appMixer := buildAppMixer()
+	// Audio device selectors and per-app mixer: build empty containers that
+	// will be populated by the background refresh.
+	audioOutput := container.NewVBox()
+	audioInput := container.NewVBox()
+	appMixer := container.NewVBox()
 
 	quickSettings := container.NewVBox(quickLabel, volRow, audioOutput, audioInput, appMixer, brightRow, nightLightRow, wifiRow, btRow, dndRow)
+
+	go sb.refreshSystemState(volSlider, brightSlider, wifiCheck, btCheck, wifiIconHolder, audioOutput, audioInput, appMixer)
 
 	// --- Notifications ---
 	notifLabel := sectionLabel(locale.T("sidebar.notifications"))
@@ -214,6 +213,58 @@ func (sb *sidebarPanel) buildContent() {
 	full := container.NewStack(bg, container.NewBorder(nil, nil, borderLine, nil, padded))
 
 	sb.win.SetContent(full)
+}
+
+// refreshSystemState reads all system state via external tools off the UI
+// thread, then applies the values to the sidebar widgets via fyne.Do. This
+// keeps the sidebar opening instant even when wpctl/nmcli/brightnessctl are
+// unresponsive (e.g. after suspend/resume on flaky hardware) — the worst
+// case becomes "values stay at their placeholder for 2s" instead of "panel
+// freezes until reboot".
+func (sb *sidebarPanel) refreshSystemState(
+	volSlider, brightSlider *sliderBar,
+	wifiCheck, btCheck *widget.Check,
+	wifiIconHolder *fyne.Container,
+	audioOutput, audioInput, appMixer *fyne.Container,
+) {
+	vol := readCurrentVolume()
+	bright := readCurrentBrightness()
+	wifi := isWifiEnabled()
+	bt := isBluetoothEnabled()
+	sinks, sinksDefault := listAudioDevices("sink")
+	sources, sourcesDefault := listAudioDevices("source")
+	streams := listAudioStreams()
+
+	fyne.Do(func() {
+		if sb.win == nil {
+			return // sidebar closed before refresh finished
+		}
+		volSlider.Value = vol
+		volSlider.Refresh()
+		brightSlider.Value = bright
+		brightSlider.Refresh()
+		wifiCheck.Checked = wifi
+		wifiCheck.Refresh()
+		btCheck.Checked = bt
+		btCheck.Refresh()
+
+		wifiIconHolder.Objects = []fyne.CanvasObject{widget.NewIcon(wifiIconFor(wifi))}
+		wifiIconHolder.Refresh()
+
+		audioOutput.Objects = audioDeviceSelectorObjects("sink", sinks, sinksDefault)
+		audioOutput.Refresh()
+		audioInput.Objects = audioDeviceSelectorObjects("source", sources, sourcesDefault)
+		audioInput.Refresh()
+		appMixer.Objects = appMixerObjects(streams)
+		appMixer.Refresh()
+	})
+}
+
+func wifiIconFor(on bool) fyne.Resource {
+	if on {
+		return wmtheme.WifiIcon
+	}
+	return wmtheme.WifiOffIcon
 }
 
 func (sb *sidebarPanel) refreshNotifications() {
@@ -348,7 +399,7 @@ func sectionLabel(text string) fyne.CanvasObject {
 
 // readCurrentVolume returns the current volume (0-100) via wpctl.
 func readCurrentVolume() float64 {
-	out, err := exec.Command("wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@").Output()
+	out, err := wm.ExecOutput("wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@")
 	if err != nil {
 		return 50
 	}
@@ -367,7 +418,7 @@ func readCurrentVolume() float64 {
 func setVolume(pct int) {
 	volStr := fmt.Sprintf("%.2f", float64(pct)/100.0)
 	go func() {
-		if err := exec.Command("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", volStr).Run(); err != nil {
+		if err := wm.ExecRun("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", volStr); err != nil {
 			fyne.LogError("Failed to run command", err)
 		}
 	}()
@@ -375,7 +426,7 @@ func setVolume(pct int) {
 
 // readCurrentBrightness returns the current brightness (0-100) via brightnessctl.
 func readCurrentBrightness() float64 {
-	out, err := exec.Command("brightnessctl", "info", "-m").Output()
+	out, err := wm.ExecOutput("brightnessctl", "info", "-m")
 	if err != nil {
 		return 70
 	}
@@ -396,7 +447,7 @@ func readCurrentBrightness() float64 {
 // setBrightness sets screen brightness to a specific percentage.
 func setBrightness(pct int) {
 	go func() {
-		if err := exec.Command("brightnessctl", "set", fmt.Sprintf("%d%%", pct)).Run(); err != nil {
+		if err := wm.ExecRun("brightnessctl", "set", fmt.Sprintf("%d%%", pct)); err != nil {
 			fyne.LogError("Failed to run command", err)
 		}
 	}()
@@ -404,7 +455,7 @@ func setBrightness(pct int) {
 
 // isWifiEnabled checks if Wi-Fi radio is enabled via nmcli.
 func isWifiEnabled() bool {
-	out, err := exec.Command("nmcli", "radio", "wifi").Output()
+	out, err := wm.ExecOutput("nmcli", "radio", "wifi")
 	if err != nil {
 		return true // assume enabled if nmcli unavailable
 	}
@@ -417,17 +468,17 @@ func toggleWifi(on bool) {
 	if on {
 		state = "on"
 	}
-	if err := exec.Command("nmcli", "radio", "wifi", state).Run(); err != nil {
+	if err := wm.ExecRun("nmcli", "radio", "wifi", state); err != nil {
 		fyne.LogError("Failed to run command", err)
 	}
 }
 
 // isBluetoothEnabled checks if Bluetooth is enabled via rfkill.
 func isBluetoothEnabled() bool {
-	out, err := exec.Command("rfkill", "list", "bluetooth").Output()
+	out, err := wm.ExecOutput("rfkill", "list", "bluetooth")
 	if err != nil {
 		// Fallback: try bluetoothctl
-		out2, err2 := exec.Command("bluetoothctl", "show").Output()
+		out2, err2 := wm.ExecOutput("bluetoothctl", "show")
 		if err2 != nil {
 			return false
 		}
@@ -439,11 +490,11 @@ func isBluetoothEnabled() bool {
 // toggleBluetooth enables or disables Bluetooth.
 func toggleBluetooth(on bool) {
 	if on {
-		if err := exec.Command("rfkill", "unblock", "bluetooth").Run(); err != nil {
+		if err := wm.ExecRun("rfkill", "unblock", "bluetooth"); err != nil {
 			fyne.LogError("Failed to run command", err)
 		}
 	} else {
-		if err := exec.Command("rfkill", "block", "bluetooth").Run(); err != nil {
+		if err := wm.ExecRun("rfkill", "block", "bluetooth"); err != nil {
 			fyne.LogError("Failed to run command", err)
 		}
 	}
@@ -458,7 +509,7 @@ type audioDevice struct {
 // listAudioDevices queries wpctl for sinks or sources.
 func listAudioDevices(kind string) (devices []audioDevice, defaultIdx int) {
 	// Try wpctl first (PipeWire)
-	out, err := exec.Command("wpctl", "status").Output()
+	out, err := wm.ExecOutput("wpctl", "status")
 	if err != nil {
 		return nil, 0
 	}
@@ -520,17 +571,18 @@ func listAudioDevices(kind string) (devices []audioDevice, defaultIdx int) {
 // setDefaultAudioDevice sets the default sink or source via wpctl.
 func setDefaultAudioDevice(id string) {
 	go func() {
-		if err := exec.Command("wpctl", "set-default", id).Run(); err != nil {
+		if err := wm.ExecRun("wpctl", "set-default", id); err != nil {
 			fyne.LogError("Failed to set default audio device", err)
 		}
 	}()
 }
 
-// buildAudioDeviceSelector creates a dropdown for audio output/input device selection.
-func buildAudioDeviceSelector(kind string) fyne.CanvasObject {
-	devices, defaultIdx := listAudioDevices(kind)
+// audioDeviceSelectorObjects builds the child objects (label + dropdown)
+// for an audio device selector, given pre-fetched device data. Returns nil
+// when there's no meaningful choice to offer.
+func audioDeviceSelectorObjects(kind string, devices []audioDevice, defaultIdx int) []fyne.CanvasObject {
 	if len(devices) <= 1 {
-		return container.NewVBox() // No choice needed
+		return nil
 	}
 
 	names := make([]string, len(devices))
@@ -556,7 +608,7 @@ func buildAudioDeviceSelector(kind string) fyne.CanvasObject {
 	lbl := widget.NewLabel(label)
 	lbl.TextStyle = fyne.TextStyle{Bold: true}
 
-	return container.NewVBox(lbl, sel)
+	return []fyne.CanvasObject{lbl, sel}
 }
 
 // audioStream represents an application audio stream.
@@ -577,7 +629,7 @@ func listAudioStreams() []audioStream {
 
 // listAudioStreamsPW uses pw-dump to list active audio output streams.
 func listAudioStreamsPW() []audioStream {
-	out, err := exec.Command("pw-dump").Output()
+	out, err := wm.ExecOutput("pw-dump")
 	if err != nil {
 		return nil
 	}
@@ -635,7 +687,7 @@ func listAudioStreamsPW() []audioStream {
 
 // listAudioStreamsPactl uses pactl as fallback for PulseAudio-only systems.
 func listAudioStreamsPactl() []audioStream {
-	out, err := exec.Command("pactl", "list", "sink-inputs").Output()
+	out, err := wm.ExecOutput("pactl", "list", "sink-inputs")
 	if err != nil {
 		return nil
 	}
@@ -684,25 +736,24 @@ func setStreamVolume(index string, pct int) {
 	go func() {
 		// Try wpctl first (PipeWire), fallback to pactl
 		vol := fmt.Sprintf("%.2f", float64(pct)/100.0)
-		if err := exec.Command("wpctl", "set-volume", index, vol).Run(); err != nil {
-			if err2 := exec.Command("pactl", "set-sink-input-volume", index, fmt.Sprintf("%d%%", pct)).Run(); err2 != nil {
+		if err := wm.ExecRun("wpctl", "set-volume", index, vol); err != nil {
+			if err2 := wm.ExecRun("pactl", "set-sink-input-volume", index, fmt.Sprintf("%d%%", pct)); err2 != nil {
 				fyne.LogError("Failed to set stream volume", err2)
 			}
 		}
 	}()
 }
 
-// buildAppMixer creates per-app volume sliders for active audio streams.
-func buildAppMixer() fyne.CanvasObject {
-	streams := listAudioStreams()
+// appMixerObjects builds the per-app volume slider rows from a pre-fetched
+// list of audio streams. Returns nil when there is nothing to show.
+func appMixerObjects(streams []audioStream) []fyne.CanvasObject {
 	if len(streams) == 0 {
 		log.Printf("[MIXER] No audio streams found")
-		return container.NewVBox() // empty, takes no space
+		return nil
 	}
 	log.Printf("[MIXER] Found %d audio stream(s)", len(streams))
 
-	title := sectionLabel(locale.T("sidebar.appVolume"))
-	items := []fyne.CanvasObject{title}
+	items := []fyne.CanvasObject{sectionLabel(locale.T("sidebar.appVolume"))}
 	for _, s := range streams {
 		stream := s // capture
 
@@ -718,5 +769,5 @@ func buildAppMixer() fyne.CanvasObject {
 		items = append(items, nameLabel, slider)
 	}
 
-	return container.NewVBox(items...)
+	return items
 }

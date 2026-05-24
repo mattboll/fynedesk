@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"os/exec"
 	"strings"
 
 	"fyne.io/fyne/v2"
@@ -96,7 +95,7 @@ func (d *settingsUI) loadAdvancedScreen() fyne.CanvasObject {
 
 	// Power profile (only if powerprofilesctl is available)
 	var powerCard fyne.CanvasObject
-	if profileOut, profileErr := exec.Command("powerprofilesctl", "get").Output(); profileErr == nil {
+	if profileOut, profileErr := wm.ExecOutput("powerprofilesctl", "get"); profileErr == nil {
 		powerSelect := &widget.Select{Options: []string{
 			locale.T("advanced.performance"),
 			locale.T("advanced.balanced"),
@@ -121,7 +120,7 @@ func (d *settingsUI) loadAdvancedScreen() fyne.CanvasObject {
 			default:
 				profile = "balanced"
 			}
-			go exec.Command("powerprofilesctl", "set", profile).Run()
+			go wm.ExecRun("powerprofilesctl", "set", profile) //nolint:errcheck
 		}
 		powerCard = widget.NewCard(locale.T("advanced.power"), "", powerSelect)
 	}

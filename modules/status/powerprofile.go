@@ -1,7 +1,6 @@
 package status
 
 import (
-	"os/exec"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -13,6 +12,7 @@ import (
 
 	"fyshos.com/fynedesk"
 	wmtheme "fyshos.com/fynedesk/theme"
+	"fyshos.com/fynedesk/wm"
 )
 
 var powerProfileMeta = fynedesk.ModuleMetadata{
@@ -123,7 +123,7 @@ func profileDisplayName(profile string) string {
 }
 
 func getProfile() (string, error) {
-	out, err := exec.Command("powerprofilesctl", "get").Output()
+	out, err := wm.ExecOutput("powerprofilesctl", "get")
 	if err != nil {
 		return "", err
 	}
@@ -131,7 +131,7 @@ func getProfile() (string, error) {
 }
 
 func setProfile(profile string) error {
-	return exec.Command("powerprofilesctl", "set", profile).Run()
+	return wm.ExecRun("powerprofilesctl", "set", profile)
 }
 
 func newPowerProfile() fynedesk.Module {
