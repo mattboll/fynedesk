@@ -56,6 +56,12 @@ const (
 	// restores it.
 	restoreDragThreshold = 30.0
 
+	// Felt-tip pen annotation: brush radius in pixels, how long the ink lingers
+	// after Super is released, and how long the fade-out takes.
+	penBrushRadius = 4
+	penHoldDelay   = 5 * time.Second
+	penFadeDur     = 600 * time.Millisecond
+
 	// Input: Super key alone detection
 	superAloneTimeout = 400 * time.Millisecond // Max hold duration for Super-alone toggle
 
@@ -64,8 +70,8 @@ const (
 	keyRepeatInterval = 40 * time.Millisecond  // Interval between repeats (25/sec)
 
 	// Panel hotspot (auto-reveal when bar is covered)
-	panelEdgeZone      = 4                      // Pixel zone at screen edge for hotspot detection
-	panelRevealDelay   = 500 * time.Millisecond // Hover duration before panel reveals
+	panelEdgeZone    = 4                      // Pixel zone at screen edge for hotspot detection
+	panelRevealDelay = 500 * time.Millisecond // Hover duration before panel reveals
 
 	// Switcher / thumbnail dimensions
 	thumbMaxW = 192 // Max thumbnail width in pixels
@@ -123,18 +129,18 @@ type OutputModeInfo struct {
 
 // CompositorOutputState describes a single output in the compositor state
 type CompositorOutputState struct {
-	OutputName           string           `json:"output_name"`
-	Modes                []OutputModeInfo `json:"modes"`
-	PhysWidth            int              `json:"phys_width"`
-	PhysHeight           int              `json:"phys_height"`
-	Scale                float32          `json:"scale"`
-	Width                int              `json:"width"`
-	Height               int              `json:"height"`
-	X                    int              `json:"x"`
-	Y                    int              `json:"y"`
-	Primary              bool             `json:"primary"`
-	AdaptiveSyncEnabled  bool             `json:"adaptive_sync_enabled"`
-	AdaptiveSyncSupported bool            `json:"adaptive_sync_supported"`
+	OutputName            string           `json:"output_name"`
+	Modes                 []OutputModeInfo `json:"modes"`
+	PhysWidth             int              `json:"phys_width"`
+	PhysHeight            int              `json:"phys_height"`
+	Scale                 float32          `json:"scale"`
+	Width                 int              `json:"width"`
+	Height                int              `json:"height"`
+	X                     int              `json:"x"`
+	Y                     int              `json:"y"`
+	Primary               bool             `json:"primary"`
+	AdaptiveSyncEnabled   bool             `json:"adaptive_sync_enabled"`
+	AdaptiveSyncSupported bool             `json:"adaptive_sync_supported"`
 }
 
 // CompositorState is written to a file for the panel to read
@@ -230,11 +236,11 @@ type server struct {
 	panelXway          *xwayView            // Panel window (XWayland)
 	secondaryPanels    map[string]*xwayView // Secondary bar windows keyed by output name
 	overlayXway        *xwayView            // Overlay menu window (FyneDesk Menu)
-	overlayW, overlayH float64   // Expected overlay dimensions (from IPC)
-	preOverlayXdg      *xdgView  // Active XDG view before overlay opened
-	preOverlayXway     *xwayView // Active XWayland view before overlay opened
-	prevRealXdg        *xdgView  // Previous real (non-panel, non-overlay) focused XDG view
-	prevRealXway       *xwayView // Previous real (non-panel, non-overlay) focused XWayland view
+	overlayW, overlayH float64              // Expected overlay dimensions (from IPC)
+	preOverlayXdg      *xdgView             // Active XDG view before overlay opened
+	preOverlayXway     *xwayView            // Active XWayland view before overlay opened
+	prevRealXdg        *xdgView             // Previous real (non-panel, non-overlay) focused XDG view
+	prevRealXway       *xwayView            // Previous real (non-panel, non-overlay) focused XWayland view
 
 	// Cursor output tracking (for scale changes on output boundary crossing)
 	lastCursorOutput *outputState
@@ -249,14 +255,14 @@ type server struct {
 	windowRules []wlipc.WindowRule
 
 	// Interactive grab state (move/resize)
-	grab                   grabMode
-	grabXdg                *xdgView
-	grabXway               *xwayView
-	grabX, grabY           float64   // Cursor position at grab start
-	grabViewX, grabViewY   float64   // View position at grab start
-	grabWidth, grabHeight  int       // View size at grab start (for resize)
-	grabEdges              wlr.Edges // Which edges are being resized
-	grabRestorePending     bool      // Move grab started on a maximized/fullscreen window; waiting for resistance threshold
+	grab                  grabMode
+	grabXdg               *xdgView
+	grabXway              *xwayView
+	grabX, grabY          float64   // Cursor position at grab start
+	grabViewX, grabViewY  float64   // View position at grab start
+	grabWidth, grabHeight int       // View size at grab start (for resize)
+	grabEdges             wlr.Edges // Which edges are being resized
+	grabRestorePending    bool      // Move grab started on a maximized/fullscreen window; waiting for resistance threshold
 
 	// Double-click tracking
 	lastClickTime time.Time
@@ -273,43 +279,60 @@ type server struct {
 	cascadeOffsets map[string]int
 
 	// Idle tracking for screensaver / power management
-	lastInputTime    time.Time
-	idleLocked       bool
+	lastInputTime      time.Time
+	idleLocked         bool
 	suspendLockPending bool // true between PrepareForSleep and lock acquisition — prevents resetIdleTimer from clearing idleLocked
-	displayBlanked   bool
-	idleSuspended    bool // true after auto-suspend initiated, cleared on resume
+	displayBlanked     bool
+	idleSuspended      bool // true after auto-suspend initiated, cleared on resume
 
 	// Configurable power timeouts (minutes, 0 = disabled)
 	powerLockTimeout    int    // default 5
 	powerBlankTimeout   int    // default 6
 	powerSuspendTimeout int    // default 0 (disabled)
 	powerSuspendAction  string // "suspend", "hibernate", "hybrid-sleep", "nothing"
-	nestedMode      bool // true when running inside another compositor (WLR_BACKENDS set)
-	privateDBusPid  int  // PID of private dbus-daemon (nested mode only)
-	shuttingDown    atomic.Bool
-	wantRestart     atomic.Bool   // true if shutdown was triggered by a "restart" IPC; runner will restart on exit code 5
-	shutdown        chan struct{} // closed when the compositor is tearing down; long-lived watchers select on it
-	screenSaverDBus *screenSaverDBus
-	portal          *portalDBus
+	nestedMode          bool   // true when running inside another compositor (WLR_BACKENDS set)
+	privateDBusPid      int    // PID of private dbus-daemon (nested mode only)
+	shuttingDown        atomic.Bool
+	wantRestart         atomic.Bool   // true if shutdown was triggered by a "restart" IPC; runner will restart on exit code 5
+	shutdown            chan struct{} // closed when the compositor is tearing down; long-lived watchers select on it
+	screenSaverDBus     *screenSaverDBus
+	portal              *portalDBus
 
 	// Scene graph (wlr_scene for damage-tracked rendering)
 	openAnim *openAnim // Current icon-to-window launch animation (nil = none)
 
-	scene          unsafe.Pointer // *C.struct_wlr_scene
-	backgroundTree unsafe.Pointer // *C.struct_wlr_scene_tree — wallpaper layer
-	panelTree      unsafe.Pointer // *C.struct_wlr_scene_tree — panel XWayland surface
-	windowsTree    unsafe.Pointer // *C.struct_wlr_scene_tree — normal windows (sorted by focus)
-	overrideTree   unsafe.Pointer // *C.struct_wlr_scene_tree — override-redirect popups/menus
+	scene                  unsafe.Pointer // *C.struct_wlr_scene
+	backgroundTree         unsafe.Pointer // *C.struct_wlr_scene_tree — wallpaper layer
+	panelTree              unsafe.Pointer // *C.struct_wlr_scene_tree — panel XWayland surface
+	windowsTree            unsafe.Pointer // *C.struct_wlr_scene_tree — normal windows (sorted by focus)
+	overrideTree           unsafe.Pointer // *C.struct_wlr_scene_tree — override-redirect popups/menus
 	fullscreenTree         unsafe.Pointer // *C.struct_wlr_scene_tree — fullscreen window layer
 	fullscreenLayerEnabled bool           // cached state of fullscreenTree visibility
-	overlayTree    unsafe.Pointer // *C.struct_wlr_scene_tree — overlay menu (FyneDesk Menu)
-	switcherTree   unsafe.Pointer // *C.struct_wlr_scene_tree — Alt-Tab overlay
-	lockTree       unsafe.Pointer // *C.struct_wlr_scene_tree — Session lock layer (above all)
+	overlayTree            unsafe.Pointer // *C.struct_wlr_scene_tree — overlay menu (FyneDesk Menu)
+	switcherTree           unsafe.Pointer // *C.struct_wlr_scene_tree — Alt-Tab overlay
+	penTree                unsafe.Pointer // *C.struct_wlr_scene_tree — felt-tip annotation ink (above switcher, below lock)
+	lockTree               unsafe.Pointer // *C.struct_wlr_scene_tree — Session lock layer (above all)
+
+	// Felt-tip pen annotation ("presentation marker"): Super+Left draws ink on
+	// a full-layout overlay; releasing Super fades it out after a short delay.
+	penInkActive  bool    // ink is currently shown on screen
+	penDrawing    bool    // a stroke is actively being laid down (Super held + button down)
+	penButtonDown bool    // we own the current left-button press (consume its release)
+	penLastX      float64 // last stamped point of the current stroke (layout coords)
+	penLastY      float64
+	penImg        *image.NRGBA   // accumulated ink, full-layout sized (nil = none)
+	penOriginX    int            // layout origin (minX) of penImg
+	penOriginY    int            // layout origin (minY) of penImg
+	penPixBuf     unsafe.Pointer // *C.struct_pen_buffer
+	penSceneBuf   unsafe.Pointer // *C.struct_wlr_scene_buffer
+	penFadeActive bool           // fade-out animation is running
+	penFadeStart  time.Time      // when the fade-out began
+	penFadeTimer  *time.Timer    // pending hold timer before the fade begins (nil = none)
 
 	// IME (text input) state
-	textInputs      []unsafe.Pointer // []*C.struct_wlr_text_input_v3
-	activeTextInput unsafe.Pointer   // *C.struct_wlr_text_input_v3 — focused
-	activeInputMethod unsafe.Pointer // *C.struct_wlr_input_method_v2 — connected IME
+	textInputs        []unsafe.Pointer // []*C.struct_wlr_text_input_v3
+	activeTextInput   unsafe.Pointer   // *C.struct_wlr_text_input_v3 — focused
+	activeInputMethod unsafe.Pointer   // *C.struct_wlr_input_method_v2 — connected IME
 
 	// Session lock state. locked is read by goroutines (IPC handlers, watchdog,
 	// suspend watcher) and written from the main thread — atomic.Bool keeps the
@@ -318,21 +341,21 @@ type server struct {
 	lockedSent        bool // true after send_locked; prevents double-send crash
 	lockSurfaceStates map[string]*lockSurfaceState
 	lockBlackRects    map[string]unsafe.Pointer
-	currentLock       unsafe.Pointer // *C.struct_wlr_session_lock_v1
-	lockCrashCount    int            // Consecutive lock client crashes (reset on successful lock)
+	currentLock       unsafe.Pointer    // *C.struct_wlr_session_lock_v1
+	lockCrashCount    int               // Consecutive lock client crashes (reset on successful lock)
 	builtinLock       *builtinLockState // Built-in lock screen state (nil when not active)
 	lockScreenType    string            // "FyshOS" = built-in, otherwise try external lockers
 	lockLabel         string            // Custom lock screen label from settings
 
 	// Settings from Fyne preferences
-	buttonsOnLeft      bool                 // true = close/max/min on left (macOS-style)
-	wmModifier         wlr.KeyboardModifier // Primary WM modifier (Logo or Alt)
-	naturalScroll      bool                 // true = invert scroll direction (like macOS)
-	narrowWidgetPanel  bool                 // true = widget panel uses narrow width (36 instead of 196)
-	narrowLeftLauncher bool                 // true = vertical bar on left (false = no left bar)
-	backgroundType     string               // "image", "matrix", "starfield"
-	backgroundPath     string               // Global wallpaper image/directory path
-	monitorWallpapers  map[string]monitorWP // Per-output wallpaper overrides (key = output name)
+	buttonsOnLeft       bool                 // true = close/max/min on left (macOS-style)
+	wmModifier          wlr.KeyboardModifier // Primary WM modifier (Logo or Alt)
+	naturalScroll       bool                 // true = invert scroll direction (like macOS)
+	narrowWidgetPanel   bool                 // true = widget panel uses narrow width (36 instead of 196)
+	narrowLeftLauncher  bool                 // true = vertical bar on left (false = no left bar)
+	backgroundType      string               // "image", "matrix", "starfield"
+	backgroundPath      string               // Global wallpaper image/directory path
+	monitorWallpapers   map[string]monitorWP // Per-output wallpaper overrides (key = output name)
 	launcherIconSize    int                  // icon size in pixels (default 48)
 	launcherZoomScale   float64              // zoom scale (default 2.0)
 	barPosition         string               // "left" or "bottom" — where the panel bar is
@@ -343,15 +366,15 @@ type server struct {
 	hotspotClickLatched bool                 // true = click occurred in bar area, keep panel visible
 	lastHotspotCheck    time.Time            // throttle: last time checkPanelHotspot() ran
 	revealRestoreScale  float32              // output scale to restore when hiding panel (0 = no restore)
-	lastFrameTime      time.Time            // diagnostic: last renderOutput call time
-	animTimerPending   atomic.Bool          // true = animation wakeup timer already scheduled
+	lastFrameTime       time.Time            // diagnostic: last renderOutput call time
+	animTimerPending    atomic.Bool          // true = animation wakeup timer already scheduled
 
 	// Hot corners
-	hotCornerActions   [4]string // Action per corner (empty = disabled)
-	activeHotCorner    int       // Currently hovered corner (-1 = none)
-	lastHotCornerTime  time.Time    // Last activation time (cooldown)
-	showDesktopActive  bool         // true = all windows minimized via "show desktop"
-	focusModeActive    bool         // true = all windows except focused minimized via focus mode
+	hotCornerActions  [4]string // Action per corner (empty = disabled)
+	activeHotCorner   int       // Currently hovered corner (-1 = none)
+	lastHotCornerTime time.Time // Last activation time (cooldown)
+	showDesktopActive bool      // true = all windows minimized via "show desktop"
+	focusModeActive   bool      // true = all windows except focused minimized via focus mode
 
 	// Super-alone detection: open launcher on bare Super press+release
 	superAlonePressed bool      // Super was pressed without any other key
@@ -374,18 +397,18 @@ type server struct {
 	hoverXway   *xwayView // View whose titlebar is hovered
 
 	// App switcher overlay state
-	switcherActive     bool          // Whether the switcher overlay is visible
-	switcherWindows    []interface{} // Windows in the switcher (xdgView or xwayView)
-	switcherIndex      int           // Currently highlighted window index
-	switcherOrigXdg    *xdgView      // Original focused XDG window before switcher
-	switcherOrigXway   *xwayView     // Original focused XWayland window before switcher
-	switcherThumbnails []wlr.Texture // Cached SHM thumbnails (captured from framebuffer)
+	switcherActive     bool           // Whether the switcher overlay is visible
+	switcherWindows    []interface{}  // Windows in the switcher (xdgView or xwayView)
+	switcherIndex      int            // Currently highlighted window index
+	switcherOrigXdg    *xdgView       // Original focused XDG window before switcher
+	switcherOrigXway   *xwayView      // Original focused XWayland window before switcher
+	switcherThumbnails []wlr.Texture  // Cached SHM thumbnails (captured from framebuffer)
 	switcherThumbImgs  []*image.NRGBA // Captured surface thumbnails for composite
 	switcherBuf        unsafe.Pointer // *C.struct_wlr_scene_buffer (composite panel)
 	switcherPixBuf     unsafe.Pointer // *C.struct_pixel_buffer (backing pixel data)
-	switcherFadeIn     bool          // Fade-in animation active
-	switcherFadeOut    bool          // Fade-out animation active
-	switcherFadeStart  time.Time     // When the fade started
+	switcherFadeIn     bool           // Fade-in animation active
+	switcherFadeOut    bool           // Fade-out animation active
+	switcherFadeStart  time.Time      // When the fade started
 
 	// Window overview (Exposé) state — per-window scene buffers
 	overviewActive      bool
@@ -399,21 +422,21 @@ type server struct {
 	// Screenshot modes
 	windowPickMode     bool // Waiting for click to select window for screenshot
 	regionSelectActive bool
-	regionAnchorSet    bool    // true after first click places the anchor
+	regionAnchorSet    bool // true after first click places the anchor
 	regionStartX       float64
 	regionStartY       float64
 	regionEndX         float64
 	regionEndY         float64
 	// Scene rects for region overlay (GPU-native, no pixel manipulation):
 	// 4 dim rects around selection + 4 border rects + container tree
-	regionTree         unsafe.Pointer // *C.struct_wlr_scene_tree
-	regionDimRects     [4]unsafe.Pointer // top, bottom, left, right dim rects
-	regionBorderRects  [4]unsafe.Pointer // top, bottom, left, right border rects
+	regionTree        unsafe.Pointer    // *C.struct_wlr_scene_tree
+	regionDimRects    [4]unsafe.Pointer // top, bottom, left, right dim rects
+	regionBorderRects [4]unsafe.Pointer // top, bottom, left, right border rects
 
 	// Thumbnail capture throttle (last time we captured view thumbnails)
-	lastThumbCapture         time.Time
-	thumbCaptureFailLogged   int // 1 if "EGL not available" was already logged
-	thumbCaptureCount        int // total successful capture cycles (for periodic logging)
+	lastThumbCapture       time.Time
+	thumbCaptureFailLogged int // 1 if "EGL not available" was already logged
+	thumbCaptureCount      int // total successful capture cycles (for periodic logging)
 
 	// Pending preview captures requested via IPC (taskbar hover).
 	// Written from main thread (via mainThreadActions), read from render path.
@@ -457,7 +480,7 @@ type server struct {
 
 	// Key repeat for consumed keybindings (volume/brightness etc.)
 	keyRepeatStop chan struct{} // closed to cancel current repeat; nil = no repeat active
-	keyRepeatCode uint32       // keycode being repeated
+	keyRepeatCode uint32        // keycode being repeated
 
 	// Font customization
 	fontFamily string // Font family name (resolved via fc-match)
@@ -509,22 +532,22 @@ type server struct {
 }
 
 type outputState struct {
-	output      wlr.Output
-	sceneOutput unsafe.Pointer // *C.struct_wlr_scene_output
-	width       int
-	height      int
-	layoutX     int // position in output layout (from outLayout.Get)
-	layoutY     int
-	modes       []wlr.OutputMode
-	currentMode int
-	savedMode   int     // Mode index before fullscreen switch (-1 = no saved mode)
-	savedScale  float32 // Scale before fullscreen switch (0 = no saved scale)
+	output        wlr.Output
+	sceneOutput   unsafe.Pointer // *C.struct_wlr_scene_output
+	width         int
+	height        int
+	layoutX       int // position in output layout (from outLayout.Get)
+	layoutY       int
+	modes         []wlr.OutputMode
+	currentMode   int
+	savedMode     int     // Mode index before fullscreen switch (-1 = no saved mode)
+	savedScale    float32 // Scale before fullscreen switch (0 = no saved scale)
 	listeners     []wlr.Listener
 	frameListener unsafe.Pointer // *C.struct_wl_listener (per-output frame callback)
 	vrrEnabled    bool           // Adaptive sync (VRR/FreeSync) enabled on this output
 	// Per-output wallpaper
-	wallpaperBuf    unsafe.Pointer   // *C.struct_wlr_scene_buffer
-	wallpaperPixBuf unsafe.Pointer   // *C.struct_pixel_buffer
+	wallpaperBuf    unsafe.Pointer // *C.struct_wlr_scene_buffer
+	wallpaperPixBuf unsafe.Pointer // *C.struct_pixel_buffer
 	// Per-output animated wallpaper
 	animWallpaper animatedWallpaper // Current animation (nil = static image)
 	animBuf       *image.NRGBA      // Reusable NRGBA buffer for animation
@@ -674,14 +697,14 @@ type overviewLayoutData struct {
 // overviewEntry holds per-window state during overview mode.
 // Each window gets its own wlr_scene_buffer for GPU-quality scaling.
 type overviewEntry struct {
-	view      interface{}    // *xdgView or *xwayView
-	sceneBuf  unsafe.Pointer // *C.struct_wlr_scene_buffer (thumbnail)
-	pixBuf    unsafe.Pointer // *C.struct_pixel_buffer
-	titleBuf  unsafe.Pointer // *C.struct_wlr_scene_buffer (title label)
-	titlePix  unsafe.Pointer // *C.struct_pixel_buffer
-	sceneTree unsafe.Pointer // view's original sceneTree (to re-enable on close)
-	realX, realY int         // Window's actual screen position
-	realW, realH int         // Window's actual size
-	gridX, gridY int         // Target grid position
-	gridW, gridH int         // Target grid cell size for thumbnail
+	view         interface{}    // *xdgView or *xwayView
+	sceneBuf     unsafe.Pointer // *C.struct_wlr_scene_buffer (thumbnail)
+	pixBuf       unsafe.Pointer // *C.struct_pixel_buffer
+	titleBuf     unsafe.Pointer // *C.struct_wlr_scene_buffer (title label)
+	titlePix     unsafe.Pointer // *C.struct_pixel_buffer
+	sceneTree    unsafe.Pointer // view's original sceneTree (to re-enable on close)
+	realX, realY int            // Window's actual screen position
+	realW, realH int            // Window's actual size
+	gridX, gridY int            // Target grid position
+	gridW, gridH int            // Target grid cell size for thumbnail
 }

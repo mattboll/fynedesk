@@ -986,9 +986,12 @@ func Run() {
 	srv.fullscreenTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
 	srv.overlayTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
 	srv.switcherTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
+	srv.penTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
 	srv.lockTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
 	// Switcher is hidden by default
 	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(srv.switcherTree).node, 0)
+	// Felt-tip pen annotation layer hidden by default (enabled while ink exists)
+	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(srv.penTree).node, 0)
 	// Fullscreen layer hidden by default
 	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(srv.fullscreenTree).node, 0)
 	// Lock layer hidden by default (enabled when lock client connects)

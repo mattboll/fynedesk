@@ -199,12 +199,16 @@ func (s *server) setupKeyboard(device wlr.InputDevice) {
 					return
 				}
 			}
-		} else if state == wlr.KeyStateReleased && isSuperSym && s.superAlonePressed {
-			s.superAlonePressed = false
-			if time.Since(s.superAloneTime) < superAloneTimeout {
-				// Super was pressed and released alone within timeout — toggle overview (exposé)
-				s.toggleOverview()
-				return
+		} else if state == wlr.KeyStateReleased && isSuperSym {
+			// Releasing Super starts the felt-tip pen hold-then-fade countdown.
+			s.penHandleSuperRelease()
+			if s.superAlonePressed {
+				s.superAlonePressed = false
+				if time.Since(s.superAloneTime) < superAloneTimeout {
+					// Super was pressed and released alone within timeout — toggle overview (exposé)
+					s.toggleOverview()
+					return
+				}
 			}
 		}
 
@@ -334,4 +338,3 @@ func (s *server) applyKeyboardLayout() {
 			kl.Layout, kl.Variant, s.activeLayoutIndex, len(s.keyboardLayouts))
 	}
 }
-

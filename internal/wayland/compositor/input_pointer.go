@@ -91,6 +91,11 @@ func (s *server) handleCursorButton(p wlr.Pointer, t time.Time, button wlr.Curso
 		return
 	}
 
+	// Felt-tip pen annotation: Super+Left draws ink on a screen overlay.
+	if s.handlePenButton(button, state) {
+		return
+	}
+
 	// When panel is revealed via hotspot, temporarily disable panelTree during
 	// viewAt for non-bar areas so clicks pass through to windows below.
 	if s.panelRevealed && !s.isCursorInBarArea() {
@@ -666,6 +671,13 @@ func (s *server) handleSetCursorRequest(client wlr.SeatClient, surface wlr.Surfa
 }
 
 func (s *server) processCursorMotion(t time.Time) {
+	// Felt-tip pen annotation: while a stroke is active, lay down ink and
+	// suppress all normal pointer processing (focus, hover, grabs).
+	if s.penDrawing {
+		s.extendPenStroke()
+		return
+	}
+
 	// Update drag icon position (if a client drag is in progress)
 	s.updateDragIconPos(int(s.cursor.X()), int(s.cursor.Y()))
 

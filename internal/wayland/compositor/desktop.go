@@ -704,6 +704,7 @@ func (s *server) renderOutput(output wlr.Output) {
 	animActive = s.tickOverviewAnim() || animActive
 	animActive = s.tickSwitcherFade() || animActive
 	animActive = s.tickOpenAnim() || animActive
+	animActive = s.tickPenFade() || animActive
 
 	// Tick animated wallpaper (before scene commit so pixels are fresh).
 	animWallpaperActive := false
