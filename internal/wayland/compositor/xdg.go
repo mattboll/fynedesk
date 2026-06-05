@@ -366,16 +366,14 @@ func (s *server) handleNewXDGSurface(surface wlr.XDGSurface) {
 		s.retile()
 	}))
 
-	// Handle client-initiated move request (titlebar drag)
+	// Handle client-initiated move request (titlebar drag).
+	// For maximized/fullscreen windows, beginGrabMove enters a resistance
+	// phase: the window stays in its filled state until the cursor crosses
+	// restoreDragThreshold, then restores under the cursor.
 	v.listeners = append(v.listeners, toplevel.OnRequestMove(func(t wlr.XDGToplevel, client wlr.SeatClient, serial uint32) {
-		log.Printf("[MOVE] XDG OnRequestMove: app_id=%q maximized=%v\n",
-			getXdgToplevelAppID(toplevel), v.maximized)
+		log.Printf("[MOVE] XDG OnRequestMove: app_id=%q maximized=%v fullscreen=%v\n",
+			getXdgToplevelAppID(toplevel), v.maximized, v.fullscreen)
 		s.focusXdgView(v)
-		if v.maximized {
-			// Don't start grab for maximized windows — let client handle
-			// double-click (unmaximize). Drag-to-unmaximize can be added later.
-			return
-		}
 		s.beginGrabMove(v, nil)
 	}))
 

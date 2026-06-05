@@ -51,6 +51,11 @@ const (
 	doubleClickThreshold = 400 * time.Millisecond // Max interval between clicks
 	doubleClickDistance  = 5.0                    // Max cursor drift in pixels
 
+	// Input: drag-to-restore resistance — cursor must move at least this
+	// many pixels before a move grab on a maximized/fullscreen window
+	// restores it.
+	restoreDragThreshold = 30.0
+
 	// Input: Super key alone detection
 	superAloneTimeout = 400 * time.Millisecond // Max hold duration for Super-alone toggle
 
@@ -244,13 +249,14 @@ type server struct {
 	windowRules []wlipc.WindowRule
 
 	// Interactive grab state (move/resize)
-	grab                  grabMode
-	grabXdg               *xdgView
-	grabXway              *xwayView
-	grabX, grabY          float64   // Cursor position at grab start
-	grabViewX, grabViewY  float64   // View position at grab start
-	grabWidth, grabHeight int       // View size at grab start (for resize)
-	grabEdges             wlr.Edges // Which edges are being resized
+	grab                   grabMode
+	grabXdg                *xdgView
+	grabXway               *xwayView
+	grabX, grabY           float64   // Cursor position at grab start
+	grabViewX, grabViewY   float64   // View position at grab start
+	grabWidth, grabHeight  int       // View size at grab start (for resize)
+	grabEdges              wlr.Edges // Which edges are being resized
+	grabRestorePending     bool      // Move grab started on a maximized/fullscreen window; waiting for resistance threshold
 
 	// Double-click tracking
 	lastClickTime time.Time

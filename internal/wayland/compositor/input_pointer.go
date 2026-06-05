@@ -772,7 +772,22 @@ func (s *server) updateOutputCursorScale() {
 
 // processGrabMove updates the grabbed view's position during an interactive move,
 // applying edge magnetism and updating the snap preview.
+//
+// If the grab started on a maximized or fullscreen window, the window stays
+// in its filled state until the cursor moves past restoreDragThreshold (a
+// small "resistance" to avoid accidental restores). Once crossed, the window
+// restores under the cursor and normal move tracking resumes.
 func (s *server) processGrabMove() {
+	if s.grabRestorePending {
+		ddx := s.cursor.X() - s.grabX
+		ddy := s.cursor.Y() - s.grabY
+		if ddx*ddx+ddy*ddy < restoreDragThreshold*restoreDragThreshold {
+			return
+		}
+		s.restoreForDrag()
+		s.grabRestorePending = false
+	}
+
 	dx := s.cursor.X() - s.grabX
 	dy := s.cursor.Y() - s.grabY
 	newX := s.grabViewX + dx
