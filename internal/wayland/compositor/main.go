@@ -1051,17 +1051,24 @@ func Run() {
 		// - SSD apps (Qt, SDL, mpv) request ServerSide → provide SSD
 		// - No preference → default to SSD
 		applyDecoMode := func(d wlr.XDGToplevelDecorationV1) {
-			requested := d.RequestedMode()
-			if requested == wlr.XDGToplevelDecorationV1ModeClientSide {
-				d.SetMode(wlr.XDGToplevelDecorationV1ModeClientSide)
-				if view != nil {
-					view.decorated = false
-				}
-			} else {
+			ssd := d.RequestedMode() != wlr.XDGToplevelDecorationV1ModeClientSide
+			if ssd {
 				d.SetMode(wlr.XDGToplevelDecorationV1ModeServerSide)
-				if view != nil {
-					view.decorated = true
-				}
+			} else {
+				d.SetMode(wlr.XDGToplevelDecorationV1ModeClientSide)
+			}
+			if view == nil {
+				return
+			}
+			view.wantsSSD = ssd
+			// Reconcile drives the live decorated flag from wantsSSD; a mode
+			// change while fullscreen is recorded but stays a visual no-op until
+			// the window leaves fullscreen. Before map the scene nodes don't
+			// exist yet, so just set the derived flag for the map handler.
+			if view.mapped {
+				srv.reconcileXdgDecorations(view)
+			} else {
+				view.decorated = ssd && !view.fullscreen
 			}
 		}
 		deco.OnRequestMode(func(d wlr.XDGToplevelDecorationV1) {

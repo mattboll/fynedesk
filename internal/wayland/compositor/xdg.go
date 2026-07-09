@@ -159,6 +159,7 @@ func (s *server) handleNewXDGSurface(surface wlr.XDGSurface) {
 		x:           float64(initCx) + 20,
 		y:           float64(initCy) + 20,
 		decorated:   false, // Default CSD; clients binding xdg-decoration get SSD
+		wantsSSD:    false, // Intrinsic preference; flipped to true on ServerSide negotiation
 		opacity:     1.0,
 	}
 	s.xdgViews = append(s.xdgViews, v)
@@ -559,7 +560,6 @@ func (s *server) fullscreenXdgWindow(v *xdgView, enable bool) {
 		v.savedY = v.y
 		v.savedWidth = geo.Dx()
 		v.savedHeight = geo.Dy()
-		v.savedDecorated = v.decorated
 		log.Printf("[FULLSCREEN] saved geo: %dx%d at (%v,%v)", geo.Dx(), geo.Dy(), v.x, v.y)
 
 		// Fullscreen on the output the window is on
@@ -587,7 +587,6 @@ func (s *server) fullscreenXdgWindow(v *xdgView, enable bool) {
 		log.Printf("[FULLSCREEN] Setting XDG fullscreen geometry: %dx%d at (%d,%d)", outGeo.width, outGeo.height, outGeo.x, outGeo.y)
 		v.xdgToplevel.SetSize(int32(outGeo.width), int32(outGeo.height))
 		C.xdg_toplevel_set_fullscreen(xdgToplevelPtr(v.xdgToplevel), 1)
-		v.decorated = false
 		v.fullscreen = true
 
 		// Reparent to fullscreen layer and enable it
@@ -614,18 +613,15 @@ func (s *server) fullscreenXdgWindow(v *xdgView, enable bool) {
 		v.y = v.savedY
 		v.xdgToplevel.SetSize(int32(v.savedWidth), int32(v.savedHeight))
 		C.xdg_toplevel_set_fullscreen(xdgToplevelPtr(v.xdgToplevel), 0)
-		v.decorated = v.savedDecorated
 		v.fullscreen = false
 		v.configuredW = v.savedWidth
 		v.configuredH = v.savedHeight
 
-		// Reparent back to windowsTree
+		// Reparent back to windowsTree (reconcile below restores the surface
+		// offset and recreates decorations from wantsSSD).
 		if v.sceneTree != nil {
 			C.scene_node_reparent(&(*C.struct_wlr_scene_tree)(v.sceneTree).node, (*C.struct_wlr_scene_tree)(s.windowsTree))
 			C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.fullscreenTree).node, 0)
-			if v.decorated && v.surfaceTree != nil {
-				C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, C.int(titlebarHeight))
-			}
 		}
 
 		// Restore output mode after reparenting
@@ -634,8 +630,10 @@ func (s *server) fullscreenXdgWindow(v *xdgView, enable bool) {
 		// Reset panel hotspot — panel returns to normal z-order
 		s.hidePanelHotspot()
 	}
-	setXdgScenePos(v)
-	s.updateXdgViewDecorations(v)
+	// Single source of truth: reconcile derives decorated from wantsSSD &&
+	// !fullscreen, recreating or tearing down SSD nodes as needed. Runs after
+	// the reparent and after v.fullscreen is set so scene positions are correct.
+	s.reconcileXdgDecorations(v)
 }
 
 func (s *server) restoreXdgWindow(v *xdgView) {

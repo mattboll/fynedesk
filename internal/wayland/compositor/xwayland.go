@@ -229,6 +229,7 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 		y:                float64(xwCy) + 20,
 		overrideRedirect: isOR,
 		decorated:        !isOR, // No SSD for override-redirect (popups, menus)
+		wantsSSD:         !isOR, // Intrinsic preference; refined by MOTIF hints below
 		opacity:          1.0,
 	}
 	s.xwayViews = append(s.xwayViews, v)
@@ -325,6 +326,7 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 			if strings.Contains(title, "FyneDesk:Panel") {
 				v.isPanel = true
 				v.decorated = false
+				v.wantsSSD = false
 				s.panelXway = v
 				log.Printf("[PANEL] Panel detected on map: title=%q mapped=%v sceneTree=%v\n",
 					title, v.mapped, v.sceneTree != nil)
@@ -348,6 +350,7 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 				outputName := strings.TrimPrefix(title, "FyneDesk:Bar:")
 				v.isPanel = true
 				v.decorated = false
+				v.wantsSSD = false
 				s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
 				v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
 				v.decoTitlebar, v.decoTitlePix = nil, nil
@@ -365,6 +368,7 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 			} else if strings.Contains(title, "FyneDesk:skip") {
 				// Panel utility window (app launcher, etc.) — no decorations
 				v.decorated = false
+				v.wantsSSD = false
 				v.isOverlay = true
 				log.Printf("[OVERLAY] map: title=%q surfW=%d surfH=%d", title, surface.Width(), surface.Height())
 				// Remove any decorations/shadows that may have been created before identification
@@ -390,6 +394,7 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 				// Close any existing overlay first
 				s.closeOverlay()
 				v.decorated = false
+				v.wantsSSD = false
 				v.isOverlay = true
 				s.overlayXway = v
 				// Remove any decorations/shadows that may have been created before identification
@@ -410,6 +415,7 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 				decoHints := surface.Decorations()
 				hasCSD := decoHints&wlr.XwaylandSurfaceDecorationsNoBorder != 0 &&
 					decoHints&wlr.XwaylandSurfaceDecorationsNoTitle != 0
+				v.wantsSSD = !hasCSD
 				if hasCSD {
 					v.decorated = false
 				}
@@ -622,27 +628,11 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 			decoHints&wlr.XwaylandSurfaceDecorationsNoTitle != 0
 		log.Printf("[DECO] XWayland OnSetDecorations: class=%q hints=0x%x hasCSD=%v was_decorated=%v\n",
 			getXwaylandSurfaceClass(surf), decoHints, hasCSD, v.decorated)
-		switch {
-		case hasCSD && v.decorated:
-			v.decorated = false
-			// Remove existing decorations
-			if v.surfaceTree != nil {
-				C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, 0)
-			}
-			s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
-			v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
-			v.decoTitlebar, v.decoTitlePix = nil, nil
-			setXwayScenePos(v)
-		case !hasCSD && !v.decorated:
-			v.decorated = true
-			w, h := surf.Width(), surf.Height()
-			if v.surfaceTree != nil {
-				C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, C.int(titlebarHeight))
-			}
-			_, _, v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = s.createDecoNodes(viewTree, w, h, v == s.activeXway)
-			s.updateXwayViewDecorations(v)
-			setXwayScenePos(v)
-		}
+		// Record the intrinsic preference and let reconcile create/tear down the
+		// SSD nodes. Reconcile is fullscreen-safe (a hint change while fullscreen
+		// is recorded but stays a no-op until the window leaves fullscreen).
+		v.wantsSSD = !hasCSD
+		s.reconcileXwayDecorations(v)
 	}))
 
 	// Try to setup map listeners immediately
@@ -870,13 +860,11 @@ func (s *server) fullscreenXwayWindow(v *xwayView, enable bool) {
 		C.xway_surface_set_fullscreen(xwaySurfacePtr(v.surface), 0)
 		v.fullscreen = false
 
-		// Reparent back to windowsTree
+		// Reparent back to windowsTree (reconcile below restores the surface
+		// offset and recreates decorations from wantsSSD).
 		if v.sceneTree != nil {
 			C.scene_node_reparent(&(*C.struct_wlr_scene_tree)(v.sceneTree).node, (*C.struct_wlr_scene_tree)(s.windowsTree))
 			C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.fullscreenTree).node, 0)
-			if v.decorated && v.surfaceTree != nil {
-				C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, C.int(titlebarHeight))
-			}
 		}
 
 		// Restore output mode after reparenting
@@ -885,8 +873,10 @@ func (s *server) fullscreenXwayWindow(v *xwayView, enable bool) {
 		// Reset panel hotspot — panel returns to normal z-order
 		s.hidePanelHotspot()
 	}
-	setXwayScenePos(v)
-	s.updateXwayViewDecorations(v)
+	// Single source of truth: tears down SSD nodes while fullscreen, recreates
+	// them from wantsSSD on exit. Runs after reparent and after v.fullscreen is
+	// set so scene positions/offsets are correct.
+	s.reconcileXwayDecorations(v)
 }
 
 

@@ -565,7 +565,8 @@ type xdgView struct {
 	xdgToplevel wlr.XDGToplevel
 	x, y        float64
 	mapped      bool
-	decorated   bool // Whether to draw server-side decorations
+	decorated   bool // Whether to draw server-side decorations right now (live render flag)
+	wantsSSD    bool // Intrinsic decoration preference (SSD). decorated derives from this and !fullscreen.
 	maximized   bool
 	fullscreen  bool
 	minimized   bool
@@ -581,7 +582,6 @@ type xdgView struct {
 	// Saved geometry for restore after maximize/fullscreen/snap
 	savedX, savedY           float64
 	savedWidth, savedHeight  int
-	savedDecorated           bool
 	configuredW, configuredH int      // Pending configured size (for decorations before client commits)
 	focusSeq                 uint64   // Global focus ordering
 	opacity                  float32  // Per-window opacity [0.1, 1.0]
@@ -623,7 +623,8 @@ type xwayView struct {
 	isPanel          bool
 	isOverlay        bool // Overlay menu (FyneDesk Menu)
 	overrideRedirect bool // X11 override-redirect (popups, menus, tooltips)
-	decorated        bool // Whether to draw server-side decorations
+	decorated        bool // Whether to draw server-side decorations right now (live render flag)
+	wantsSSD         bool // Intrinsic decoration preference (SSD). decorated derives from this and !fullscreen.
 	maximized        bool
 	fullscreen       bool
 	minimized        bool

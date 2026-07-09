@@ -461,6 +461,132 @@ func (s *server) updateXwayViewDecorations(v *xwayView) {
 	s.createOrUpdateShadowsXway(v, width, height)
 }
 
+// xdgDecoSize returns the width/height to use for XDG decoration geometry,
+// preferring the pending configured size over committed surface state.
+func xdgDecoSize(v *xdgView) (int, int) {
+	w, h := v.configuredW, v.configuredH
+	if w <= 0 || h <= 0 {
+		state := v.xdgToplevel.Base().Surface().Current()
+		w, h = state.Width(), state.Height()
+	}
+	return w, h
+}
+
+// xwayDecoSize returns the width/height to use for XWayland decoration geometry.
+func xwayDecoSize(v *xwayView) (int, int) {
+	w, h := v.surface.Width(), v.surface.Height()
+	if w <= 0 || h <= 0 {
+		surf := v.surface.Surface()
+		if surf.Valid() {
+			state := surf.Current()
+			w, h = state.Width(), state.Height()
+		}
+	}
+	return w, h
+}
+
+// tearDownXdgDecorations destroys all SSD decoration nodes for an XDG view,
+// nulls the pointers, and resets the surface offset to (0,0). Idempotent.
+func (s *server) tearDownXdgDecorations(v *xdgView) {
+	s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
+	v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
+	v.decoTitlebar, v.decoTitlePix = nil, nil
+	removeCornerNodes(&v.decoCornerBL, &v.decoCornerBR, &v.decoCornerPL, &v.decoCornerPR)
+	if v.decoIconBuf != nil {
+		C.scene_node_destroy(&(*C.struct_wlr_scene_buffer)(v.decoIconBuf).node)
+		v.decoIconBuf, v.decoIconPix = nil, nil
+	}
+	if v.surfaceTree != nil {
+		C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, 0)
+	}
+}
+
+// tearDownXwayDecorations destroys all SSD decoration nodes for an XWayland view,
+// nulls the pointers, removes shadows, and resets the surface offset to (0,0).
+func (s *server) tearDownXwayDecorations(v *xwayView) {
+	s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
+	v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
+	v.decoTitlebar, v.decoTitlePix = nil, nil
+	removeCornerNodes(&v.decoCornerBL, &v.decoCornerBR, &v.decoCornerPL, &v.decoCornerPR)
+	if v.decoIconBuf != nil {
+		C.scene_node_destroy(&(*C.struct_wlr_scene_buffer)(v.decoIconBuf).node)
+		v.decoIconBuf, v.decoIconPix = nil, nil
+	}
+	s.removeShadowsXway(v)
+	if v.surfaceTree != nil {
+		C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, 0)
+	}
+}
+
+// reconcileXdgDecorations brings an XDG view's decoration scene nodes in sync
+// with its intrinsic preference (wantsSSD). It is idempotent and safe to call
+// from fullscreen toggling, decoration-mode negotiation, or hotplug refit.
+// The single source of truth: decorations are present iff wantsSSD && !fullscreen.
+func (s *server) reconcileXdgDecorations(v *xdgView) {
+	if v.sceneTree == nil || v.hideDecorations {
+		// Open/close animation owns the decoration nodes during its run.
+		return
+	}
+	want := v.wantsSSD && !v.fullscreen
+	have := v.decoBorderL != nil
+	switch {
+	case want && !have:
+		v.decorated = true
+		if v.surfaceTree != nil {
+			C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, C.int(titlebarHeight))
+		}
+		w, h := xdgDecoSize(v)
+		_, _, v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR =
+			s.createDecoNodes((*C.struct_wlr_scene_tree)(v.sceneTree), w, h, s.activeXdg == v)
+		setXdgScenePos(v)
+		s.updateXdgViewDecorations(v)
+	case !want && have:
+		v.decorated = false
+		s.tearDownXdgDecorations(v)
+		setXdgScenePos(v)
+	case want && have:
+		v.decorated = true
+		setXdgScenePos(v)
+		s.updateXdgViewDecorations(v)
+	default: // !want && !have
+		v.decorated = false
+		setXdgScenePos(v)
+	}
+}
+
+// reconcileXwayDecorations is the XWayland counterpart of reconcileXdgDecorations.
+// XWayland panels, overlays and override-redirect surfaces never get SSD.
+func (s *server) reconcileXwayDecorations(v *xwayView) {
+	if v.sceneTree == nil || v.hideDecorations {
+		return
+	}
+	want := v.wantsSSD && !v.fullscreen && !v.isPanel && !v.isOverlay && !v.overrideRedirect
+	have := v.decoBorderL != nil
+	switch {
+	case want && !have:
+		v.decorated = true
+		if v.surfaceTree != nil {
+			C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, C.int(titlebarHeight))
+		}
+		w, h := xwayDecoSize(v)
+		_, _, v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR =
+			s.createDecoNodes((*C.struct_wlr_scene_tree)(v.sceneTree), w, h, s.activeXway == v)
+		setXwayScenePos(v)
+		s.updateXwayViewDecorations(v)
+	case !want && have:
+		v.decorated = false
+		s.tearDownXwayDecorations(v)
+		setXwayScenePos(v)
+	case want && have:
+		v.decorated = true
+		setXwayScenePos(v)
+		s.updateXwayViewDecorations(v)
+	default: // !want && !have
+		v.decorated = false
+		setXwayScenePos(v)
+	}
+}
+
 // updateDecoIcon creates or updates the app icon overlay in the titlebar.
 func (s *server) updateDecoIcon(v interface{}, appID string, active bool, titlebarWidth int) {
 	icon := s.loadAppIcon(appID)
