@@ -137,6 +137,14 @@ func (s *server) handleNewXDGSurface(surface wlr.XDGSurface) {
 	if surface.Role() == wlr.XDGSurfaceRolePopup {
 		popup := surface.Popup()
 		parentTree := C.get_xdg_popup_parent_tree(xdgPopupPtr(popup))
+		// Diagnostic: a popup that maps then vanishes ("flash") means wlroots
+		// dismissed it via popup_done (grab rejected). Capture the seat state
+		// at creation time so it can be correlated with wlroots' own DEBUG log
+		// (enable via FYNEDESK_WLR_DEBUG=1). parentTree_nil=true would instead
+		// mean the popup was never added to the scene (parent has no surfTree).
+		focused := s.seat.PointerState().FocusedSurface()
+		log.Printf("[POPUP] new xdg_popup: parentTree_nil=%v ptrFocusValid=%v btnCount=%d",
+			parentTree == nil, focused.Valid(), s.pointerButtonCount)
 		if parentTree != nil {
 			popupTree := C.scene_xdg_surface_create(parentTree, xdgSurfacePtr(surface))
 			C.set_xdg_surface_data(xdgSurfacePtr(surface), unsafe.Pointer(popupTree))

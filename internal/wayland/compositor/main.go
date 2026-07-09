@@ -911,11 +911,38 @@ func init() {
 
 // Run starts the Wayland compositor. It takes over the calling goroutine
 // and does not return until the compositor shuts down.
+// wlrDebugEnabled reports whether wlroots-level debug logging should be turned
+// on. True if FYNEDESK_WLR_DEBUG=1 or the marker file ~/.config/fynedesk/wlr-debug
+// exists. The marker file is the reliable toggle for display-manager-launched
+// sessions, which receive no command-line flags or environment overrides.
+func wlrDebugEnabled() bool {
+	if os.Getenv("FYNEDESK_WLR_DEBUG") == "1" {
+		return true
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(home + "/.config/fynedesk/wlr-debug")
+	return err == nil
+}
+
 func Run() {
 	// Reduce GC frequency to avoid pauses on the main thread (locked to OS
 	// thread for EGL). Default GOGC=100 can cause 10-50ms stalls; 200 halves
 	// the GC rate at the cost of ~2x heap headroom.
 	debug.SetGCPercent(200)
+
+	// Opt-in wlroots-level debug logging (very verbose). Routes wlroots'
+	// internal WLR_DEBUG output (e.g. xdg_popup grab dismissal reasons) to
+	// stderr -> compositor.log. Gated so normal sessions stay quiet: enabled
+	// by FYNEDESK_WLR_DEBUG=1 OR by the marker file ~/.config/fynedesk/wlr-debug
+	// (the marker is the reliable trigger for DM-launched sessions, which get
+	// no flags or env). Create/remove the file then re-login to toggle.
+	if wlrDebugEnabled() {
+		wlr.InitLog(wlr.Debug, nil)
+		log.Println("[DIAG] wlroots debug logging enabled")
+	}
 
 	// Handle signals for clean shutdown
 	sigChan := make(chan os.Signal, 1)
