@@ -552,6 +552,12 @@ type outputState struct {
 	animWallpaper animatedWallpaper // Current animation (nil = static image)
 	animBuf       *image.NRGBA      // Reusable NRGBA buffer for animation
 	lastAnimTick  time.Time         // Last animation frame timestamp
+	// DRM page-flip stall recovery (output_recovery.go): consecutive failed
+	// scene commits and pacing of forced-modeset recovery attempts.
+	commitFails     int       // consecutive scene commit failures
+	commitFailSince time.Time // start of the current failure streak
+	recoveryTries   int       // recovery attempts during this streak
+	lastRecovery    time.Time // last recovery attempt (cooldown anchor)
 }
 
 type xdgView struct {

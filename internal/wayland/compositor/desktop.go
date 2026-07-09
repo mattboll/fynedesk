@@ -706,16 +706,23 @@ func (s *server) renderOutput(output wlr.Output) {
 	animActive = s.tickOpenAnim() || animActive
 	animActive = s.tickPenFade() || animActive
 
-	// Tick animated wallpaper (before scene commit so pixels are fresh).
-	animWallpaperActive := false
+	// Resolve this output's state once — used by the animated wallpaper tick
+	// and the page-flip stall tracking around the scene commit below.
+	var outState *outputState
 	for _, out := range s.outputs {
-		if out.output == output && out.animWallpaper != nil {
-			if !s.isOutputOccludedByFullscreen(out) {
-				s.updateAnimatedWallpaper(out)
-			}
-			animWallpaperActive = true
+		if out.output == output {
+			outState = out
 			break
 		}
+	}
+
+	// Tick animated wallpaper (before scene commit so pixels are fresh).
+	animWallpaperActive := false
+	if outState != nil && outState.animWallpaper != nil {
+		if !s.isOutputOccludedByFullscreen(outState) {
+			s.updateAnimatedWallpaper(outState)
+		}
+		animWallpaperActive = true
 	}
 
 	// Find the scene output for this output
@@ -736,7 +743,17 @@ func (s *server) renderOutput(output wlr.Output) {
 		// completion callback will fire the next frame event naturally.
 		// Scheduling here creates a tight retry loop (~6ms) that starves
 		// the event loop and causes mouse lag.
+		//
+		// If the completion event never arrives (i915 loses it across
+		// suspend/resume), the failure streak below detects the stall and
+		// forces a blocking modeset to restart the chain.
+		if outState != nil {
+			s.noteCommitFailure(outState)
+		}
 		return
+	}
+	if outState != nil {
+		s.noteCommitSuccess(outState)
 	}
 	commitDur := time.Since(commitStart)
 
