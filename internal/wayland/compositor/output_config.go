@@ -511,6 +511,10 @@ func (s *server) setOutputLayout(req LayoutRequest) {
 	}
 	s.repositionSecondaryPanels()
 
+	// Re-fit windows to the new layout (after panel reposition so contentBounds
+	// reflects the current primary / reserved areas).
+	s.refitWindowsToOutputs()
+
 	// Log final state of all outputs
 	for _, o := range s.outputs {
 		isPrim := o == s.primaryOutput()
