@@ -313,6 +313,16 @@ func (s *server) handleSocketRequest(msg *wlipc.Message) (json.RawMessage, error
 		s.triggerWakeup()
 		return nil, nil
 
+	case wlipc.ReqNotificationAction:
+		var req wlipc.NotificationActionRequest
+		if err := json.Unmarshal(msg.Data, &req); err != nil {
+			return nil, fmt.Errorf("invalid notification action: %w", err)
+		}
+		// Emitting a D-Bus signal is thread-safe and independent of the render
+		// loop, so do it directly rather than hopping to the main thread.
+		s.notifDBus.emitAction(req.ID, req.ActionKey)
+		return nil, nil
+
 	case "dump-scene":
 		s.mainThreadActions <- func() {
 			s.dumpSceneOrder("ipc-dump")

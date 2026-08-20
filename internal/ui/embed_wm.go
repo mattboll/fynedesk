@@ -397,7 +397,8 @@ func (e *embededWM) startFileIPCWatcher() {
 
 	wlipc.WatchDBusNotification(func(dn *wlipc.DBusNotification) {
 		fyne.Do(func() {
-			n := wm.NewNotificationFull(dn.AppName, "", dn.Title, dn.Body, nil, dn.Timeout)
+			n := wm.NewNotificationFull(dn.AppName, dn.AppIcon, dn.Title, dn.Body, dn.Actions, dn.Timeout)
+			n.DBusID = dn.ID // the id the sending app knows, for invoking actions back to it
 			wm.SendNotification(n)
 		})
 	}, done)

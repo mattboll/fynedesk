@@ -153,6 +153,11 @@ func showToast(n *wm.Notification) {
 
 	tappable := newTappableBox(styled, func() {
 		win.Close()
+		// Open the app the way GNOME does: fire the notification's default
+		// action (e.g. Slack opening the right channel) then raise/launch it.
+		if notificationHasAction(n, "default") {
+			invokeNotificationAction(n, "default")
+		}
 		activateApp(n.AppName)
 	})
 	win.SetContent(tappable)
@@ -354,9 +359,14 @@ func (t *tappableBox) Tapped(_ *fyne.PointEvent) {
 type notificationPanel struct {
 	widget.BaseWidget
 
-	mu       sync.Mutex
-	expanded bool
-	overlay  fyne.Window
+	mu           sync.Mutex
+	expanded     bool
+	overlay      fyne.Window
+	overlayItems *fyne.Container // list container inside the narrow overlay (nil when closed)
+
+	// Per-notification expand state (keyed by local notif ID), so a row keeps
+	// its expanded/collapsed state across list rebuilds triggered by refresh.
+	expandedIDs map[uint32]bool
 
 	badge    *canvas.Circle
 	bellBtn  *widget.Button
@@ -370,7 +380,7 @@ type notificationPanel struct {
 }
 
 func newNotificationPanel() *notificationPanel {
-	p := &notificationPanel{}
+	p := &notificationPanel{expandedIDs: map[uint32]bool{}}
 	p.ExtendBaseWidget(p)
 
 	// Badge dot
@@ -450,6 +460,16 @@ func (p *notificationPanel) refresh() {
 
 	p.listBox.Refresh()
 
+	// Keep the narrow overlay's list in sync (expand toggles, removals) while
+	// it stays open, so it reflects the same state as the inline list.
+	if p.overlayItems != nil && len(groups) > 0 {
+		p.overlayItems.Objects = nil
+		for _, g := range groups {
+			p.overlayItems.Add(p.buildGroupRow(g))
+		}
+		p.overlayItems.Refresh()
+	}
+
 	// If the narrow overlay is open and we cleared everything, close it.
 	// Don't recreate the overlay from here — it causes IPC calls on the event
 	// loop that can block if the compositor is busy. The user can reopen it.
@@ -459,28 +479,40 @@ func (p *notificationPanel) refresh() {
 	}
 }
 
+// notificationLeftIcon returns a tappable app-icon widget that opens the
+// notification's app when clicked, or nil if no icon could be resolved.
+func (p *notificationPanel) notificationLeftIcon(n *wm.Notification) fyne.CanvasObject {
+	res := resolveNotificationIcon(n)
+	if res == nil {
+		return nil
+	}
+	img := canvas.NewImageFromResource(res)
+	img.FillMode = canvas.ImageFillContain
+	img.SetMinSize(fyne.NewSize(24, 24))
+	return newTappableBox(img, func() { p.openAndDismiss(n) })
+}
+
 // buildGroupRow creates a UI row for a notification group.
-// Single notifications render as before; groups of 2+ show the app name with a count badge.
+// Single notifications render as one row; groups of 2+ show a collapsible header
+// with the app name and count, expanding to the individual notifications.
 func (p *notificationPanel) buildGroupRow(g *wm.NotificationGroup) fyne.CanvasObject {
 	if len(g.Notifications) == 1 {
 		return p.buildNotificationRow(g.Notifications[0])
 	}
 
-	// Group header: "AppName (count)"
 	latest := g.Notifications[0]
+	gid := latest.ID // stable key for the group's expand state while it exists
+	p.mu.Lock()
+	expanded := p.expandedIDs[gid]
+	p.mu.Unlock()
+
 	label := g.AppName
 	if label == "" {
 		label = latest.Title
 	}
-	headerText := fmt.Sprintf("%s (%d)", label, len(g.Notifications))
-	headerLabel := widget.NewLabel(headerText)
+	headerLabel := widget.NewLabel(fmt.Sprintf("%s (%d)", label, len(g.Notifications)))
 	headerLabel.TextStyle = fyne.TextStyle{Bold: true}
 	headerLabel.Truncation = fyne.TextTruncateEllipsis
-
-	// Latest notification preview
-	ts := latest.Timestamp.Format("15:04")
-	preview := widget.NewLabel(fmt.Sprintf("%s  %s", ts, latest.Title))
-	preview.Truncation = fyne.TextTruncateEllipsis
 
 	// Dismiss all in group
 	removeBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
@@ -490,16 +522,32 @@ func (p *notificationPanel) buildGroupRow(g *wm.NotificationGroup) fyne.CanvasOb
 	})
 	removeBtn.Importance = widget.LowImportance
 
-	headerRow := container.NewBorder(nil, nil, nil, removeBtn, headerLabel)
-	row := container.NewVBox(headerRow, preview)
-	appName := g.AppName
-	return newTappableBox(row, func() {
-		activateApp(appName)
-	})
+	headerTap := newTappableBox(headerLabel, func() { p.toggleExpand(gid) })
+	headerRow := container.NewBorder(nil, nil, p.notificationLeftIcon(latest), removeBtn, headerTap)
+
+	if !expanded {
+		ts := latest.Timestamp.Format("15:04")
+		preview := widget.NewLabel(fmt.Sprintf("%s  %s", ts, latest.Title))
+		preview.Truncation = fyne.TextTruncateEllipsis
+		return container.NewVBox(headerRow, newTappableBox(preview, func() { p.toggleExpand(gid) }))
+	}
+
+	items := []fyne.CanvasObject{headerRow}
+	for _, n := range g.Notifications {
+		items = append(items, p.buildNotificationRow(n))
+	}
+	return container.NewVBox(items...)
 }
 
-// buildNotificationRow renders a single notification entry.
+// buildNotificationRow renders a single notification entry. Collapsed, it shows
+// the truncated title; tapping the title expands it to show the full title and
+// body (word-wrapped) plus action buttons. The app icon (left) opens the app.
 func (p *notificationPanel) buildNotificationRow(n *wm.Notification) fyne.CanvasObject {
+	id := n.ID
+	p.mu.Lock()
+	expanded := p.expandedIDs[id]
+	p.mu.Unlock()
+
 	ts := n.Timestamp.Format("15:04")
 	prefix := ts
 	if n.AppName != "" {
@@ -507,43 +555,96 @@ func (p *notificationPanel) buildNotificationRow(n *wm.Notification) fyne.Canvas
 	}
 	title := widget.NewLabel(fmt.Sprintf("%s  %s", prefix, n.Title))
 	title.TextStyle = fyne.TextStyle{Bold: true}
-	title.Truncation = fyne.TextTruncateEllipsis
+	if expanded {
+		title.Wrapping = fyne.TextWrapWord
+	} else {
+		title.Truncation = fyne.TextTruncateEllipsis
+	}
 
 	removeBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
-		wm.RemoveNotification(n.ID)
+		wm.RemoveNotification(id)
 	})
 	removeBtn.Importance = widget.LowImportance
 
-	row := container.NewBorder(nil, nil, nil, removeBtn, title)
+	titleTap := newTappableBox(title, func() { p.toggleExpand(id) })
+	header := container.NewBorder(nil, nil, p.notificationLeftIcon(n), removeBtn, titleTap)
 
-	// Action buttons (max 2) from D-Bus actions pairs: [key, label, key, label, ...]
-	var actionRow fyne.CanvasObject
-	if len(n.Actions) >= 2 {
-		buttons := []fyne.CanvasObject{}
-		for i := 0; i+1 < len(n.Actions) && len(buttons) < 2; i += 2 {
-			actionKey := n.Actions[i]
-			actionLabel := n.Actions[i+1]
-			notifID := n.ID
-			btn := widget.NewButton(actionLabel, func() {
-				wm.InvokeAction(notifID, actionKey)
-			})
-			btn.Importance = widget.LowImportance
-			buttons = append(buttons, btn)
+	if !expanded {
+		return header
+	}
+
+	items := []fyne.CanvasObject{header}
+	if n.Body != "" {
+		body := widget.NewLabel(n.Body)
+		body.Wrapping = fyne.TextWrapWord
+		items = append(items, body)
+	}
+
+	// D-Bus action buttons (excluding the body-click "default" action), plus an
+	// explicit Open button. Each dismisses the notification after firing.
+	var buttons []fyne.CanvasObject
+	for i := 0; i+1 < len(n.Actions) && len(buttons) < 2; i += 2 {
+		key, actionLabel := n.Actions[i], n.Actions[i+1]
+		if key == "default" || actionLabel == "" {
+			continue
 		}
-		actionRow = container.NewHBox(buttons...)
+		k := key
+		btn := widget.NewButton(actionLabel, func() {
+			invokeNotificationAction(n, k)
+			wm.RemoveNotification(n.ID)
+		})
+		btn.Importance = widget.LowImportance
+		buttons = append(buttons, btn)
 	}
+	openBtn := widget.NewButton(locale.T("notif.open"), func() { p.openAndDismiss(n) })
+	openBtn.Importance = widget.LowImportance
+	buttons = append(buttons, openBtn)
+	items = append(items, container.NewHBox(buttons...))
 
-	var content fyne.CanvasObject
-	if actionRow != nil {
-		content = container.NewVBox(row, actionRow)
-	} else {
-		content = row
+	return container.NewVBox(items...)
+}
+
+// toggleExpand flips a row's expanded state and rebuilds the visible lists.
+func (p *notificationPanel) toggleExpand(id uint32) {
+	p.mu.Lock()
+	p.expandedIDs[id] = !p.expandedIDs[id]
+	p.mu.Unlock()
+	p.refresh()
+}
+
+// openAndDismiss activates a notification the way GNOME does: it invokes the
+// "default" action if the source app provided one (e.g. Slack navigating to the
+// right channel), raises or launches the app, and removes it from history.
+func (p *notificationPanel) openAndDismiss(n *wm.Notification) {
+	if notificationHasAction(n, "default") {
+		invokeNotificationAction(n, "default")
 	}
+	activateApp(n.AppName)
+	wm.RemoveNotification(n.ID)
+}
 
-	appName := n.AppName
-	return newTappableBox(content, func() {
-		activateApp(appName)
-	})
+// notificationHasAction reports whether the notification carries the given action key.
+func notificationHasAction(n *wm.Notification, key string) bool {
+	for i := 0; i+1 < len(n.Actions); i += 2 {
+		if n.Actions[i] == key {
+			return true
+		}
+	}
+	return false
+}
+
+// invokeNotificationAction triggers a notification action on whichever process
+// owns the org.freedesktop.Notifications bus name. In Wayland mode the compositor
+// owns it (n.DBusID != 0), so the request is routed there to emit ActionInvoked
+// with a matching signal sender; otherwise (X11/local) it is emitted directly.
+func invokeNotificationAction(n *wm.Notification, key string) {
+	if n.DBusID != 0 {
+		if err := wlipc.RequestNotificationAction(n.DBusID, key); err != nil {
+			log.Printf("[NOTIF] action %q failed: %v", key, err)
+		}
+		return
+	}
+	wm.InvokeAction(n.ID, key)
 }
 
 func (p *notificationPanel) onBellTapped() {
@@ -577,6 +678,7 @@ func (p *notificationPanel) toggleNarrowOverlay() {
 	if p.overlay != nil {
 		p.overlay.Close()
 		p.overlay = nil
+		p.overlayItems = nil
 		return
 	}
 
@@ -587,12 +689,13 @@ func (p *notificationPanel) showNarrowOverlay() {
 	groups := wm.GroupedNotificationHistory()
 
 	var content fyne.CanvasObject
+	items := container.NewVBox()
+	p.overlayItems = items
 	if len(groups) == 0 {
 		empty := widget.NewLabel(locale.T("notif.noNotifications"))
 		empty.Alignment = fyne.TextAlignCenter
 		content = container.NewCenter(empty)
 	} else {
-		items := container.NewVBox()
 		for _, g := range groups {
 			items.Add(p.buildGroupRow(g))
 		}
@@ -603,6 +706,7 @@ func (p *notificationPanel) showNarrowOverlay() {
 			if p.overlay != nil {
 				win := p.overlay
 				p.overlay = nil
+				p.overlayItems = nil
 				win.Close()
 			}
 			wm.ClearNotificationHistory()
@@ -624,6 +728,7 @@ func (p *notificationPanel) showNarrowOverlay() {
 	win.SetContent(panel)
 	win.SetOnClosed(func() {
 		p.overlay = nil
+		p.overlayItems = nil
 	})
 	p.overlay = win
 

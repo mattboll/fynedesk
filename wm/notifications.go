@@ -24,6 +24,7 @@ const maxHistory = 50
 // Notification is a simple struct representing message that can be displayed in the notification area
 type Notification struct {
 	ID          uint32
+	DBusID      uint32 // originating D-Bus notification id (0 = local); the id the sending app knows, used to invoke actions back to it
 	AppName     string // source application name (from D-Bus appName parameter)
 	AppID       string // desktop app_id or WM_CLASS for window matching
 	Title, Body string

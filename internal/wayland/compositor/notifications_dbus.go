@@ -44,11 +44,14 @@ func (r *notifRateLimiter) allow() bool {
 
 // notificationsDBus implements the org.freedesktop.Notifications D-Bus interface.
 // The compositor owns this name so that notify-send and other apps send
-// notifications here. Received notifications are forwarded to the panel via IPC.
+// notifications here. Received notifications are forwarded to the panel via IPC,
+// and action invocations from the panel are emitted back as ActionInvoked so the
+// originating app (e.g. Slack) can navigate to the right context.
 type notificationsDBus struct {
 	mu      sync.Mutex
 	nextID  uint32
 	limiter *notifRateLimiter
+	conn    *dbus.Conn // owns the Notifications name; used to emit signals back to apps
 }
 
 func newNotificationsDBus() *notificationsDBus {
@@ -60,19 +63,32 @@ func newNotificationsDBus() *notificationsDBus {
 
 func (n *notificationsDBus) Notify(appName string, replacesID uint32, appIcon, summary, body string,
 	actions []string, hints map[string]interface{}, timeout int32) (uint32, error) {
-	n.mu.Lock()
-	id := n.nextID
-	n.nextID++
-	n.mu.Unlock()
+	// Reuse the client-supplied id when it is replacing an existing notification,
+	// so the id we forward matches the one the app already tracks.
+	id := replacesID
+	if id == 0 {
+		n.mu.Lock()
+		id = n.nextID
+		n.nextID++
+		n.mu.Unlock()
+	}
 
 	if !n.limiter.allow() {
 		log.Printf("[NOTIFY-DBUS] rate limit exceeded, dropping notification from %s: %q\n", appName, summary)
 		return id, nil
 	}
 
-	log.Printf("[NOTIFY-DBUS] %s: %q %q (timeout=%d)\n", appName, summary, body, timeout)
+	log.Printf("[NOTIFY-DBUS] #%d %s: %q %q (timeout=%d, actions=%d)\n", id, appName, summary, body, timeout, len(actions)/2)
 
-	if err := wlipc.NotifyDBusNotification(appName, summary, body, timeout); err != nil {
+	if err := wlipc.NotifyDBusNotification(wlipc.DBusNotification{
+		ID:      id,
+		AppName: appName,
+		AppIcon: appIcon,
+		Title:   summary,
+		Body:    body,
+		Actions: actions,
+		Timeout: timeout,
+	}); err != nil {
 		log.Printf("[NOTIFY-DBUS] IPC write error: %v\n", err)
 	}
 
@@ -80,6 +96,7 @@ func (n *notificationsDBus) Notify(appName string, replacesID uint32, appIcon, s
 }
 
 func (n *notificationsDBus) CloseNotification(id uint32) error {
+	n.emitClosed(id, 3) // reason 3 = closed by CloseNotification call
 	return nil
 }
 
@@ -88,7 +105,29 @@ func (n *notificationsDBus) GetServerInformation() (string, string, string, stri
 }
 
 func (n *notificationsDBus) GetCapabilities() []string {
-	return []string{"body", "icon-static", "persistence"}
+	return []string{"actions", "body", "icon-static", "persistence"}
+}
+
+// emitAction emits ActionInvoked for a notification (so the app acts on it, e.g.
+// Slack opens the right channel) followed by NotificationClosed, matching what
+// GNOME does when a notification is activated. Safe to call from any goroutine.
+func (n *notificationsDBus) emitAction(id uint32, actionKey string) {
+	if n == nil || n.conn == nil {
+		return
+	}
+	log.Printf("[NOTIFY-DBUS] emit ActionInvoked #%d %q\n", id, actionKey)
+	_ = n.conn.Emit("/org/freedesktop/Notifications",
+		"org.freedesktop.Notifications.ActionInvoked", id, actionKey)
+	n.emitClosed(id, 2) // reason 2 = dismissed by user
+}
+
+// emitClosed emits the NotificationClosed signal for a notification id.
+func (n *notificationsDBus) emitClosed(id uint32, reason uint32) {
+	if n == nil || n.conn == nil {
+		return
+	}
+	_ = n.conn.Emit("/org/freedesktop/Notifications",
+		"org.freedesktop.Notifications.NotificationClosed", id, reason)
 }
 
 // startNotificationsDBus registers the Notifications D-Bus service in the compositor.
@@ -100,6 +139,8 @@ func (s *server) startNotificationsDBus() {
 	}
 
 	nd := newNotificationsDBus()
+	nd.conn = conn
+	s.notifDBus = nd
 
 	err = conn.ExportAll(nd, "/org/freedesktop/Notifications", "org.freedesktop.Notifications")
 	if err != nil {

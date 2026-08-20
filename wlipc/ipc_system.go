@@ -2,6 +2,7 @@ package wlipc
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -367,16 +368,19 @@ func WatchScreenshotEvent(callback func(evt *ScreenshotEvent), done <-chan struc
 // notification (org.freedesktop.Notifications.Notify). The panel watches
 // this file to display toast popups.
 type DBusNotification struct {
-	AppName   string `json:"app_name,omitempty"`
-	Title     string `json:"title"`
-	Body      string `json:"body"`
-	Timeout   int32  `json:"timeout"`
-	Timestamp int64  `json:"timestamp"`
+	ID        uint32   `json:"id,omitempty"` // originating D-Bus notification id (echoed to the sending app); used to invoke actions back to it
+	AppName   string   `json:"app_name,omitempty"`
+	AppIcon   string   `json:"app_icon,omitempty"` // icon name from the D-Bus appIcon parameter
+	Title     string   `json:"title"`
+	Body      string   `json:"body"`
+	Actions   []string `json:"actions,omitempty"` // D-Bus actions as [id, label, id, label, ...] pairs
+	Timeout   int32    `json:"timeout"`
+	Timestamp int64    `json:"timestamp"`
 }
 
 // NotifyDBusNotification writes a D-Bus notification for the panel to display.
-func NotifyDBusNotification(appName, title, body string, timeout int32) error {
-	n := DBusNotification{AppName: appName, Title: title, Body: body, Timeout: timeout, Timestamp: time.Now().UnixMilli()}
+func NotifyDBusNotification(n DBusNotification) error {
+	n.Timestamp = time.Now().UnixMilli()
 
 	// Broadcast via socket if server is available (compositor-side)
 	broadcastIfServer(EventNotification, n)
@@ -437,6 +441,25 @@ func WatchDBusNotification(callback func(n *DBusNotification), done <-chan struc
 			}
 		}
 	}()
+}
+
+// NotificationActionRequest is sent by the panel to ask the compositor to invoke
+// a notification action. The compositor owns the org.freedesktop.Notifications
+// bus name, so only it can emit ActionInvoked so the originating app matches the
+// signal sender (this is what lets e.g. Slack navigate to the right channel).
+type NotificationActionRequest struct {
+	ID        uint32 `json:"id"`         // D-Bus notification id the compositor returned to the sending app
+	ActionKey string `json:"action_key"` // action key to invoke ("default" for the body-click action)
+}
+
+// RequestNotificationAction asks the compositor to emit ActionInvoked for the
+// given notification id and action key. Socket-only: the reverse channel is the
+// live compositor socket, which is always present when notifications are shown.
+func RequestNotificationAction(id uint32, actionKey string) error {
+	if trySendRequest(ReqNotificationAction, NotificationActionRequest{ID: id, ActionKey: actionKey}) {
+		return nil
+	}
+	return errors.New("notification action: compositor socket unavailable")
 }
 
 // AccentColor is written by the compositor when a wallpaper's dominant color is extracted.

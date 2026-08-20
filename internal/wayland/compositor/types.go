@@ -454,6 +454,9 @@ type server struct {
 	// UNIX socket IPC server (runs alongside file-based IPC)
 	ipcServer *wlipc.IPCServer
 
+	// org.freedesktop.Notifications D-Bus server (emits ActionInvoked back to apps)
+	notifDBus *notificationsDBus
+
 	// Panel process
 	panelCmd *exec.Cmd
 
