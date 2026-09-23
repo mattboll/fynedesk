@@ -1,0 +1,614 @@
+package wlipc
+
+import (
+	"encoding/json"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+// RequestLock writes a lock request for the compositor to launch a screen locker
+func RequestLock() error {
+	if trySendRequest(ReqLock, struct{}{}) {
+		return nil
+	}
+
+	configDir := getConfigDir()
+	os.MkdirAll(configDir, 0700)
+	req := struct {
+		Timestamp int64 `json:"timestamp"`
+	}{Timestamp: time.Now().UnixMilli()}
+	data, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(filepath.Join(configDir, "lock-request.json"), data)
+}
+
+// RequestLogout writes a logout request for the compositor to terminate
+func RequestLogout() error {
+	if trySendRequest(ReqLogout, struct{}{}) {
+		return nil
+	}
+
+	configDir := getConfigDir()
+	os.MkdirAll(configDir, 0700)
+	req := struct {
+		Timestamp int64 `json:"timestamp"`
+	}{Timestamp: time.Now().UnixMilli()}
+	data, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(filepath.Join(configDir, "logout-request.json"), data)
+}
+
+// RequestRestart writes a restart request for the compositor to exit and relaunch
+func RequestRestart() error {
+	if trySendRequest(ReqRestart, struct{}{}) {
+		return nil
+	}
+
+	configDir := getConfigDir()
+	os.MkdirAll(configDir, 0700)
+	req := struct {
+		Timestamp int64 `json:"timestamp"`
+	}{Timestamp: time.Now().UnixMilli()}
+	data, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(filepath.Join(configDir, "restart-request.json"), data)
+}
+
+// RequestShutdown asks the compositor to shut down the system
+func RequestShutdown() error {
+	if trySendRequest(ReqShutdown, struct{}{}) {
+		return nil
+	}
+	// Direct fallback: execute systemctl poweroff
+	return execSystemctl("poweroff")
+}
+
+// RequestHibernate asks the compositor to hibernate the system
+func RequestHibernate() error {
+	if trySendRequest(ReqHibernate, struct{}{}) {
+		return nil
+	}
+	return execSystemctl("hibernate")
+}
+
+// RequestSuspend asks the compositor to suspend the system
+func RequestSuspend() error {
+	if trySendRequest(ReqSuspend, struct{}{}) {
+		return nil
+	}
+	return execSystemctl("suspend")
+}
+
+func execSystemctl(action string) error {
+	return exec.Command("systemctl", action).Run()
+}
+
+// LayoutRequest is written by the panel to request output positioning/mirroring/primary changes
+type LayoutRequest struct {
+	OutputName string `json:"output_name"` // Output to reposition
+	Position   string `json:"position"`    // "left","right","above","below","mirror" (empty = primary-only change)
+	RelativeTo string `json:"relative_to"` // Reference output name
+	Primary    bool   `json:"primary"`     // Set as primary output
+}
+
+// RequestOutputLayout writes a layout request for the compositor
+func RequestOutputLayout(req LayoutRequest) error {
+	if trySendRequest(ReqLayoutRequest, req) {
+		return nil
+	}
+
+	configDir := getConfigDir()
+	os.MkdirAll(configDir, 0700)
+	data, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(filepath.Join(configDir, "layout-request.json"), data)
+}
+
+// RequestModeChange writes a mode change request for the compositor.
+func RequestModeChange(modeIndex int, outputName string) error {
+	req := struct {
+		ModeIndex  int    `json:"mode_index"`
+		OutputName string `json:"output_name,omitempty"`
+	}{modeIndex, outputName}
+	configDir := getConfigDir()
+	os.MkdirAll(configDir, 0700)
+	data, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(filepath.Join(configDir, "mode-request.json"), data)
+}
+
+// RequestScaleChange writes a scale change request for the compositor.
+func RequestScaleChange(scale float32, outputName string) error {
+	req := struct {
+		Scale      float32 `json:"scale"`
+		OutputName string  `json:"output_name,omitempty"`
+	}{scale, outputName}
+	configDir := getConfigDir()
+	os.MkdirAll(configDir, 0700)
+	data, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(filepath.Join(configDir, "scale-request.json"), data)
+}
+
+// RequestVRRChange writes a VRR (adaptive sync) toggle request for the compositor
+func RequestVRRChange(outputName string, enabled bool) error {
+	req := struct {
+		OutputName string `json:"output_name,omitempty"`
+		Enabled    bool   `json:"enabled"`
+	}{outputName, enabled}
+	configDir := getConfigDir()
+	os.MkdirAll(configDir, 0700)
+	data, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(filepath.Join(configDir, "vrr-request.json"), data)
+}
+
+// NotifyBrightnessEvent signals the panel that brightness changed
+func NotifyBrightnessEvent() error {
+	evt := struct {
+		Timestamp int64 `json:"timestamp"`
+	}{Timestamp: time.Now().UnixMilli()}
+	broadcastIfServer(EventBrightnessChange, evt)
+
+	configDir := getConfigDir()
+	os.MkdirAll(configDir, 0700)
+	data, err := json.Marshal(evt)
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(filepath.Join(configDir, "brightness-event.json"), data)
+}
+
+// WatchBrightnessEvent watches for brightness events and calls callback.
+// Close the done channel to stop the watcher goroutine.
+// Prefers socket IPC when available, falls back to file polling.
+func WatchBrightnessEvent(callback func(), done <-chan struct{}) {
+	if trySocketWatch(EventBrightnessChange, func(data json.RawMessage) {
+		callback()
+	}, done) {
+		return
+	}
+
+	configDir := getConfigDir()
+	eventPath := filepath.Join(configDir, "brightness-event.json")
+
+	var lastMod time.Time
+	ticker := time.NewTicker(100 * time.Millisecond)
+
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				info, err := os.Stat(eventPath)
+				if err != nil {
+					continue
+				}
+
+				if info.ModTime().After(lastMod) {
+					lastMod = info.ModTime()
+					callback()
+				}
+			}
+		}
+	}()
+}
+
+// NotifyVolumeEvent signals the panel that volume changed.
+func NotifyVolumeEvent() error {
+	evt := struct {
+		Timestamp int64 `json:"timestamp"`
+	}{Timestamp: time.Now().UnixMilli()}
+	broadcastIfServer(EventVolumeChange, evt)
+
+	configDir := getConfigDir()
+	os.MkdirAll(configDir, 0700)
+	data, err := json.Marshal(evt)
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(filepath.Join(configDir, "volume-event.json"), data)
+}
+
+// WatchVolumeEvent watches for volume events and calls callback.
+// Close the done channel to stop the watcher goroutine.
+// Prefers socket IPC when available, falls back to file polling.
+func WatchVolumeEvent(callback func(), done <-chan struct{}) {
+	if trySocketWatch(EventVolumeChange, func(data json.RawMessage) {
+		callback()
+	}, done) {
+		return
+	}
+
+	configDir := getConfigDir()
+	eventPath := filepath.Join(configDir, "volume-event.json")
+
+	var lastMod time.Time
+	ticker := time.NewTicker(100 * time.Millisecond)
+
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				info, err := os.Stat(eventPath)
+				if err != nil {
+					continue
+				}
+
+				if info.ModTime().After(lastMod) {
+					lastMod = info.ModTime()
+					callback()
+				}
+			}
+		}
+	}()
+}
+
+// SettingsChanged is the IPC payload for settings change notifications.
+// It embeds a snapshot of the Fyne preferences so the compositor does not
+// need to re-read the prefs JSON file (which may not have been flushed yet).
+type SettingsChanged struct {
+	Timestamp int64          `json:"timestamp"`
+	Prefs     map[string]any `json:"prefs,omitempty"`
+}
+
+// NotifySettingsChanged signals the compositor to reload preferences.
+// The prefs map should contain all current Fyne preference values so
+// the compositor can apply them immediately without reading the prefs file.
+func NotifySettingsChanged(prefs map[string]any) error {
+	msg := SettingsChanged{
+		Timestamp: time.Now().UnixMilli(),
+		Prefs:     prefs,
+	}
+	if trySendRequest(ReqSettingsChanged, msg) {
+		return nil
+	}
+
+	configDir := getConfigDir()
+	os.MkdirAll(configDir, 0700)
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(filepath.Join(configDir, "settings-changed.json"), data)
+}
+
+// ScreenshotEvent is written by compositor after taking a screenshot
+type ScreenshotEvent struct {
+	FilePath  string `json:"file_path"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// NotifyScreenshot writes a screenshot event for the panel
+func NotifyScreenshot(filePath string) error {
+	evt := ScreenshotEvent{FilePath: filePath, Timestamp: time.Now().UnixMilli()}
+	broadcastIfServer(EventScreenshot, evt)
+
+	configDir := getConfigDir()
+	os.MkdirAll(configDir, 0700)
+	data, err := json.Marshal(evt)
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(filepath.Join(configDir, "screenshot-event.json"), data)
+}
+
+// WatchScreenshotEvent watches for screenshot events from compositor.
+// Close the done channel to stop the watcher goroutine.
+// Prefers socket IPC when available, falls back to file polling.
+func WatchScreenshotEvent(callback func(evt *ScreenshotEvent), done <-chan struct{}) {
+	if trySocketWatch(EventScreenshot, func(data json.RawMessage) {
+		var evt ScreenshotEvent
+		if err := json.Unmarshal(data, &evt); err == nil {
+			callback(&evt)
+		}
+	}, done) {
+		return
+	}
+
+	configDir := getConfigDir()
+	evtPath := filepath.Join(configDir, "screenshot-event.json")
+
+	var lastMod time.Time
+	ticker := time.NewTicker(100 * time.Millisecond)
+
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				info, err := os.Stat(evtPath)
+				if err != nil {
+					continue
+				}
+
+				if info.ModTime().After(lastMod) {
+					lastMod = info.ModTime()
+					data, err := os.ReadFile(evtPath)
+					if err != nil {
+						continue
+					}
+					os.Remove(evtPath)
+
+					var evt ScreenshotEvent
+					if err := json.Unmarshal(data, &evt); err == nil {
+						callback(&evt)
+					}
+				}
+			}
+		}
+	}()
+}
+
+// DBusNotification is written by the compositor when it receives a D-Bus
+// notification (org.freedesktop.Notifications.Notify). The panel watches
+// this file to display toast popups.
+type DBusNotification struct {
+	ID        uint32   `json:"id,omitempty"` // originating D-Bus notification id (echoed to the sending app); used to invoke actions back to it
+	AppName   string   `json:"app_name,omitempty"`
+	AppIcon   string   `json:"app_icon,omitempty"` // icon name from the D-Bus appIcon parameter
+	Title     string   `json:"title"`
+	Body      string   `json:"body"`
+	Actions   []string `json:"actions,omitempty"` // D-Bus actions as [id, label, id, label, ...] pairs
+	Timeout   int32    `json:"timeout"`
+	Timestamp int64    `json:"timestamp"`
+
+	// From the D-Bus hints.
+	Urgency   string `json:"urgency,omitempty"`   // "low", "critical"; empty = normal
+	Transient bool   `json:"transient,omitempty"` // show it, keep no trace in the history
+	Category  string `json:"category,omitempty"`  // e.g. "email.arrived"
+	// Replaces is set when the notification updates an earlier one with the
+	// same ID (replaces_id, or the same stack tag from the same app).
+	Replaces bool `json:"replaces,omitempty"`
+}
+
+// NotificationClosed tells the panel that the application withdrew a notification.
+type NotificationClosed struct {
+	ID uint32 `json:"id"`
+}
+
+// NotifyNotificationClosed tells the panel to withdraw a notification. Socket
+// only: an older panel just keeps it until it times out.
+func NotifyNotificationClosed(id uint32) {
+	broadcastIfServer(EventNotifClosed, NotificationClosed{ID: id})
+}
+
+// NotifyDBusNotification writes a D-Bus notification for the panel to display.
+func NotifyDBusNotification(n DBusNotification) error {
+	n.Timestamp = time.Now().UnixMilli()
+
+	// Broadcast via socket if server is available (compositor-side)
+	broadcastIfServer(EventNotification, n)
+
+	configDir := getConfigDir()
+	os.MkdirAll(configDir, 0700)
+	data, err := json.Marshal(n)
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(filepath.Join(configDir, "dbus-notification.json"), data)
+}
+
+// WatchDBusNotification watches for D-Bus notifications forwarded by the compositor.
+// Close the done channel to stop the watcher goroutine.
+// Prefers socket IPC when available, falls back to file polling.
+func WatchDBusNotification(callback func(n *DBusNotification), done <-chan struct{}) {
+	if trySocketWatch(EventNotification, func(data json.RawMessage) {
+		var n DBusNotification
+		if err := json.Unmarshal(data, &n); err == nil {
+			callback(&n)
+		}
+	}, done) {
+		return
+	}
+
+	configDir := getConfigDir()
+	evtPath := filepath.Join(configDir, "dbus-notification.json")
+
+	var lastMod time.Time
+	ticker := time.NewTicker(100 * time.Millisecond)
+
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				info, err := os.Stat(evtPath)
+				if err != nil {
+					continue
+				}
+
+				if info.ModTime().After(lastMod) {
+					lastMod = info.ModTime()
+					data, err := os.ReadFile(evtPath)
+					if err != nil {
+						continue
+					}
+					os.Remove(evtPath)
+
+					var n DBusNotification
+					if err := json.Unmarshal(data, &n); err == nil {
+						callback(&n)
+					}
+				}
+			}
+		}
+	}()
+}
+
+// NotificationActionRequest is sent by the panel to ask the compositor to invoke
+// a notification action. The compositor owns the org.freedesktop.Notifications
+// bus name, so only it can emit ActionInvoked so the originating app matches the
+// signal sender (this is what lets e.g. Slack navigate to the right channel).
+type NotificationActionRequest struct {
+	ID        uint32 `json:"id"`         // D-Bus notification id the compositor returned to the sending app
+	ActionKey string `json:"action_key"` // action key to invoke ("default" for the body-click action)
+}
+
+// RequestNotificationAction asks the compositor to emit ActionInvoked for the
+// given notification id and action key. Socket-only: the reverse channel is the
+// live compositor socket, which is always present when notifications are shown.
+func RequestNotificationAction(id uint32, actionKey string) error {
+	if trySendRequest(ReqNotificationAction, NotificationActionRequest{ID: id, ActionKey: actionKey}) {
+		return nil
+	}
+	return errors.New("notification action: compositor socket unavailable")
+}
+
+// AccentColor is written by the compositor when a wallpaper's dominant color is extracted.
+type AccentColor struct {
+	Hex       string `json:"hex"`       // e.g. "#4a9eff"
+	Timestamp int64  `json:"timestamp"` // UnixMilli
+}
+
+// WriteAccentColor writes the extracted accent color for the panel to read.
+func WriteAccentColor(hex string) error {
+	ac := AccentColor{Hex: hex, Timestamp: time.Now().UnixMilli()}
+	data, err := json.Marshal(ac)
+	if err != nil {
+		return err
+	}
+	dir := getConfigDir()
+	os.MkdirAll(dir, 0700)
+	return atomicWriteFile(filepath.Join(dir, "accent-color.json"), data)
+}
+
+// ReadAccentColor reads the current accent color from the IPC file.
+func ReadAccentColor() (*AccentColor, error) {
+	data, err := os.ReadFile(filepath.Join(getConfigDir(), "accent-color.json"))
+	if err != nil {
+		return nil, err
+	}
+	var ac AccentColor
+	if err := json.Unmarshal(data, &ac); err != nil {
+		return nil, err
+	}
+	return &ac, nil
+}
+
+// WatchAccentColor watches for accent color changes from the compositor.
+// Close the done channel to stop the watcher goroutine.
+// Prefers socket IPC when available, falls back to file polling.
+func WatchAccentColor(callback func(hex string), done <-chan struct{}) {
+	// AccentColor doesn't have a dedicated socket event yet, so we check
+	// if there's a generic event name. For now there's no EventAccentColor
+	// constant, so we skip socket and use file polling only.
+	// TODO: add EventAccentColor to socket protocol when needed.
+
+	configDir := getConfigDir()
+	acPath := filepath.Join(configDir, "accent-color.json")
+
+	var lastMod time.Time
+	ticker := time.NewTicker(500 * time.Millisecond)
+
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				info, err := os.Stat(acPath)
+				if err != nil {
+					continue
+				}
+				if info.ModTime().After(lastMod) {
+					lastMod = info.ModTime()
+					data, err := os.ReadFile(acPath)
+					if err != nil {
+						continue
+					}
+					var ac AccentColor
+					if err := json.Unmarshal(data, &ac); err == nil && ac.Hex != "" {
+						callback(ac.Hex)
+					}
+				}
+			}
+		}
+	}()
+}
+
+// ReadSessionState loads session state from disk
+func ReadSessionState() (*SessionState, error) {
+	path := filepath.Join(getConfigDir(), "session-state.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var state SessionState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, err
+	}
+	return &state, nil
+}
+
+// WriteSessionState saves session state to disk
+func WriteSessionState(state *SessionState) error {
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(getConfigDir(), "session-state.json")
+	return atomicWriteFile(path, data)
+}
+
+// ClearSessionState removes the session state file (after successful restore)
+func ClearSessionState() {
+	path := filepath.Join(getConfigDir(), "session-state.json")
+	os.Remove(path)
+}
+
+// WindowAttentionRequest makes the windows with a title call for attention,
+// or stop: the compositor draws a glow around them.
+type WindowAttentionRequest struct {
+	Title string `json:"title"` // matched as TitleMatches does
+	On    bool   `json:"on"`
+}
+
+// RequestWindowAttention asks the compositor to make the windows with the
+// given title call for attention. Socket only.
+func RequestWindowAttention(title string, on bool) error {
+	if trySendRequest(ReqWindowAttention, WindowAttentionRequest{Title: title, On: on}) {
+		return nil
+	}
+	return errors.New("window attention: compositor socket unavailable")
+}
+
+// TitleMatches reports whether a window title is the given one, ignoring
+// case, possibly followed by details ("herdr" matches "herdr — main").
+func TitleMatches(want, title string) bool {
+	want = strings.ToLower(strings.TrimSpace(want))
+	title = strings.ToLower(strings.TrimSpace(title))
+	if want == "" || !strings.HasPrefix(title, want) {
+		return false
+	}
+	rest := title[len(want):]
+	return rest == "" || strings.HasPrefix(rest, " ") || strings.HasPrefix(rest, ":")
+}
