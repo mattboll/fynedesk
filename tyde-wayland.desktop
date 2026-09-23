@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Tyde (Wayland)
+Comment=A lightweight Go-based Wayland desktop environment
+Exec=tyde_compositor
+TryExec=tyde_compositor
+Type=Application
+DesktopNames=tyde;wlroots

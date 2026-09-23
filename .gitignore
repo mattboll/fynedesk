@@ -2,13 +2,41 @@
 cmd/tyde/tyde
 cmd/tyde_ctl/tyde_ctl
 cmd/tyde_runner/tyde_runner
+cmd/tyde_panel/tyde_panel
+cmd/tyde_emoji/tyde_emoji
+cmd/tyde_compositor/tyde_compositor
 /tyde
 /tyde_ctl
 /tyde_runner
+/tyde_panel
+/tyde_wmctl
+/tyde_emoji
+/tyde_compositor
+/tyde_chooser
 wasm
+/tmp/
+
+# Build artifacts
+*.deb
+coverage.out
+todo
+
+# Source archives (wlroots, etc.)
+*.orig.tar.bz2
+*.debian.tar.xz
+*.dsc
 
 .idea
 .DS_Store
 
 internal/icon/testdata/applications/app3.desktop
 
+# Test failure artifacts
+modules/status/testdata/failed/
+
+# Local development files (audits, QA screenshots, planning docs)
+.local/
+
+# AI tooling
+.agents/
+skills-lock.json

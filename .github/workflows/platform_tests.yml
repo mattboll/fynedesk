@@ -39,11 +39,18 @@ jobs:
         run: export LANG=en_EN.UTF-8
         if: ${{ runner.os == 'Linux' }}
 
+      # The Wayland compositor links wlroots 0.20, which the runners do not
+      # package: it is tested by the compositor job of static_analysis.yml.
+      - name: List packages
+        shell: bash
+        run: go list ./... | grep -v -e /cmd/tyde_compositor -e /internal/wayland/compositor -e /internal/wayland/wlr > "$RUNNER_TEMP/pkgs"
+
       - name: Tests
-        run: ${{ matrix.runner }} go test -tags "${{ matrix.tags }}" -covermode=atomic -coverprofile=coverage.out ./...
+        shell: bash
+        run: ${{ matrix.runner }} go test -tags "${{ matrix.tags }}" -covermode=atomic -coverprofile=coverage.out $(cat "$RUNNER_TEMP/pkgs")
 
       - name: Wayland Tests
-        run: go test -tags no_glfw,ci,wayland ./...
+        run: go test -tags no_glfw,ci,wayland $(cat "$RUNNER_TEMP/pkgs")
         if: ${{ runner.os == 'Linux' }}
 
       - name: Update coverage
