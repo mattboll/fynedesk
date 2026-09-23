@@ -579,3 +579,9 @@ func (c *client) stateMessage(state int) {
 		fyne.LogError("Error sending root event", err)
 	}
 }
+
+// Urgent reports whether the window is requesting attention. X11 urgency
+// (WM_HINTS) is not tracked yet.
+func (c *client) Urgent() bool {
+	return false
+}

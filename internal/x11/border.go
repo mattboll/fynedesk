@@ -1,6 +1,7 @@
 //go:build linux || openbsd || freebsd || netbsd
 // +build linux openbsd freebsd netbsd
 
+// Package x11 provides X11-specific utilities for property handling, screenshots, and cursor management.
 package x11
 
 import (

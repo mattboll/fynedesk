@@ -2,6 +2,9 @@ package status
 
 import (
 	"image/color"
+	"log"
+	"os/exec"
+	"strconv"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -12,6 +15,7 @@ import (
 
 	"fyshos.com/tyde"
 	wmtheme "fyshos.com/tyde/theme"
+	"fyshos.com/tyde/wm"
 	"github.com/FyshOS/dryvers"
 )
 
@@ -23,30 +27,42 @@ var batteryMeta = tyde.ModuleMetadata{
 	NewInstance: newBattery,
 }
 
+const criticalBatteryThreshold = 0.05 // 5%
+
 type battery struct {
 	battery *dryvers.Battery
 
-	bar  *widget.ProgressBar
-	done bool
+	bar  *statusBar
+	done chan struct{}
 	icon *widget.Icon
 	fill *canvas.Rectangle
+
+	hibernateTriggered bool // avoid repeated hibernate attempts
 }
 
 func (b *battery) batteryTick() {
 	tick := time.NewTicker(time.Second * 10)
 	go func() {
-		for !b.done {
-			<-tick.C
-			val, _ := b.battery.Get()
-			fyne.Do(func() {
-				b.setValue(val)
-			})
+		defer tick.Stop()
+		for {
+			select {
+			case <-b.done:
+				return
+			case <-tick.C:
+				val, _ := b.battery.Get()
+				fyne.Do(func() {
+					b.setValue(val)
+				})
+			}
 		}
 	}()
 }
 
 func (b *battery) Destroy() {
-	b.done = true
+	if b.done != nil {
+		close(b.done)
+		b.done = nil
+	}
 }
 
 func (b *battery) Metadata() tyde.ModuleMetadata {
@@ -58,7 +74,8 @@ func (b *battery) StatusAreaWidget() fyne.CanvasObject {
 		return nil
 	}
 
-	b.bar = widget.NewProgressBar()
+	b.bar = newStatusBar()
+	b.bar.SemanticColor = batteryColor
 	b.icon = widget.NewIcon(wmtheme.BatteryIcon)
 	b.fill = canvas.NewRectangle(theme.Color(theme.ColorNameForeground))
 	prop := canvas.NewRectangle(color.Transparent)
@@ -68,6 +85,7 @@ func (b *battery) StatusAreaWidget() fyne.CanvasObject {
 	// Set first value then tick
 	val, _ := b.battery.Get()
 	b.setValue(val)
+	b.done = make(chan struct{})
 	go b.batteryTick()
 	return container.New(&handleNarrow{}, icon, b.bar)
 }
@@ -85,16 +103,50 @@ func (b *battery) setValue(val float64) {
 	if on, err := b.battery.PluggedIn(); on || err != nil {
 		b.icon.SetResource(wmtheme.PowerIcon)
 		b.fill.Hide()
+		b.hibernateTriggered = false // reset when plugged in
 	} else if val < 0.1 {
 		b.icon.SetResource(theme.NewErrorThemedResource(wmtheme.BatteryIcon))
-		b.fill.FillColor = theme.Color(theme.ColorNameError)
+		b.fill.FillColor = batteryColor(val)
 		b.fill.Refresh()
 		b.fill.Show()
+
+		// Critical battery: hibernate to prevent data loss
+		if val > 0 && val < criticalBatteryThreshold && !b.hibernateTriggered {
+			b.hibernateTriggered = true
+			go b.triggerHibernate(val)
+		}
 	} else {
 		b.icon.SetResource(wmtheme.BatteryIcon)
-		b.fill.FillColor = theme.Color(theme.ColorNameForeground)
+		b.fill.FillColor = batteryColor(val)
 		b.fill.Refresh()
 		b.fill.Show()
+	}
+}
+
+// triggerHibernate warns the user and puts the system into hibernate/suspend.
+func (b *battery) triggerHibernate(val float64) {
+	pct := strconv.Itoa(int(val * 100))
+	n := wm.NewNotification("Critical Battery",
+		"Battery at "+pct+"% — hibernating now to prevent data loss.")
+	wm.SendNotification(n)
+
+	// Wait a moment for the notification to display
+	time.Sleep(2 * time.Second)
+
+	// Re-check the AC state right before exec — the user may have plugged
+	// in during the 2s notification window.
+	if on, err := b.battery.PluggedIn(); err == nil && on {
+		log.Printf("[battery] AC connected during hibernate countdown, aborting")
+		b.hibernateTriggered = false
+		return
+	}
+
+	// Try hibernate first, fall back to suspend
+	if err := exec.Command("systemctl", "hibernate").Run(); err != nil {
+		log.Printf("[battery] hibernate failed: %v, trying suspend", err)
+		if err := exec.Command("systemctl", "suspend").Run(); err != nil {
+			log.Printf("[battery] suspend also failed: %v", err)
+		}
 	}
 }
 

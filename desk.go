@@ -1,3 +1,4 @@
+// Package tyde provides the core interfaces and types for the Tyde desktop environment.
 package tyde // import "fyshos.com/tyde"
 
 import (

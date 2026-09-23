@@ -1,20 +1,28 @@
 package ui
 
 import (
+	"encoding/json"
 	"image/color"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/FyshOS/appie"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	deskDriver "fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 	"fyshos.com/tyde/modules/ai"
 	wmTheme "fyshos.com/tyde/theme"
+	"fyshos.com/tyde/wlipc"
+	"fyshos.com/tyde/wm"
 )
 
 const (
@@ -23,6 +31,91 @@ const (
 )
 
 var appExec *picker
+
+// readCompositorState reads the current compositor state from the config file.
+func readCompositorState() *CompositorState {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(configDir, "tyde", "compositor-state.json"))
+	if err != nil {
+		return nil
+	}
+	var state CompositorState
+	if json.Unmarshal(data, &state) != nil {
+		return nil
+	}
+	return &state
+}
+
+// positionLauncherAtCursor positions the launcher overlay centered on the output
+// that contains the cursor at (cx, cy) in compositor layout-space pixels.
+func positionLauncherAtCursor(title string, cx, cy float32, size fyne.Size) {
+	// Find the output that contains the cursor
+	screens := tyde.Instance().Screens()
+	if screens == nil {
+		return
+	}
+	primary := screens.Primary()
+	if primary == nil {
+		return
+	}
+
+	// Default to primary screen dimensions (in Fyne units)
+	scale := primary.CanvasScale()
+	screenW := float32(primary.Width) / scale
+	screenH := float32(primary.Height) / scale
+	offsetX := float32(primary.X) / scale
+	offsetY := float32(primary.Y) / scale
+
+	// Try to find the cursor's output from compositor state.
+	// Compositor state uses logical (layout-space) pixels, same as cursor coords.
+	state := readCompositorState()
+	if state != nil {
+		for _, out := range state.Outputs {
+			if out.MirrorOf != "" {
+				continue // shows another output, not part of the desktop
+			}
+			ox, oy := float32(out.X), float32(out.Y)
+			ow := float32(out.Width)
+			oh := float32(out.Height)
+			if cx >= ox && cx < ox+ow && cy >= oy && cy < oy+oh {
+				screenW = ow
+				screenH = oh
+				offsetX = ox
+				offsetY = oy
+				break
+			}
+		}
+	}
+
+	// Center the launcher on that output (absolute layout coords)
+	finalX := offsetX + (screenW-size.Width)/2
+	finalY := offsetY + (screenH-size.Height)/2
+	wlipc.RequestOverlayPositionAbsolute(title, finalX, finalY, size.Width, size.Height)
+}
+
+// positionLauncherOnPrimary centers the launcher on the primary screen
+// using absolute layout coordinates.
+func positionLauncherOnPrimary(title string, size fyne.Size) {
+	screens := tyde.Instance().Screens()
+	if screens == nil {
+		return
+	}
+	primary := screens.Primary()
+	if primary == nil {
+		return
+	}
+	scale := primary.CanvasScale()
+	screenW := float32(primary.Width) / scale
+	screenH := float32(primary.Height) / scale
+	offX := float32(primary.X) / scale
+	offY := float32(primary.Y) / scale
+	finalX := offX + (screenW-size.Width)/2
+	finalY := offY + (screenH-size.Height)/2
+	wlipc.RequestOverlayPositionAbsolute(title, finalX, finalY, size.Width, size.Height)
+}
 
 // runAsync runs f on a new goroutine in production. Tests override it to run inline.
 var runAsync = func(f func()) { go f() }
@@ -49,6 +142,8 @@ func (e *appEntry) TypedKey(ev *fyne.KeyEvent) {
 }
 
 type picker struct {
+	win      fyne.Window // separate launcher window, used in a Wayland session
+	title    string
 	desk     tyde.Desktop
 	callback func(data appie.AppData, actionID int)
 	showMods bool
@@ -58,6 +153,9 @@ type picker struct {
 	appScroll   *container.Scroll
 	activeIndex int
 
+	debounceTimer    *time.Timer
+	debounceDuration time.Duration
+
 	bg       *canvas.Rectangle
 	fullSize fyne.Size
 
@@ -66,6 +164,10 @@ type picker struct {
 }
 
 func (l *picker) close() {
+	if l.win != nil {
+		l.win.Close() // runs onClosed
+		return
+	}
 	if l.overlay != nil {
 		l.desk.HideOverlay(l.overlay)
 	}
@@ -79,7 +181,11 @@ func (l *picker) pickSelected() {
 		return
 	}
 
-	l.appList.Objects[l.activeIndex].(*widget.Button).OnTapped()
+	btn, ok := l.appList.Objects[l.activeIndex].(*widget.Button)
+	if !ok {
+		return
+	}
+	btn.OnTapped()
 }
 
 func (l *picker) setActiveIndex(index int) {
@@ -87,10 +193,16 @@ func (l *picker) setActiveIndex(index int) {
 		return
 	}
 
-	oldActive := l.appList.Objects[l.activeIndex].(*widget.Button)
+	oldActive, ok := l.appList.Objects[l.activeIndex].(*widget.Button)
+	if !ok {
+		return
+	}
 	oldActive.Importance = widget.MediumImportance
 	oldActive.Refresh()
-	active := l.appList.Objects[index].(*widget.Button)
+	active, ok := l.appList.Objects[index].(*widget.Button)
+	if !ok {
+		return
+	}
 	active.Importance = widget.HighImportance
 	active.Refresh()
 
@@ -118,7 +230,7 @@ func (l *picker) updateBgSize() {
 	h := entryHeight + pad*2
 
 	if len(l.appList.Objects) > 0 {
-		btnHeight := l.appList.Objects[0].(*widget.Button).MinSize().Height
+		btnHeight := l.appList.Objects[0].MinSize().Height
 		count := len(l.appList.Objects)
 		if count > launcherMaxResults {
 			count = launcherMaxResults
@@ -171,6 +283,12 @@ func (l *picker) appButtonListMatching(input string) []fyne.CanvasObject {
 		appList[0].(*widget.Button).Importance = widget.HighImportance
 	}
 
+	if len(appList) == 0 {
+		noResults := widget.NewLabel(locale.T("launcher.noApps"))
+		noResults.Alignment = fyne.TextAlignCenter
+		appList = append(appList, noResults)
+	}
+
 	return appList
 }
 
@@ -180,9 +298,11 @@ func (l *picker) loadIcons(dataRange []appie.AppData, appList []fyne.CanvasObjec
 	for i, data := range dataRange {
 		app := appList[i].(*widget.Button)
 		icon := data.Icon(iconTheme, 32)
-		fyne.Do(func() {
-			app.SetIcon(icon)
-		})
+		if icon != nil {
+			fyne.Do(func() {
+				app.SetIcon(icon)
+			})
+		}
 	}
 }
 
@@ -227,16 +347,26 @@ func newAppPicker(callback func(appie.AppData, int)) *picker {
 
 	entry := &appEntry{pick: l}
 	entry.ExtendBaseWidget(entry)
-	entry.SetPlaceHolder("Application")
+	entry.SetPlaceHolder(locale.T("launcher.app"))
 	entry.OnChanged = func(input string) {
-		appList.Objects = nil
+		if l.debounceTimer != nil {
+			l.debounceTimer.Stop()
+		}
 		if input == "" {
+			appList.Objects = nil
 			l.appList.Refresh()
 			l.updateBgSize()
 			return
 		}
-
-		l.updateAppListMatching(input)
+		if l.debounceDuration <= 0 {
+			l.updateAppListMatching(input)
+			return
+		}
+		l.debounceTimer = time.AfterFunc(l.debounceDuration, func() {
+			fyne.Do(func() {
+				l.updateAppListMatching(input)
+			})
+		})
 	}
 	l.entry = entry
 
@@ -244,6 +374,13 @@ func newAppPicker(callback func(appie.AppData, int)) *picker {
 }
 
 func (l *picker) show() {
+	// In a Wayland session the desktop is a panel below application windows,
+	// so the launcher is a window of its own that the compositor places on top.
+	if wlipc.IsWaylandSession() {
+		l.showWindow()
+		return
+	}
+
 	r, g, b, _ := theme.Color(theme.ColorNameOverlayBackground).RGBA()
 	bgCol := &color.NRGBA{R: uint8(r), G: uint8(g), B: uint8(b), A: 230}
 	l.bg = canvas.NewRectangle(bgCol)
@@ -272,6 +409,79 @@ func (l *picker) show() {
 	l.overlay = d.showOverlayWithBackdrop(content, l.fullSize, l.fullSize, pos, l.entry, fyne.Position{})
 }
 
+// showWindow shows the picker in a window of its own.
+func (l *picker) showWindow() {
+	title := l.title
+	if title == "" {
+		title = locale.T("launcher.app")
+	}
+	title += " " + SkipTaskbarHint
+
+	var win fyne.Window
+	if d, ok := fyne.CurrentApp().Driver().(deskDriver.Driver); ok {
+		win = d.CreateSplashWindow()
+		win.SetPadded(true)
+		win.SetTitle(title)
+	} else {
+		win = fyne.CurrentApp().NewWindow(title)
+	}
+	l.win = win
+	win.SetOnClosed(func() {
+		if l.onClosed != nil {
+			l.onClosed()
+		}
+	})
+	win.Canvas().SetOnTypedKey(func(ev *fyne.KeyEvent) {
+		if ev.Name == fyne.KeyEscape {
+			win.Close()
+		}
+	})
+
+	clearBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
+		l.entry.SetText("")
+		l.appList.Objects = nil
+		l.appList.Refresh()
+	})
+	searchRow := container.NewBorder(nil, nil, nil, clearBtn, l.entry)
+
+	cancel := widget.NewButtonWithIcon(locale.T("launcher.cancel"), theme.CancelIcon(), func() {
+		win.Close()
+	})
+
+	ideal := fyne.NewSize(300,
+		cancel.MinSize().Height*4+theme.Padding()*6+l.entry.MinSize().Height)
+	win.SetContent(container.NewBorder(searchRow, cancel, nil, nil, l.appScroll))
+	win.Resize(ideal)
+
+	// Position on the correct output using cursor position from compositor.
+	// Do this BEFORE CenterOnScreen to avoid a visible jump.
+	cx, cy := launcherCursorX, launcherCursorY
+	launcherCursorX, launcherCursorY = 0, 0 // reset for next use
+	if cx > 0 || cy > 0 {
+		positionLauncherAtCursor(win.Title(), cx, cy, ideal)
+	} else {
+		positionLauncherOnPrimary(win.Title(), ideal)
+	}
+
+	// CenterOnScreen as Fyne-level fallback if IPC fails
+	win.CenterOnScreen()
+	win.Show()
+	win.Canvas().Focus(l.entry)
+
+	go ensureFocused(win, l.entry)
+}
+
+// ShowAppLauncherAt opens the launcher, positioning it on the screen that
+// contains the given cursor coordinates (layout-space pixels). If cx and cy
+// are both 0 it falls back to the primary display.
+func ShowAppLauncherAt(cx, cy float32) {
+	launcherCursorX = cx
+	launcherCursorY = cy
+	ShowAppLauncher()
+}
+
+var launcherCursorX, launcherCursorY float32
+
 // ShowAppLauncher opens a new application launcher, closing an old one if it existed.
 func ShowAppLauncher() {
 	if appExec != nil {
@@ -288,9 +498,13 @@ func ShowAppLauncher() {
 		}
 		if err != nil {
 			fyne.LogError("Failed to start app", err)
+			wm.SendNotification(wm.NewNotification(locale.T("launcher.failed"),
+				locale.T("launcher.startFailed")+" "+app.Name()))
 			return
 		}
 	})
+	appExec.title = "Application Launcher"
+	appExec.debounceDuration = 150 * time.Millisecond
 	appExec.showMods = true
 	appExec.onClosed = func() {
 		appExec = nil

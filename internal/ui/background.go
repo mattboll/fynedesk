@@ -10,9 +10,12 @@ import (
 	_ "image/jpeg" // ...
 	_ "image/png"  // ...
 	"io"
+	"log"
 	"math"
 	"os"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -22,26 +25,44 @@ import (
 	xdraw "golang.org/x/image/draw"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/internal/wallpaper"
+	"fyshos.com/tyde/wlipc"
 )
 
 type background struct {
 	widget.BaseWidget
 
-	wallpaper *fyne.Container // holds the current wallpaper so it can be rebuilt live
+	wallpaper       *fyne.Container     // holds the current wallpaper so it can be rebuilt live
+	screenAreaItems []fyne.CanvasObject // cached ScreenAreaModule widgets
+
+	animMu     sync.Mutex
+	stopAnim   chan struct{}
+	anim       wallpaper.AnimatedWallpaper
+	animBuf    *image.NRGBA
+	animRaster *canvas.Raster // persistent canvas.Raster for animation
 }
 
 func (b *background) CreateRenderer() fyne.WidgetRenderer {
-	b.wallpaper = container.NewStack(b.loadModules()...)
+	b.wallpaper = container.NewStack(b.loadModules(backgroundType())...)
+	b.startAnimatedBackground(backgroundType())
 	return widget.NewSimpleRenderer(b.wallpaper)
 }
 
-func (b *background) loadModules() []fyne.CanvasObject {
-	objects := []fyne.CanvasObject{loadWallpaper()}
+// backgroundType returns the configured kind of background: "image" or the
+// name of an animated wallpaper.
+func backgroundType() string {
+	return fyne.CurrentApp().Preferences().String("background_type")
+}
+
+func (b *background) loadModules(bgType string) []fyne.CanvasObject {
+	objects := []fyne.CanvasObject{b.loadWallpaper(bgType)}
 
 	// Add screen area modules (e.g. desktop files)
+	b.screenAreaItems = nil
 	for _, m := range tyde.Instance().Modules() {
 		if deskMod, ok := m.(tyde.ScreenAreaModule); ok {
 			if wid := deskMod.ScreenAreaWidget(); wid != nil {
+				b.screenAreaItems = append(b.screenAreaItems, wid)
 				objects = append(objects, wid)
 			}
 		}
@@ -52,11 +73,169 @@ func (b *background) loadModules() []fyne.CanvasObject {
 
 // updateBackground rebuilds the background content - the wallpaper and the
 // screen area module overlays.
-func (b *background) updateBackground(_ string) {
+func (b *background) updateBackground(_, bgType string) {
+	b.stopAnimation()
 	if b.wallpaper != nil {
-		b.wallpaper.Objects = b.loadModules()
+		b.wallpaper.Objects = b.loadModules(bgType)
 		b.wallpaper.Refresh()
+		b.startAnimatedBackground(bgType)
 	}
+}
+
+// setScreenAreaVisible shows or hides screen area module widgets (e.g. desktop icons).
+// Uses cached widget references from loadModules() so Hide()/Show() operates on
+// the same instances that are in the renderer's object tree.
+func (b *background) setScreenAreaVisible(visible bool) {
+	for _, wid := range b.screenAreaItems {
+		if visible {
+			wid.Show()
+		} else {
+			wid.Hide()
+		}
+	}
+}
+
+// loadWallpaper returns the wallpaper object for the configured background.
+func (b *background) loadWallpaper(bgType string) fyne.CanvasObject {
+	// In Wayland mode, the compositor handles the wallpaper in
+	// backgroundTree. The panel background stays transparent so that
+	// when panelTree is raised above windowsTree, the windows beneath
+	// remain visible through the panel's alpha channel.
+	if wlipc.IsWaylandSession() {
+		return canvas.NewRectangle(color.Transparent)
+	}
+
+	switch bgType {
+	case "matrix", "starfield":
+		return b.ensureAnimRaster()
+	}
+	return loadWallpaper()
+}
+
+func (b *background) stopAnimation() {
+	b.animMu.Lock()
+	defer b.animMu.Unlock()
+	if b.stopAnim != nil {
+		close(b.stopAnim)
+		b.stopAnim = nil
+	}
+	b.anim = nil
+}
+
+// ensureAnimRaster returns the persistent canvas.Raster used for animations.
+// The Raster's Generator callback returns the current animation frame buffer,
+// which is updated in-place by the animation goroutine.
+func (b *background) ensureAnimRaster() *canvas.Raster {
+	if b.animRaster != nil {
+		return b.animRaster
+	}
+	b.animRaster = canvas.NewRaster(func(w, h int) image.Image {
+		b.animMu.Lock()
+		buf := b.animBuf
+		b.animMu.Unlock()
+		if buf != nil {
+			return buf
+		}
+		// Return a black image until the first frame is ready
+		return image.NewNRGBA(image.Rect(0, 0, w, h))
+	})
+	b.animRaster.ScaleMode = canvas.ImageScaleFastest
+	return b.animRaster
+}
+
+func (b *background) startAnimatedBackground(bgType string) {
+	var anim wallpaper.AnimatedWallpaper
+	switch bgType {
+	case "matrix":
+		anim = &wallpaper.MatrixAnim{}
+	case "starfield":
+		anim = &wallpaper.StarfieldAnim{}
+	default:
+		return
+	}
+
+	log.Printf("[WALLPAPER-PANEL] startAnimatedBackground(%s)\n", bgType)
+
+	if wlipc.IsWaylandSession() {
+		return // the compositor draws the wallpaper
+	}
+	raster := b.ensureAnimRaster()
+
+	b.animMu.Lock()
+	b.anim = anim
+	b.animBuf = nil // force re-init
+	stop := make(chan struct{})
+	b.stopAnim = stop
+	b.animMu.Unlock()
+
+	// If ReduceMotion is enabled, render one static frame and stop
+	if tyde.Instance().Settings().ReduceMotion() {
+		return
+	}
+
+	go func() {
+		ticker := time.NewTicker(125 * time.Millisecond) // ~8 FPS — low CPU, still fluid enough for rain effect
+		defer ticker.Stop()
+		var refreshPending atomic.Bool
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				// Skip this frame if the previous Refresh hasn't been
+				// processed yet — avoids queuing up work when the main
+				// thread is busy (menu/dialog opening).
+				if refreshPending.Load() {
+					continue
+				}
+
+				// Size() reads two float32 fields — safe from any goroutine
+				// and a stale value is harmless for animation.
+				sz := b.wallpaper.Size()
+				w := int(sz.Width)
+				h := int(sz.Height)
+				if w <= 0 || h <= 0 {
+					continue
+				}
+
+				// Heavy CPU work (Tick) runs in this background goroutine.
+				// Render at 1/4 resolution for ~16x less pixel processing;
+				// canvas.Raster upscales via ImageScaleFastest (GPU nearest-neighbor).
+				animW := w / 4
+				animH := h / 4
+				if animW < 160 {
+					animW = 160
+				}
+				if animH < 100 {
+					animH = 100
+				}
+				b.animMu.Lock()
+				if b.anim == nil {
+					b.animMu.Unlock()
+					continue
+				}
+				if b.animBuf == nil || b.animBuf.Rect.Dx() != animW || b.animBuf.Rect.Dy() != animH {
+					b.animBuf = image.NewNRGBA(image.Rect(0, 0, animW, animH))
+					for i := 3; i < len(b.animBuf.Pix); i += 4 {
+						b.animBuf.Pix[i] = 0xFF
+					}
+					b.anim.Init(animW, animH, time.Now().UnixNano())
+					log.Printf("[WALLPAPER-PANEL] anim init %dx%d (render %dx%d)\n", w, h, animW, animH)
+				}
+				b.anim.Tick(b.animBuf)
+				b.animMu.Unlock()
+
+				// Only canvas.Refresh needs the main thread.
+				// Fire-and-forget: the goroutine continues computing
+				// frames while the main thread processes the refresh.
+				refreshPending.Store(true)
+				fyne.Do(func() {
+					raster.Refresh() // Refresh raster only, not the whole container
+					refreshPending.Store(false)
+				})
+			}
+		}
+	}()
 }
 
 func loadWallpaper() fyne.CanvasObject {

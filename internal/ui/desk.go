@@ -1,12 +1,17 @@
+// Package ui implements the Tyde desktop user interface components including the panel bar, launcher, settings dialogs, and background rendering.
 package ui
 
 import (
+	"context"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
 	"math"
 	"os/exec"
 	"strconv"
+	"sync"
+	"time"
 
 	"fyne.io/fyne/v2/theme"
 	"github.com/FyshOS/appie"
@@ -18,7 +23,10 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/internal/calendar"
+	"fyshos.com/tyde/internal/calendar/google"
 	"fyshos.com/tyde/internal/notify"
+	"fyshos.com/tyde/locale"
 	wmtheme "fyshos.com/tyde/theme"
 	"fyshos.com/tyde/wm"
 )
@@ -26,6 +34,10 @@ import (
 const (
 	// RootWindowName is the base string that all root windows will have in their title and is used to identify root windows.
 	RootWindowName = "Tyde Desktop"
+	// SkipTaskbarHint should be added to the title of normal windows that should be skipped like the X11 SkipTaskbar hint.
+	SkipTaskbarHint = "Tyde:skip"
+	// NoFocusHint prevents the compositor from stealing keyboard focus when the window maps.
+	NoFocusHint = "Tyde:nofocus"
 )
 
 // screenWindow holds the Fyne window and per-screen widgets for a single monitor.
@@ -121,6 +133,20 @@ type desktop struct {
 	// activityLayer, in embedded mode only, watches for mouse movement to defer the
 	// screen saver.
 	activityLayer fyne.CanvasObject
+
+	// settingsListenersOnce guards addSettingsChangeListener — Fyne provides
+	// no RemoveListener, so duplicate adds would leak listener entries that
+	// fire on every settings change forever.
+	settingsListenersOnce sync.Once
+}
+
+// setScreenAreaVisible shows or hides screen area modules (desktop icons).
+// Called when the panel is raised/lowered via hotspot to prevent desktop
+// icons from appearing above windows.
+func (l *desktop) setScreenAreaVisible(visible bool) {
+	if l.primaryWin != nil && l.primaryWin.bg != nil {
+		l.primaryWin.bg.setScreenAreaVisible(visible)
+	}
 }
 
 func (l *desktop) Desktop() int {
@@ -136,7 +162,7 @@ func (l *desktop) SetDesktop(id int) {
 // overview passes false because its own zoom-in already masks the slide.
 func (l *desktop) setDesktop(id int, cube bool) {
 	old := l.desk
-	if id != old && cube {
+	if id != old && cube && !l.Settings().ReduceMotion() {
 		// Roll the 3D cube over the top while the windows below slide into place.
 		l.startDeskCube(old, id)
 	}
@@ -216,6 +242,10 @@ func (l *desktop) setDesktop(id int, cube bool) {
 		}
 	})
 	l.deskAnim = a
+	if l.Settings().ReduceMotion() {
+		a.Tick(1) // jump straight to the end of the slide
+		return
+	}
 	a.Start()
 }
 
@@ -444,8 +474,18 @@ func (l *desktop) Layout(objects []fyne.CanvasObject, size fyne.Size) {
 		o.Move(fyne.NewPos(0, 0))
 	}
 
-	l.bar.Resize(fyne.NewSize(wmtheme.NarrowBarWidth, pH))
-	l.bar.Move(fyne.NewPos(0, 0))
+	switch l.Settings().BarPosition() {
+	case "left":
+		l.bar.Resize(fyne.NewSize(wmtheme.NarrowBarWidth, pH))
+		l.bar.Move(fyne.NewPos(0, 0))
+	default: // "bottom"
+		// Use the zoom-scaled height so Fyne doesn't clip zoomed icons that
+		// extend above the base bar area. Icons are bottom-aligned within
+		// this container; the zoom effect grows upward into the extra space.
+		barHeight := float32(l.Settings().LauncherIconSize())*float32(l.Settings().LauncherZoomScale()) + 2
+		l.bar.Resize(fyne.NewSize(pW, barHeight+1))
+		l.bar.Move(fyne.NewPos(0, pH-barHeight))
+	}
 	l.bar.Refresh()
 
 	widgetsWidth := l.widgets.MinSize().Width
@@ -702,10 +742,10 @@ func (l *desktop) HideOverlay(content fyne.CanvasObject) {
 	})
 }
 
-func (l *desktop) updateBackgrounds(path string) {
+func (l *desktop) updateBackgrounds(path, bgType string) {
 	for _, sw := range l.screenWindows {
 		if sw.bg != nil {
-			sw.bg.updateBackground(path)
+			sw.bg.updateBackground(path, bgType)
 		}
 	}
 }
@@ -989,9 +1029,15 @@ func (l *desktop) ContentBoundsPixels(screen *tyde.Screen) (x, y, w, h uint32) {
 		pad = wmtheme.NarrowBarWidth
 	}
 	if l.screens.Primary() == screen {
-		bar := uint32(wmtheme.NarrowBarWidth * screen.CanvasScale())
 		wid := uint32(pad * screen.CanvasScale())
-		return bar, 0, screenW - bar - wid, screenH
+		switch l.Settings().BarPosition() {
+		case "left":
+			bar := uint32(wmtheme.NarrowBarWidth * screen.CanvasScale())
+			return bar, 0, screenW - bar - wid, screenH
+		default: // "bottom"
+			barH := uint32(wmtheme.NarrowBarWidth * screen.CanvasScale()) // approximate bar height
+			return 0, 0, screenW - wid, screenH - barH
+		}
 	}
 	return 0, 0, screenW, screenH
 }
@@ -1090,24 +1136,37 @@ func (l *desktop) RefreshWindowAccessories() {
 }
 
 func (l *desktop) fireSettingsChangeListener(s tyde.DeskSettings) {
+	locale.SetLanguage(s.Language())
 	l.clearModuleCache()
-	l.updateBackgrounds(s.Background())
+	bgType := fyne.CurrentApp().Preferences().String("background_type")
+	l.updateBackgrounds(s.Background(), bgType)
 	l.widgets.reloadModules(l.Modules())
+
+	// Update locale-dependent labels
+	if np, ok := l.widgets.notifications.(*notificationPanel); ok {
+		np.updateLocale()
+	}
 	if l.overlayLayer != nil {
 		l.overlayLayer.rebuild()
 	}
 	l.RefreshWindowAccessories() // pick up enabling/disabling of accessory modules
 
+	l.bar.iconSize = l.Settings().LauncherIconSize()
+	l.bar.iconScale = l.Settings().LauncherZoomScale()
+	l.bar.disableZoom = l.Settings().LauncherDisableZoom()
 	l.bar.updateIcons()
 	l.bar.updateIconOrder()
 	l.bar.updateTaskbar()
 }
 
 func (l *desktop) addSettingsChangeListener() {
-	l.Settings().AddChangeListener(l.fireSettingsChangeListener)
+	l.settingsListenersOnce.Do(func() {
+		l.Settings().AddChangeListener(l.fireSettingsChangeListener)
 
-	l.app.Settings().AddListener(func(_ fyne.Settings) {
-		l.updateBackgrounds(l.Settings().Background())
+		l.app.Settings().AddListener(func(_ fyne.Settings) {
+			bgType := fyne.CurrentApp().Preferences().String("background_type")
+			l.updateBackgrounds(l.Settings().Background(), bgType)
+		})
 	})
 }
 
@@ -1208,12 +1267,22 @@ func (l *desktop) screenCompositors() []ScreenCompositors {
 // If run during CI for testing it will return an in-memory window using the
 // fyne/test package.
 func NewEmbeddedDesktop(app fyne.App, icons appie.Provider) tyde.Desktop {
+	return newEmbeddedDesktop(app, icons, "Embedded "+RootWindowName)
+}
+
+// NewPanelDesktop creates an embedded desktop for use as a Wayland panel.
+// The window title is set to "Tyde:Panel" so the compositor can identify it.
+func NewPanelDesktop(app fyne.App, icons appie.Provider) tyde.Desktop {
+	return newEmbeddedDesktop(app, icons, "Tyde:Panel")
+}
+
+func newEmbeddedDesktop(app fyne.App, icons appie.Provider, title string) tyde.Desktop {
 	wm := &embededWM{}
 	desk := newDesktop(app, wm, icons)
 	desk.run = desk.runEmbed
 	desk.showMenu = desk.showMenuEmbed
 
-	win := desk.newDesktopWindowEmbed()
+	win := desk.newDesktopWindowEmbedWithTitle(title)
 	sw := &screenWindow{
 		screen: desk.screens.Primary(),
 		win:    win,
@@ -1230,6 +1299,34 @@ func NewEmbeddedDesktop(app fyne.App, icons appie.Provider) tyde.Desktop {
 	desk.activityLayer = wm.setWindow(win)
 	win.SetContent(desk.createPrimaryContent(sw))
 	return desk
+}
+
+// SetScreenSize sets the pixel screen dimensions for the Wayland panel.
+// This updates the embedded WM and screen provider with the actual screen size,
+// so overlay positions can be correctly mapped to pixel coordinates.
+func SetScreenSize(desk tyde.Desktop, w, h int) {
+	if d, ok := desk.(*desktop); ok {
+		if wm, ok := d.wm.(*embededWM); ok {
+			wm.screenW = w
+			wm.screenH = h
+		}
+		// Also update the embedded screen provider
+		if esp, ok := d.screens.(*embeddedScreensProvider); ok {
+			esp.UpdatePrimarySize(w, h)
+		}
+	}
+}
+
+// SetScreenPosition sets the primary output's layout position for the Wayland panel.
+// When the primary output is not at (0,0) (e.g. multi-monitor), overlay positions
+// must be offset by these coordinates so they land on the correct output.
+func SetScreenPosition(desk tyde.Desktop, x, y int) {
+	if d, ok := desk.(*desktop); ok {
+		if esp, ok := d.screens.(*embeddedScreensProvider); ok {
+			esp.screens[0].X = x
+			esp.screens[0].Y = y
+		}
+	}
 }
 
 // rebuildEmbeddedAccessories collects the WindowAccessory items from the enabled
@@ -1280,10 +1377,141 @@ func newDesktop(app fyne.App, wm tyde.WindowManager, icons appie.Provider) *desk
 
 	tyde.SetInstance(desk)
 	desk.settings = newDeskSettings()
+	locale.SetLanguage(desk.settings.Language())
 	desk.addSettingsChangeListener()
 
+	// Load theme.json so custom colors (primary, background, etc.) apply at startup
+	reloadFyneTheme()
+
+	// Sync Fyne primary color changes to theme.json so the JSON theme
+	// reflects the user's "Main Color" selection from Fyne Settings.
+	watchFynePrimaryColor(app)
+
+	// Watch for accent color extracted from wallpaper by the compositor
+	accentDone := make(chan struct{})
+	_ = accentDone // lives for process lifetime
+	watchAccentColor(accentDone)
+
 	desk.registerShortcuts()
+	startCalendarService()
+	startAppWatcher(desk)
 	return desk
+}
+
+// startCalendarService boots the calendar runtime (store + syncer +
+// reminder scheduler) so UI surfaces can subscribe and reflect events.
+// Failures are non-fatal — the desktop still starts; UI surfaces will
+// simply show empty state until calendar.Get() returns a working service.
+func startCalendarService() {
+	provider := &google.Provider{
+		TokenFunc: func(ctx context.Context, account calendar.Account) (string, time.Time, error) {
+			switch account.Source {
+			case calendar.SourceGOA:
+				return google.GOAToken(ctx, account)
+			case calendar.SourceOAuth:
+				return google.OAuthToken(ctx, account)
+			default:
+				return "", time.Time{}, nil
+			}
+		},
+	}
+	svc, _, err := calendar.Start(context.Background(), provider, 5*time.Minute)
+	if err != nil {
+		fyne.LogError("calendar service start", err)
+		return
+	}
+	if svc == nil || svc.Store() == nil {
+		return
+	}
+
+	scheduler := calendar.NewScheduler(svc.Store(), buildCalendarNotify())
+	scheduler.Start(context.Background())
+	svc.SetReminder(scheduler)
+}
+
+// buildCalendarNotify produces a NotifyFunc that turns reminder events
+// into desktop notifications. Notifications carry a "Join" action when
+// the event has a meeting URL; clicking the action launches the URL via
+// xdg-open. We chain a single shared action callback so calendar
+// notifications and any other consumer can coexist.
+func buildCalendarNotify() calendar.NotifyFunc {
+	return func(ev calendar.Event, until time.Duration) {
+		title := ev.Title
+		if title == "" {
+			title = locale.T("cal.next")
+		}
+
+		var body string
+		switch {
+		case until <= 0:
+			body = locale.T("cal.now")
+		case until < time.Minute:
+			body = locale.T("cal.in") + " <1 " + locale.T("cal.minutes")
+		default:
+			minutes := int(until.Round(time.Minute).Minutes())
+			body = fmt.Sprintf("%s %d %s", locale.T("cal.in"), minutes, locale.T("cal.minutes"))
+		}
+		if ev.Location != "" {
+			body += " — " + ev.Location
+		}
+
+		var actions []string
+		if ev.MeetingURL != "" {
+			actions = []string{"calendar:join", locale.T("cal.join")}
+		}
+
+		n := wm.NewNotificationFull("Tyde", "x-office-calendar", title, body, actions, 0)
+		n.AppID = "tyde-calendar"
+		if ev.MeetingURL != "" {
+			rememberCalendarJoinURL(n.ID, ev.MeetingURL)
+		}
+		wm.SendNotification(n)
+	}
+}
+
+// pendingCalendarJoins maps a notification ID to the meeting URL that
+// should open when the user invokes the "calendar:join" action. Bounded
+// by the maxHistory of the wm notification server (50), so size stays
+// trivial; we still prune on use to avoid unbounded growth in absurd
+// cases.
+var (
+	calendarJoinMu          sync.Mutex
+	calendarJoinURL         = make(map[uint32]string)
+	calendarActionInstalled bool
+)
+
+func rememberCalendarJoinURL(id uint32, url string) {
+	calendarJoinMu.Lock()
+	calendarJoinURL[id] = url
+	if len(calendarJoinURL) > 256 {
+		// Drop oldest by ID — IDs are monotonic.
+		var minID uint32
+		for k := range calendarJoinURL {
+			if minID == 0 || k < minID {
+				minID = k
+			}
+		}
+		delete(calendarJoinURL, minID)
+	}
+	installed := calendarActionInstalled
+	calendarActionInstalled = true
+	calendarJoinMu.Unlock()
+
+	if !installed {
+		wm.SetActionCallback(func(notifID uint32, actionKey string) {
+			if actionKey != "calendar:join" {
+				return
+			}
+			calendarJoinMu.Lock()
+			url, ok := calendarJoinURL[notifID]
+			delete(calendarJoinURL, notifID)
+			calendarJoinMu.Unlock()
+			if !ok || url == "" {
+				return
+			}
+			openURL(url)
+		})
+	}
 }
 
 func (l *desktop) calculator() {

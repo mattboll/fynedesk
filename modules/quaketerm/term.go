@@ -35,10 +35,12 @@ var resourceTerminal = &fyne.StaticResource{
 }
 
 type term struct {
-	shown   bool
-	running bool
-	content fyne.CanvasObject
-	console *terminal.Terminal
+	shown          bool
+	running        bool
+	content        fyne.CanvasObject
+	console        *terminal.Terminal
+	bg, over       *canvas.Rectangle
+	themeListening bool // true once the per-process theme listener is registered
 }
 
 func (t *term) Destroy() {
@@ -62,7 +64,9 @@ func (t *term) createTerm() {
 	img.FillMode = canvas.ImageFillContain
 	img.SetMinSize(fyne.NewSize(200, 200))
 	over := canvas.NewRectangle(wmTheme.WidgetPanelBackground())
-	matchTheme(bg, over)
+	t.bg = bg
+	t.over = over
+	t.startThemeListenerOnce()
 
 	t.console = terminal.New()
 	t.content = container.NewStack(img, bg, over, t.console)
@@ -138,12 +142,25 @@ func (t *term) toggle() {
 	}
 }
 
-func matchTheme(bg, over *canvas.Rectangle) {
+// startThemeListenerOnce registers a single theme listener for this term's
+// lifetime. Fyne's AddListener has no remove counterpart, so we must avoid
+// adding a fresh closure every time createTerm runs (it runs after each
+// shell exit). The listener references t.bg / t.over, which are reassigned
+// by every createTerm — so the latest rectangles always get repainted.
+func (t *term) startThemeListenerOnce() {
+	if t.themeListening {
+		return
+	}
+	t.themeListening = true
 	fyne.CurrentApp().Settings().AddListener(func(_ fyne.Settings) {
-		bg.FillColor = withTransparency(theme.Color(theme.ColorNameOverlayBackground))
-		bg.Refresh()
-		over.FillColor = wmTheme.WidgetPanelBackground()
-		over.Refresh()
+		if t.bg != nil {
+			t.bg.FillColor = withTransparency(theme.Color(theme.ColorNameOverlayBackground))
+			t.bg.Refresh()
+		}
+		if t.over != nil {
+			t.over.FillColor = wmTheme.WidgetPanelBackground()
+			t.over.Refresh()
+		}
 	})
 }
 

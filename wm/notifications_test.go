@@ -21,9 +21,220 @@ func TestSendNotification(t *testing.T) {
 }
 
 func TestNewNotification(t *testing.T) {
-	n1 := NewNotification("test", "body", "")
-	n2 := NewNotification("test", "body", "")
+	n1 := NewNotification("test", "body")
+	n2 := NewNotification("test", "body")
 
 	assert.NotZero(t, n1.ID)
 	assert.NotEqual(t, n1.ID, n2.ID)
+}
+
+func TestNewNotificationWithTimeout(t *testing.T) {
+	n := NewNotificationWithTimeout("title", "body", -1)
+
+	assert.Equal(t, "title", n.Title)
+	assert.Equal(t, "body", n.Body)
+	assert.Equal(t, int32(-1), n.Timeout)
+	assert.False(t, n.Timestamp.IsZero())
+}
+
+func TestNewNotificationDefaultTimeout(t *testing.T) {
+	n := NewNotification("title", "body")
+
+	assert.Equal(t, int32(0), n.Timeout)
+	assert.False(t, n.Timestamp.IsZero())
+}
+
+func TestNotificationHistory(t *testing.T) {
+	// Clear any prior history
+	ClearNotificationHistory()
+
+	SetNotificationListener(func(n *Notification) {})
+
+	n1 := NewNotification("first", "body1")
+	n2 := NewNotification("second", "body2")
+	SendNotification(n1)
+	SendNotification(n2)
+
+	history := NotificationHistory()
+	assert.Len(t, history, 2)
+	assert.Equal(t, "second", history[0].Title) // most recent first
+	assert.Equal(t, "first", history[1].Title)
+}
+
+func TestNotificationHistoryCap(t *testing.T) {
+	ClearNotificationHistory()
+	SetNotificationListener(func(n *Notification) {})
+
+	for i := 0; i < maxHistory+10; i++ {
+		SendNotification(NewNotification("n", "b"))
+	}
+
+	history := NotificationHistory()
+	assert.Len(t, history, maxHistory)
+}
+
+func TestClearNotificationHistory(t *testing.T) {
+	ClearNotificationHistory()
+	SetNotificationListener(func(n *Notification) {})
+
+	SendNotification(NewNotification("test", "body"))
+	assert.NotEmpty(t, NotificationHistory())
+
+	ClearNotificationHistory()
+	assert.Empty(t, NotificationHistory())
+}
+
+func TestRemoveNotification(t *testing.T) {
+	ClearNotificationHistory()
+	SetNotificationListener(func(n *Notification) {})
+
+	n1 := NewNotification("keep", "body")
+	n2 := NewNotification("remove", "body")
+	SendNotification(n1)
+	SendNotification(n2)
+
+	RemoveNotification(n2.ID)
+
+	history := NotificationHistory()
+	assert.Len(t, history, 1)
+	assert.Equal(t, "keep", history[0].Title)
+}
+
+func TestRemoveNotificationNotFound(t *testing.T) {
+	ClearNotificationHistory()
+	SetNotificationListener(func(n *Notification) {})
+
+	SendNotification(NewNotification("test", "body"))
+
+	// Should not panic with non-existent ID
+	RemoveNotification(999999)
+	assert.Len(t, NotificationHistory(), 1)
+}
+
+func TestHistoryChangeListener(t *testing.T) {
+	ClearNotificationHistory()
+	SetNotificationListener(func(n *Notification) {})
+
+	callCount := 0
+	AddHistoryChangeListener(func() {
+		callCount++
+	})
+
+	// Add triggers listener
+	n := NewNotification("test", "body")
+	SendNotification(n)
+	assert.Equal(t, 1, callCount)
+
+	// Remove triggers listener
+	RemoveNotification(n.ID)
+	assert.Equal(t, 2, callCount)
+
+	// Clear triggers listener
+	SendNotification(NewNotification("x", "y"))
+	ClearNotificationHistory()
+	assert.Equal(t, 4, callCount) // +1 send, +1 clear
+}
+
+func TestMultipleListeners(t *testing.T) {
+	var got1, got2 *Notification
+	AddNotificationListener(func(n *Notification) {
+		got1 = n
+	})
+	AddNotificationListener(func(n *Notification) {
+		got2 = n
+	})
+
+	msg := NewNotification("multi", "test")
+	SendNotification(msg)
+
+	assert.NotNil(t, got1)
+	assert.NotNil(t, got2)
+	assert.Equal(t, "multi", got1.Title)
+	assert.Equal(t, "multi", got2.Title)
+}
+
+func TestNotificationReplacement(t *testing.T) {
+	ClearNotificationHistory()
+	var got []*Notification
+	AddNotificationListener(func(n *Notification) { got = append(got, n) })
+
+	first := NewNotificationFull("Slack", "", "Alice", "hello", nil, 0)
+	first.DBusID = 42
+	SendNotification(first)
+	update := NewNotificationFull("Slack", "", "Alice", "hello again", nil, 0)
+	update.DBusID = 42
+	SendNotification(update)
+
+	assert.True(t, update.Replaced)
+	assert.Equal(t, first.ID, update.ID, "the update keeps the ID of what it replaces")
+	hist := NotificationHistory()
+	assert.Len(t, hist, 1)
+	assert.Equal(t, "hello again", hist[0].Body)
+
+	tagged := NewNotification("Agent", "working")
+	tagged.Tag = "agent:w1:p1"
+	SendNotification(tagged)
+	done := NewNotification("Agent", "done")
+	done.Tag = "agent:w1:p1"
+	SendNotification(done)
+	assert.True(t, done.Replaced)
+	assert.Len(t, NotificationHistory(), 2)
+}
+
+func TestTransientNotification(t *testing.T) {
+	ClearNotificationHistory()
+	AddNotificationListener(func(*Notification) {})
+
+	n := NewNotificationFull("volume", "", "Volume", "50%", nil, 0)
+	n.DBusID = 7
+	n.Transient = true
+	SendNotification(n)
+	assert.Empty(t, NotificationHistory())
+
+	// Still replaceable while on screen.
+	next := NewNotificationFull("volume", "", "Volume", "60%", nil, 0)
+	next.DBusID = 7
+	next.Transient = true
+	SendNotification(next)
+	assert.True(t, next.Replaced)
+	assert.Equal(t, n.ID, next.ID)
+}
+
+func TestWithdrawNotification(t *testing.T) {
+	ClearNotificationHistory()
+	AddNotificationListener(func(*Notification) {})
+	var withdrawn []uint32
+	AddWithdrawListener(func(id uint32) { withdrawn = append(withdrawn, id) })
+
+	n := NewNotificationFull("Slack", "", "Bob", "hi", nil, 0)
+	n.DBusID = 99
+	SendNotification(n)
+	WithdrawNotification(99)
+
+	assert.Empty(t, NotificationHistory())
+	assert.Equal(t, []uint32{n.ID}, withdrawn)
+
+	WithdrawNotification(12345) // unknown: nothing happens
+	assert.Len(t, withdrawn, 1)
+}
+
+func TestParseUrgency(t *testing.T) {
+	assert.Equal(t, UrgencyLow, ParseUrgency("low"))
+	assert.Equal(t, UrgencyCritical, ParseUrgency("critical"))
+	assert.Equal(t, UrgencyNormal, ParseUrgency(""))
+}
+
+func TestWithdrawTagged(t *testing.T) {
+	ClearNotificationHistory()
+	AddNotificationListener(func(*Notification) {})
+	n := NewNotification("Claude Code", "done")
+	n.Tag = "agent:w1:p1"
+	SendNotification(n)
+	SendNotification(NewNotification("Other", "stays"))
+
+	WithdrawTagged("agent:w1:p1")
+	hist := NotificationHistory()
+	if assert.Len(t, hist, 1) {
+		assert.Equal(t, "Other", hist[0].Title)
+	}
 }

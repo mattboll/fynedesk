@@ -16,7 +16,7 @@ import (
 
 const (
 	tileIconSize   = 36 // home-screen icon size
-	tileWidth      = 100
+	tileWidth      = 116
 	tileHeight     = 82
 	headerIconSize = 48 // icon size once docked in the detail header
 
@@ -191,7 +191,10 @@ func (n *settingsNav) buildHome() fyne.CanvasObject {
 		container.NewBorder(nil, nil, container.NewHBox(iconSlot, title), nil),
 		widget.NewSeparator(),
 	)
-	body := container.NewPadded(container.NewBorder(head, nil, nil, nil, scroll))
+	// Keep the tiles clear of the mascot resting on the water below.
+	fishRoom := canvas.NewRectangle(color.Transparent)
+	fishRoom.SetMinSize(fyne.NewSize(0, seaFish))
+	body := container.NewPadded(container.NewBorder(head, fishRoom, nil, nil, scroll))
 
 	sea := container.NewBorder(nil, n.buildSea(), nil, nil)
 	return container.NewStack(sea, body)

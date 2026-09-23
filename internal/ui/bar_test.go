@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"image/color"
 	"testing"
 
 	"github.com/FyshOS/appie"
@@ -60,7 +61,10 @@ func (d *dummyIcon) Source() *appie.AppSource {
 }
 
 func testBar(icons []string) *bar {
-	testBar := newBar(wmTest.NewDesktopWithWM(&embededWM{}))
+	desk := wmTest.NewDesktopWithWM(&embededWM{})
+	// The zoom tests exercise the full-width dock at the bottom of the screen.
+	desk.Settings().(*wmTest.Settings).SetBarPosition("bottom")
+	testBar := newBar(desk)
 	testBar.children = []fyne.CanvasObject{} // remove divider, then we add it again later
 	for _, name := range icons {
 		icon := testBar.createIcon(&dummyIcon{name: name}, nil)
@@ -85,14 +89,32 @@ func TestAppBar_Append(t *testing.T) {
 	assert.Equal(t, len(icons)+1, len(testBar.children))
 }
 
+func TestAppBar_Zoom(t *testing.T) {
+	icons := []string{"fyne", "fyne", "fyne", "fyne"}
+	testBar := testBar(icons)
+	testBar.disableZoom = false
+	testBar.iconSize = 32
+	testBar.iconScale = 2.0
+	testBar.mouseInside = true
+	testBar.mousePosition = testBar.children[0].Position().Add(fyne.NewPos(5, 5))
+	testBar.Refresh()
+	assert.Equal(t, true, testBar.children[0].Size().Width > testBar.children[1].Size().Width)
+}
+
 func TestAppBarBackground(t *testing.T) {
 	icons := []string{"fyne"}
 	testBar := testBar(icons)
 	testBar.disableTaskbar = true
 
 	bg := test.WidgetRenderer(testBar).(*barRenderer).background
-	assert.Equal(t, wmTheme.WidgetPanelBackground(), bg.(*canvas.Rectangle).FillColor)
-	assert.Equal(t, wmTheme.NarrowBarWidth, bg.Size().Width)
+	if testBar.desk.Settings().BarPosition() == "left" {
+		assert.Equal(t, wmTheme.WidgetPanelBackground(), bg.(*canvas.Rectangle).FillColor)
+		assert.Equal(t, wmTheme.NarrowBarWidth, bg.Size().Width)
+	} else {
+		rect := bg.(*canvas.Rectangle)
+		assert.Equal(t, color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x28}, rect.FillColor)
+		assert.Equal(t, float32(14), rect.CornerRadius)
+	}
 }
 
 func TestIconsAndIconThemeChange(t *testing.T) {
@@ -143,7 +165,67 @@ func TestIconSizeChange(t *testing.T) {
 	testBar.desk.Settings().(*wmTest.Settings).SetLauncherIcons([]string{"App1", "App2", "App3"})
 	testBar.updateIconOrder()
 
-	assert.Equal(t, testBar.iconSize(), testBar.icons[0].Size().Width)
+	assert.Equal(t, float32(32), testBar.icons[0].Size().Width)
+
+	testBar.desk.Settings().(*wmTest.Settings).SetLauncherIconSize(64)
+	testBar.iconSize = testBar.desk.Settings().LauncherIconSize()
+	testBar.updateIcons()
+
+	assert.Equal(t, float32(64), testBar.icons[0].Size().Width)
+}
+
+func TestZoomScaleChange(t *testing.T) {
+	testBar := testBar(nil)
+
+	testBar.desk.Settings().(*wmTest.Settings).SetLauncherIcons([]string{"App1", "App2", "App3"})
+	testBar.updateIconOrder()
+
+	testBar.mouseInside = true
+	testBar.mousePosition = testBar.children[0].Position()
+	testBar.Refresh()
+	firstWidth := testBar.children[0].Size().Width
+
+	testBar.desk.Settings().(*wmTest.Settings).SetLauncherZoomScale(2.0)
+	testBar.iconScale = float32(testBar.desk.Settings().LauncherZoomScale())
+	testBar.updateIcons()
+
+	testBar.mouseInside = true
+	testBar.mousePosition = testBar.children[0].Position()
+	testBar.Refresh()
+	secondWidth := testBar.children[0].Size().Width
+
+	zoomTest := false
+	if secondWidth > firstWidth {
+		zoomTest = true
+	}
+	assert.Equal(t, true, zoomTest)
+}
+
+func TestIconZoomDisabled(t *testing.T) {
+	testBar := testBar(nil)
+
+	testBar.desk.Settings().(*wmTest.Settings).SetLauncherIcons([]string{"App1", "App2", "App3"})
+	testBar.desk.Settings().(*wmTest.Settings).SetLauncherZoomScale(2.0)
+	testBar.iconScale = float32(testBar.desk.Settings().LauncherZoomScale())
+	testBar.updateIconOrder()
+
+	testBar.mouseInside = true
+	testBar.mousePosition = testBar.children[0].Position()
+	testBar.Refresh()
+
+	width := testBar.children[0].Size().Width
+	assert.NotEqual(t, testBar.desk.Settings().LauncherIconSize(), width)
+
+	testBar.desk.Settings().(*wmTest.Settings).SetLauncherDisableZoom(true)
+	testBar.disableZoom = true
+	testBar.updateIconOrder()
+
+	testBar.mouseInside = true
+	testBar.mousePosition = testBar.children[0].Position()
+	testBar.Refresh()
+
+	width = testBar.children[0].Size().Width
+	assert.Equal(t, testBar.desk.Settings().LauncherIconSize(), width)
 }
 
 func TestIconTaskbarDisabled(t *testing.T) {
@@ -171,7 +253,7 @@ func TestIconTaskbarDisabled(t *testing.T) {
 	testBar.updateIconOrder()
 	testBar.updateTaskbar()
 
-	// Last Child at this point should not be the separator or a taskbar icon
+	//Last Child at this point should not be the separator or a taskbar icon
 	taskbarIconTest = false
 	if testBar.children[len(testBar.children)-1].(*barIcon).windowData == nil {
 		taskbarIconTest = true

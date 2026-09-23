@@ -51,7 +51,7 @@ func RegisterService(obj interface{}, path, iface string) error {
 		return err
 	}
 
-	reply, err := conn.RequestName(iface, dbus.NameFlagDoNotQueue)
+	reply, err := conn.RequestName(iface, dbus.NameFlagDoNotQueue|dbus.NameFlagAllowReplacement)
 	if err != nil {
 		return err
 	}

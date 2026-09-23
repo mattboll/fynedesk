@@ -13,9 +13,18 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
+
+	"fyshos.com/tyde/wlipc"
 )
 
 func (l *desktop) screenshot() {
+	// In Wayland compositor mode, delegate to compositor via IPC
+	if client := wlipc.DefaultClient(); client != nil {
+		client.SendRequest(wlipc.ReqCompositorAction, struct {
+			Action string `json:"action"`
+		}{Action: wlipc.ActionScreenshotFull})
+		return
+	}
 	if len(l.screenWindows) == 1 {
 		l.showCaptureSave(l.screenWindows[0].win.Canvas().Capture())
 		return
@@ -53,6 +62,13 @@ func (l *desktop) screenshot() {
 }
 
 func (l *desktop) screenshotWindow() {
+	// In Wayland compositor mode, delegate to compositor via IPC
+	if client := wlipc.DefaultClient(); client != nil {
+		client.SendRequest(wlipc.ReqCompositorAction, struct {
+			Action string `json:"action"`
+		}{Action: wlipc.ActionScreenshotWindow})
+		return
+	}
 	if l.primaryWin == nil || l.primaryWin.compositor == nil {
 		fyne.LogError("Unable to print window with no compositor", nil)
 		return

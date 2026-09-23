@@ -3,6 +3,7 @@
 //go:generate dbus-codegen-go -prefix org.kde -package watcher -output generated/watcher/status_notifier_watcher.go StatusNotifierWatcher.xml
 //go:generate dbus-codegen-go -prefix com.canonical -package menu -output generated/menu/dbus_menu.go DbusMenu.xml
 
+// Package systray implements a system tray module using the D-Bus StatusNotifierItem protocol for application indicators.
 package systray
 
 import (
@@ -13,9 +14,12 @@ import (
 	"image/png"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/FyshOS/appie"
@@ -28,6 +32,7 @@ import (
 	"fyshos.com/tyde/modules/systray/generated/notifier"
 	"fyshos.com/tyde/modules/systray/generated/watcher"
 	wmtheme "fyshos.com/tyde/theme"
+	"fyshos.com/tyde/wlipc"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -53,8 +58,9 @@ var trayMeta = tyde.ModuleMetadata{
 }
 
 type tray struct {
-	conn *dbus.Conn
-	menu *menu.Dbusmenu
+	conn   *dbus.Conn
+	menu   *menu.Dbusmenu
+	signal chan *dbus.Signal
 
 	box   *fyne.Container
 	lock  sync.Mutex
@@ -119,7 +125,7 @@ func NewTray() tyde.Module {
 		return t
 	}
 
-	hostErr := t.RegisterStatusNotifierHost(conn.Names()[0])
+	hostErr := t.RegisterStatusNotifierHost(conn.Names()[0], "")
 	if hostErr != nil {
 		fyne.LogError("Failed to register our systray host, another may already be running", hostErr)
 	}
@@ -130,10 +136,10 @@ func NewTray() tyde.Module {
 		fyne.LogError("Failed to monitor systray name loss", watchErr)
 	}
 
-	c := make(chan *dbus.Signal, 10)
-	t.conn.Signal(c)
+	t.signal = make(chan *dbus.Signal, 10)
+	t.conn.Signal(t.signal)
 	go func() {
-		for v := range c {
+		for v := range t.signal {
 			switch v.Name {
 			case "org.freedesktop.DBus.NameOwnerChanged":
 				name := v.Body[0]
@@ -164,6 +170,17 @@ func NewTray() tyde.Module {
 }
 
 func (t *tray) Destroy() {
+	if t.conn != nil {
+		if t.signal != nil {
+			t.conn.RemoveSignal(t.signal)
+			close(t.signal)
+			t.signal = nil
+		}
+		if err := t.conn.Close(); err != nil {
+			log.Printf("[systray] dbus close failed: %v", err)
+		}
+		t.conn = nil
+	}
 }
 
 // removeNode drops a tray icon for the given sender, both from the visible
@@ -232,15 +249,32 @@ func processAlive(pid uint32) bool {
 	return true
 }
 
-func (t *tray) RegisterStatusNotifierItem(service string, sender dbus.Sender) error {
-	ni := notifier.NewStatusNotifierItem(t.conn.Object(string(sender), dbus.ObjectPath(service)))
+func (t *tray) RegisterStatusNotifierItem(service string, sender dbus.Sender) (err *dbus.Error) {
+	// The service parameter can be either an object path ("/StatusNotifierItem")
+	// or a bus name (":1.123"). When it's a bus name, use it as the destination
+	// and default to "/StatusNotifierItem" as the object path (per the SNI spec).
+	dest := string(sender)
+	objPath := dbus.ObjectPath(service)
+	if !strings.HasPrefix(service, "/") {
+		dest = service
+		objPath = "/StatusNotifierItem"
+	}
+	// Reject malformed paths — godbus would later log "invalid path name"
+	// when we try to call methods on the proxy, with no way to clean up
+	// the half-registered tray entry.
+	if !objPath.IsValid() {
+		log.Printf("[SYSTRAY] RegisterStatusNotifierItem: rejecting invalid object path %q from sender=%q", service, sender)
+		return dbus.MakeFailedError(fmt.Errorf("invalid object path: %q", service))
+	}
+	log.Printf("[SYSTRAY] RegisterStatusNotifierItem: service=%q sender=%q dest=%q objPath=%q", service, sender, dest, objPath)
+	ni := notifier.NewStatusNotifierItem(t.conn.Object(dest, objPath))
 
 	t.lock.Lock()
 	item, ok := t.nodes[sender]
 	if !ok {
 		var ico *multiButton
 		ico = newMultiButton(func() {
-			_ = ni.Activate(t.conn.Context(), 5, 5)
+			t.activate(ni, dest)
 		}, func() {
 			if m, err := ni.GetMenu(t.conn.Context()); err == nil {
 				t.showMenu(string(sender), m, ico)
@@ -278,11 +312,21 @@ func (t *tray) RegisterStatusNotifierItem(service string, sender dbus.Sender) er
 	return nil
 }
 
-func (t *tray) RegisterStatusNotifierHost(service string) error {
-	return watcher.Emit(t.conn, &watcher.StatusNotifierWatcher_StatusNotifierHostRegisteredSignal{
-		Path: dbus.ObjectPath(service),
+func (t *tray) RegisterStatusNotifierHost(service string, sender dbus.Sender) (err *dbus.Error) {
+	log.Println("Register Host", service, sender)
+
+	// The signal Path is the OBJECT PATH from which the watcher emits — i.e.
+	// /StatusNotifierWatcher, not the registering host's bus name (":1.2").
+	// Wrapping the bus name in ObjectPath produced "dbus: invalid path name"
+	// on every panel start because ":" is not legal in a path component.
+	e := watcher.Emit(t.conn, &watcher.StatusNotifierWatcher_StatusNotifierHostRegisteredSignal{
+		Path: dbus.ObjectPath(path),
 		Body: &watcher.StatusNotifierWatcher_StatusNotifierHostRegisteredSignalBody{},
 	})
+	if e != nil {
+		fyne.LogError("it was not emit the notification", e)
+	}
+	return nil
 }
 
 func (t *tray) Metadata() tyde.ModuleMetadata {
@@ -377,6 +421,160 @@ func (t *tray) parseMenuItem(id int32, menu *menu.Dbusmenu, in interface{}, pos 
 	return ret
 }
 
+// activate brings the application behind a tray item forward on left click.
+func (t *tray) activate(ni *notifier.StatusNotifierItem, dest string) {
+	if !wlipc.IsWaylandSession() {
+		_ = ni.Activate(t.conn.Context(), 5, 5)
+		return
+	}
+
+	appID, _ := ni.GetId(t.conn.Context())
+	wmClass := t.resolveWMClass(ni, appID, dest)
+	log.Printf("[SYSTRAY] Left-click on tray item id=%q resolved=%q", appID, wmClass)
+
+	// 1. Try IPC raise-by-class (for windows already mapped but behind others)
+	if wmClass != "" {
+		wlipc.RequestRaiseByClass(wmClass)
+	}
+
+	// 2. Call Activate via D-Bus (standard tray protocol)
+	if err := ni.Activate(t.conn.Context(), 5, 5); err != nil {
+		log.Printf("[SYSTRAY] Activate failed: %v", err)
+	}
+
+	// 3. Launch the app executable as fallback.
+	// For Electron apps (Slack, Discord), D-Bus Activate often does nothing.
+	// Re-launching the app binary activates the existing instance via
+	// Electron's single-instance lock.
+	if wmClass != "" {
+		go t.launchAppFallback(wmClass)
+	}
+}
+
+// launchAppFallback tries to launch an app by its WM_CLASS name.
+// This is a fallback for Electron apps where D-Bus Activate() does nothing.
+// Re-launching the app binary activates the existing instance via single-instance lock.
+func (t *tray) launchAppFallback(wmClass string) {
+	// Wait a bit to see if Activate/raiseByClass already worked
+	time.Sleep(500 * time.Millisecond)
+
+	// Launch the app binary — for single-instance apps (Electron/Slack/Discord),
+	// this activates the running instance instead of starting a new one.
+	// Validate executable exists in PATH before running.
+	binName := strings.ToLower(wmClass)
+	binPath, err := exec.LookPath(binName)
+	if err != nil {
+		log.Printf("[SYSTRAY] launchAppFallback: %q not found in PATH", binName)
+		return
+	}
+	cmd := exec.Command(binPath)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	log.Printf("[SYSTRAY] launchAppFallback: launching %q", cmd.Path)
+	if err := cmd.Start(); err != nil {
+		log.Printf("[SYSTRAY] launchAppFallback: failed: %v", err)
+		return
+	}
+
+	// Wait up to 1s for the process to either run (single-instance hand-off,
+	// keeps running) or exit cleanly (single-instance forwarder that quits
+	// after activating the existing app). If it exits with a non-zero status,
+	// the launch failed and raising would target a stale window.
+	exitCh := make(chan error, 1)
+	go func() { exitCh <- cmd.Wait() }()
+	select {
+	case err := <-exitCh:
+		if err != nil {
+			log.Printf("[SYSTRAY] launchAppFallback: process exited with error, skipping raise: %v", err)
+			return
+		}
+	case <-time.After(1 * time.Second):
+		// Still running — likely a normal app, fall through to raise
+	}
+	wlipc.RequestRaiseByClass(wmClass)
+}
+
+// resolveWMClass tries to determine the real WM_CLASS for a tray item.
+// Electron apps (Slack, Discord, etc.) report "chrome_status_icon_N" as their ID,
+// which doesn't match the window's WM_CLASS. We extract the real app name from
+// the icon theme path (e.g. "/run/user/1000/snap.slack/.org.chromium..." → "slack").
+func (t *tray) resolveWMClass(ni *notifier.StatusNotifierItem, appID, dest string) string {
+	// If the ID doesn't look like a Chromium status icon, use it directly
+	if !strings.HasPrefix(appID, "chrome_status_icon") {
+		return appID
+	}
+
+	// Try to extract real app name from theme path
+	// Snap: /run/user/1000/snap.slack/.org.chromium.Chromium.XXXXX
+	// Flatpak: similar pattern with app name
+	themePath, _ := ni.GetIconThemePath(t.conn.Context())
+	if themePath != "" {
+		// Look for "snap.<appname>" pattern
+		if idx := strings.Index(themePath, "snap."); idx >= 0 {
+			rest := themePath[idx+5:] // after "snap."
+			if slashIdx := strings.IndexByte(rest, '/'); slashIdx > 0 {
+				return rest[:slashIdx]
+			}
+			if dotIdx := strings.IndexByte(rest, '.'); dotIdx > 0 {
+				return rest[:dotIdx]
+			}
+		}
+		// Look for flatpak app ID pattern
+		if idx := strings.Index(themePath, "flatpak"); idx >= 0 {
+			parts := strings.Split(themePath, "/")
+			for _, p := range parts {
+				if strings.Contains(p, ".") && !strings.HasPrefix(p, ".") {
+					// e.g. "com.slack.Slack" → use last segment
+					segments := strings.Split(p, ".")
+					return strings.ToLower(segments[len(segments)-1])
+				}
+			}
+		}
+		// .deb/native: theme path often contains app config dir
+		// e.g. /home/user/.config/Slack/... → "Slack"
+		if idx := strings.Index(themePath, "/.config/"); idx >= 0 {
+			rest := themePath[idx+9:]
+			if slashIdx := strings.IndexByte(rest, '/'); slashIdx > 0 {
+				return strings.ToLower(rest[:slashIdx])
+			}
+		}
+	}
+
+	// Fallback: resolve process name from D-Bus sender PID
+	if name := t.resolveProcessName(dest); name != "" {
+		return name
+	}
+
+	// Fallback: try the icon name (sometimes reveals the app)
+	iconName, _ := ni.GetIconName(t.conn.Context())
+	if iconName != "" && !strings.HasPrefix(iconName, "status_icon") {
+		return iconName
+	}
+
+	return appID
+}
+
+// resolveProcessName uses D-Bus to find the sender's PID and reads /proc/<pid>/cmdline
+func (t *tray) resolveProcessName(dest string) string {
+	var pid uint32
+	err := t.conn.BusObject().Call("org.freedesktop.DBus.GetConnectionUnixProcessID", 0, dest).Store(&pid)
+	if err != nil || pid == 0 {
+		return ""
+	}
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	// cmdline is null-separated; first element is the binary path
+	cmdline := string(data)
+	if idx := strings.IndexByte(cmdline, 0); idx > 0 {
+		cmdline = cmdline[:idx]
+	}
+	// Extract just the binary name from the path
+	name := filepath.Base(cmdline)
+	log.Printf("[SYSTRAY] resolveProcessName: pid=%d cmd=%q name=%q", pid, cmdline, name)
+	return strings.ToLower(name)
+}
+
 func (t *tray) showMenu(sender string, name dbus.ObjectPath, from fyne.CanvasObject) {
 	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(from)
 	w := fyne.CurrentApp().Driver().(deskDriver.Driver).CreateSplashWindow()
@@ -392,14 +590,19 @@ func (t *tray) showMenu(sender string, name dbus.ObjectPath, from fyne.CanvasObj
 	w.Resize(size)
 
 	pos.X -= size.Width
-	screen := tyde.Instance().Screens().Primary()
+	desk := tyde.Instance()
+	if desk == nil {
+		return
+	}
+	screen := desk.Screens().Primary()
 	if pos.Y+size.Height > float32(screen.Height)/screen.CanvasScale() {
 		pos.Y = float32(screen.Height)/screen.CanvasScale() - size.Height
 	}
-	tyde.Instance().WindowManager().ShowOverlay(w, size, pos)
+	desk.WindowManager().ShowOverlay(w, size, pos)
 }
 
 func (t *tray) fetchIcon(i *node) fyne.Resource {
+	// Try 1: Raw pixel data from the app
 	ic, _ := i.ni.GetIconPixmap(t.conn.Context())
 	if len(ic) > 0 {
 		img := pixelsToImage(ic[0])
@@ -410,23 +613,103 @@ func (t *tray) fetchIcon(i *node) fyne.Resource {
 		return fyne.NewStaticResource(unique, w.Bytes())
 	}
 
+	// Try 2: Icon name + optional theme path from the app
 	name, _ := i.ni.GetIconName(t.conn.Context())
-	path, _ := i.ni.GetIconThemePath(t.conn.Context())
+	themePath, _ := i.ni.GetIconThemePath(t.conn.Context())
+
 	fullPath := ""
-	if path != "" {
-		fullPath = filepath.Join(path, name+".png")
-		if _, err := os.Stat(fullPath); err != nil { // not found, search instead
-			fullPath = appie.FdoLookupIconPathInTheme("64", filepath.Join(path, "hicolor"), "", name)
+	if name != "" {
+		// Try custom theme path first (if the app provides one)
+		if themePath != "" {
+			fullPath = filepath.Join(themePath, name+".png")
+			if _, err := os.Stat(fullPath); err != nil {
+				fullPath = appie.FdoLookupIconPathInTheme("64", filepath.Join(themePath, "hicolor"), "", name)
+			}
 		}
-	} else {
-		fullPath = appie.FdoLookupIconPath("", 64, name)
+		// Fall back to system-wide icon lookup
+		if fullPath == "" {
+			fullPath = appie.FdoLookupIconPath("", 64, name)
+		}
+		// Fall back to Snap/Flatpak icon locations not covered by XDG_DATA_DIRS
+		if fullPath == "" {
+			fullPath = lookupIconExtraPaths(name)
+		}
 	}
-	img, err := os.ReadFile(fullPath)
-	if err != nil {
-		fyne.LogError("Failed to load status icon", err)
-		return wmtheme.BrokenImageIcon
+
+	if fullPath != "" {
+		img, err := os.ReadFile(fullPath)
+		if err == nil {
+			return fyne.NewStaticResource(name, img)
+		}
+		fyne.LogError("Failed to read status icon file", err)
 	}
-	return fyne.NewStaticResource(name, img)
+
+	// Try 3: Look up icon from .desktop files using icon name and app ID
+	if desk := tyde.Instance(); desk != nil {
+		appID, _ := i.ni.GetId(t.conn.Context())
+		lookupNames := []string{}
+		if name != "" {
+			lookupNames = append(lookupNames, strings.ToLower(name))
+		}
+		if appID != "" && !strings.EqualFold(appID, name) {
+			lookupNames = append(lookupNames, strings.ToLower(appID))
+		}
+		for _, lookupName := range lookupNames {
+			apps := desk.IconProvider().FindAppsMatching(lookupName)
+			if len(apps) > 0 {
+				if res := apps[0].Icon("", 64); res != nil {
+					return res
+				}
+			}
+			// Also try extra paths with the app ID (e.g. "slack" for snap)
+			if fp := lookupIconExtraPaths(lookupName); fp != "" {
+				if img, err := os.ReadFile(fp); err == nil {
+					return fyne.NewStaticResource(lookupName, img)
+				}
+			}
+		}
+	}
+
+	log.Printf("[SYSTRAY] No icon found for tray item (name=%q, themePath=%q)", name, themePath)
+	return wmtheme.BrokenImageIcon
+}
+
+// lookupIconExtraPaths searches for icons in Snap, Flatpak, and other non-standard locations
+// that may not be covered by XDG_DATA_DIRS.
+func lookupIconExtraPaths(name string) string {
+	extensions := []string{".png", ".svg", ".xpm"}
+	extraDirs := []string{
+		"/snap/" + name + "/current/usr/share/pixmaps",
+		"/snap/" + name + "/current/usr/share/icons/hicolor/512x512/apps",
+		"/snap/" + name + "/current/usr/share/icons/hicolor/256x256/apps",
+		"/snap/" + name + "/current/usr/share/icons/hicolor/128x128/apps",
+		"/snap/" + name + "/current/usr/share/icons/hicolor/64x64/apps",
+		"/snap/" + name + "/current/usr/share/icons/hicolor/48x48/apps",
+		"/snap/" + name + "/current/usr/share/icons/hicolor/scalable/apps",
+		"/var/lib/flatpak/exports/share/icons/hicolor/512x512/apps",
+		"/var/lib/flatpak/exports/share/icons/hicolor/256x256/apps",
+		"/var/lib/flatpak/exports/share/icons/hicolor/128x128/apps",
+		"/var/lib/flatpak/exports/share/icons/hicolor/64x64/apps",
+		"/var/lib/flatpak/exports/share/icons/hicolor/scalable/apps",
+	}
+
+	// Also check user Flatpak location
+	if home, err := os.UserHomeDir(); err == nil {
+		flatpakBase := filepath.Join(home, ".local/share/flatpak/exports/share/icons/hicolor")
+		for _, size := range []string{"512x512", "256x256", "128x128", "64x64", "scalable"} {
+			extraDirs = append(extraDirs, filepath.Join(flatpakBase, size, "apps"))
+		}
+	}
+
+	for _, dir := range extraDirs {
+		for _, ext := range extensions {
+			path := filepath.Join(dir, name+ext)
+			if _, err := os.Stat(path); err == nil {
+				return path
+			}
+		}
+	}
+	return ""
 }
 
 func createPropSpec() map[string]map[string]*prop.Prop {

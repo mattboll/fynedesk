@@ -1,3 +1,4 @@
+// Command tyde is the main Tyde desktop environment entry point for X11 sessions.
 package main
 
 import (
@@ -10,6 +11,7 @@ import (
 	_ "fyshos.com/tyde/modules/fyles"
 	_ "fyshos.com/tyde/modules/keyboard"
 	_ "fyshos.com/tyde/modules/launcher"
+	_ "fyshos.com/tyde/modules/notes"
 	_ "fyshos.com/tyde/modules/quaketerm"
 	_ "fyshos.com/tyde/modules/rpc"
 	_ "fyshos.com/tyde/modules/sloth"

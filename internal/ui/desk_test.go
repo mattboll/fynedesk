@@ -11,6 +11,7 @@ import (
 	"fyne.io/fyne/v2/test"
 	"fyshos.com/tyde"
 	wmTest "fyshos.com/tyde/test"
+	wmTheme "fyshos.com/tyde/theme"
 )
 
 func TestDeskLayout_Layout(t *testing.T) {
@@ -29,7 +30,13 @@ func TestDeskLayout_Layout(t *testing.T) {
 	assert.Equal(t, deskSize, bg.Size())
 	assert.Equal(t, deskSize.Width, l.widgets.Position().X+l.widgets.Size().Width)
 	assert.Equal(t, deskSize.Height, l.widgets.Size().Height)
-	assert.Equal(t, deskSize.Height, l.bar.Size().Height)
+	if l.Settings().BarPosition() == "left" {
+		assert.Equal(t, wmTheme.NarrowBarWidth, l.bar.Size().Width)
+		assert.Equal(t, deskSize.Height, l.bar.Size().Height)
+	} else {
+		assert.Equal(t, deskSize.Width, l.bar.Size().Width)
+		assert.Equal(t, deskSize.Height, l.bar.Position().Y+l.bar.Size().Height-1) // -1 rounding fix, desk.go:49
+	}
 }
 
 func TestScaleVars_Up(t *testing.T) {
@@ -53,6 +60,7 @@ func TestScaleVars_Down(t *testing.T) {
 }
 
 func TestBackgroundChange(t *testing.T) {
+	t.Setenv("WAYLAND_DISPLAY", "") // ensure test doesn't use Wayland compositor mode
 	l := NewEmbeddedDesktop(test.NewApp(), wmTest.NewAppProvider()).(*desktop)
 	l.screens = wmTest.NewScreensProvider(&tyde.Screen{
 		Name: "Screen0", X: 0, Y: 0,

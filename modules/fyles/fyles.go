@@ -57,9 +57,12 @@ func (f *fyles) ScreenAreaWidget() fyne.CanvasObject {
 	}()
 
 	desk := tyde.Instance()
-	r := canvas.NewRectangle(color.Transparent)
-	r.SetMinSize(fyne.NewSize(wmtheme.NarrowBarWidth, 1))
-	barPad := r
+	var barPad fyne.CanvasObject
+	if desk.Settings().BarPosition() == "left" {
+		r := canvas.NewRectangle(color.Transparent)
+		r.SetMinSize(fyne.NewSize(wmtheme.NarrowBarWidth, 1))
+		barPad = r
+	}
 
 	rightIndent := wmtheme.WidgetPanelWidth
 	if desk.Settings().NarrowWidgetPanel() {
@@ -132,7 +135,8 @@ func newFyles() tyde.Module {
 type filter struct{}
 
 func (f *filter) Matches(u fyne.URI) bool {
-	return u.Name()[0] != '.'
+	name := u.Name()
+	return name != "" && name[0] != '.'
 }
 
 func filterHidden() storage.FileFilter {

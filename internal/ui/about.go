@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"fyshos.com/tyde/locale"
 	theme2 "fyshos.com/tyde/theme"
 
 	"fyne.io/fyne/v2"
@@ -43,7 +44,7 @@ func (w *widgetPanel) showAbout() {
 		}
 		return
 	}
-	win := fyne.CurrentApp().NewWindow("About Tyde")
+	win := fyne.CurrentApp().NewWindow(locale.T("about.title"))
 
 	logo := canvas.NewImageFromResource(theme2.LogoFade)
 	logo.FillMode = canvas.ImageFillContain
@@ -51,11 +52,11 @@ func (w *widgetPanel) showAbout() {
 
 	footer := container.NewHBox(
 		layout.NewSpacer(),
-		newURLButton("Home Page", "https://fyshos.com/tyde"),
+		newURLButton(locale.T("about.home"), "https://fyshos.com/tyde"),
 		widget.NewLabel("-"),
-		newURLButton("Report Issue", "https://github.com/FyshOS/fynedesk/issues/new"),
+		newURLButton(locale.T("about.issue"), "https://github.com/FyshOS/tyde/issues/new"),
 		widget.NewLabel("-"),
-		newURLButton("Sponsor", "https://github.com/sponsors/fyne-io"),
+		newURLButton(locale.T("about.sponsor"), "https://github.com/sponsors/fyne-io"),
 		layout.NewSpacer(),
 	)
 
@@ -66,7 +67,7 @@ func (w *widgetPanel) showAbout() {
 		),
 		container.NewCenter(container.NewStack(canvas.NewRectangle(color.White), logo)),
 		container.NewCenter(authors),
-		widget.NewLabelWithStyle("\nWith great thanks to our many kind contributors\n", fyne.TextAlignCenter, fyne.TextStyle{Italic: true}),
+		widget.NewLabelWithStyle("\n"+locale.T("about.thanks")+"\n", fyne.TextAlignCenter, fyne.TextStyle{Italic: true}),
 	)
 	scroll := container.NewScroll(content)
 

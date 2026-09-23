@@ -4,17 +4,27 @@
 package status
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
+
 	"fyne.io/fyne/v2"
 
 	"github.com/mafik/pulseaudio"
 )
 
-// Destroy tidies up resources
+// Destroy tidies up resources. Closing the client also closes its Updates()
+// channel, which is what unblocks watchVolume's `for range updates` loop.
 func (b *sound) Destroy() {
+	if b.done != nil {
+		close(b.done)
+		b.done = nil
+	}
 	if b.client == nil {
 		return
 	}
 	b.client.Close()
+	b.client = nil
 }
 
 func (b *sound) muted() bool {
@@ -31,8 +41,21 @@ func (b *sound) value() (int, error) {
 	return int(volume * 100), nil
 }
 
+// pulseAddress returns the PulseAudio (or pipewire-pulse) socket of the
+// session, which the client library would otherwise always look for under
+// /run/user/<uid> whatever the runtime directory is.
+func pulseAddress() []string {
+	if server := os.Getenv("PULSE_SERVER"); strings.HasPrefix(server, "unix:") {
+		return []string{strings.TrimPrefix(server, "unix:")}
+	}
+	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+		return []string{filepath.Join(dir, "pulse", "native")}
+	}
+	return nil // the library default
+}
+
 func (b *sound) setup() error {
-	client, err := pulseaudio.NewClient()
+	client, err := pulseaudio.NewClient(pulseAddress()...)
 	if err != nil {
 		return err
 	}

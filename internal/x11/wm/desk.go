@@ -236,7 +236,7 @@ func (x *x11WM) Close() {
 			x.x.Conn().Close()
 			os.Exit(0)
 		case <-time.NewTimer(time.Second * 10).C:
-			notify := wm.NewNotification("Log Out", "Log Out was cancelled by an open application", "")
+			notify := wm.NewNotification("Log Out", "Log Out was cancelled by an open application")
 			wm.SendNotification(notify)
 			cancel = true
 		}

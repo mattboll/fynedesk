@@ -1,3 +1,4 @@
+// Command tyde_runner is a crash recovery wrapper that manages Tyde sessions and restarts on failure.
 package main
 
 import (

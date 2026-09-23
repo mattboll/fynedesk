@@ -1,6 +1,8 @@
 package status
 
 import (
+	"bufio"
+	"bytes"
 	"errors"
 	"log"
 	"os/exec"
@@ -15,6 +17,7 @@ import (
 
 	"fyshos.com/tyde"
 	wmtheme "fyshos.com/tyde/theme"
+	"fyshos.com/tyde/wm"
 	"github.com/FyshOS/networks/pkg/netman"
 	"github.com/godbus/dbus/v5"
 )
@@ -26,6 +29,10 @@ var networkMeta = tyde.ModuleMetadata{
 
 const networkNameEthernet = "Ethernet"
 
+// WifiPicker shows the NetworkManager Wi-Fi picker. It is set by the desktop
+// user interface, which this package cannot import.
+var WifiPicker func()
+
 type network struct {
 	name *widget.Label
 	icon *widget.Button
@@ -34,9 +41,14 @@ type network struct {
 
 	conn *dbus.Conn       // system bus for Wi-Fi browsing, opened lazily and reused
 	net  *netman.Networks // iwd-backed network browser, built once on first use
+	done chan struct{}
 }
 
 func (n *network) Destroy() {
+	if n.done != nil {
+		close(n.done)
+		n.done = nil
+	}
 	if n.conn != nil {
 		_ = n.conn.Close()
 		n.conn, n.net = nil, nil
@@ -44,31 +56,42 @@ func (n *network) Destroy() {
 }
 
 func (n *network) wirelessName() (string, error) {
-	net := ""
 	iw, _ := exec.LookPath("iw")
 	if iw == "" {
 		iw, _ = exec.LookPath("/usr/sbin/iw")
 	}
 	if iw != "" {
-		out, err := exec.Command("bash", []string{"-c", iw + " dev | grep ssid | cut -d ' ' -f2"}...).Output()
+		out, err := wm.ExecOutput(iw, "dev")
 		if err != nil {
 			log.Println("Error running iw", err)
 			return "", err
 		}
-		net = strings.TrimSpace(string(out))
-		if net == "" {
-			return "", errors.New("no network connected")
+		// Parse 'iw dev' output for the first 'ssid <name>' line.
+		scanner := bufio.NewScanner(bytes.NewReader(out))
+		for scanner.Scan() {
+			fields := strings.Fields(scanner.Text())
+			if len(fields) >= 2 && fields[0] == "ssid" {
+				return strings.Join(fields[1:], " "), nil
+			}
 		}
-	} else {
-		out, err := exec.Command("bash", []string{"-c", "/System/Library/PrivateFrameworks/Apple80211.framework/Resources/airport -I  | awk -F' SSID: '  '/ SSID: / {print $2}'"}...).Output()
-		if err != nil {
-			log.Println("Error getting network info from airport utility", err)
-			return "", err
-		}
-
-		net = string(out)
+		return "", errors.New("no network connected")
 	}
-	return strings.TrimSpace(net), nil
+
+	// macOS fallback: 'airport -I' returns key/value lines including SSID.
+	const airport = "/System/Library/PrivateFrameworks/Apple80211.framework/Resources/airport"
+	out, err := wm.ExecOutput(airport, "-I")
+	if err != nil {
+		log.Println("Error getting network info from airport utility", err)
+		return "", err
+	}
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if k, v, ok := strings.Cut(line, ": "); ok && strings.TrimSpace(k) == "SSID" {
+			return strings.TrimSpace(v), nil
+		}
+	}
+	return "", errors.New("no network connected")
 }
 
 // airportDevice returns the macOS device name of the Wi-Fi hardware port,
@@ -133,25 +156,41 @@ func (n *network) isBlocked() (bool, error) {
 
 func (n *network) isEthernetConnected() (bool, error) {
 	if ip, _ := exec.LookPath("ip"); ip != "" {
-		out, err := exec.Command("bash", []string{"-c", "ip link | grep \",UP,\" | grep -v LOOPBACK | grep -v \": wl\" | wc -l"}...).Output()
+		out, err := wm.ExecOutput(ip, "link")
 		if err != nil {
 			log.Println("Error running ip tool", err)
 			return false, err
 		}
-		if strings.TrimSpace(string(out)) == "0" {
+		// Count interfaces that are UP, not LOOPBACK, and not wireless (wl*).
+		count := 0
+		scanner := bufio.NewScanner(bytes.NewReader(out))
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.Contains(line, ",UP,") {
+				continue
+			}
+			if strings.Contains(line, "LOOPBACK") {
+				continue
+			}
+			if strings.Contains(line, ": wl") {
+				continue
+			}
+			count++
+		}
+		if count == 0 {
 			return false, nil
 		}
 	} else if scutil, _ := exec.LookPath("scutil"); scutil != "" {
-		out, err := exec.Command("bash", []string{"-c", "scutil --nwi | grep address | wc -l"}...).Output()
+		out, err := wm.ExecOutput(scutil, "--nwi")
 		if err != nil {
 			log.Println("Error running scutil tool", err)
 			return false, err
 		}
-		if strings.TrimSpace(string(out)) == "0" {
+		if !bytes.Contains(out, []byte("address")) {
 			return false, nil
 		}
 	} else {
-		out, err := exec.Command("ifconfig").Output()
+		out, err := wm.ExecOutput("ifconfig")
 		if err != nil {
 			log.Println("Error running ifconfig tool", err)
 			return false, err
@@ -191,11 +230,18 @@ func (n *network) networkName() string {
 }
 
 func (n *network) tick() {
+	n.done = make(chan struct{})
+	done := n.done
 	tick := time.NewTicker(time.Second * 10)
 	go func() {
+		defer tick.Stop()
 		for {
 			n.refreshContent()
-			<-tick.C
+			select {
+			case <-done:
+				return
+			case <-tick.C:
+			}
 		}
 	}()
 }
@@ -307,6 +353,12 @@ func (n *network) setFlightMode(block bool) error {
 // showMenu pops up the network menu beneath the status icon: the Wi-Fi networks
 // iwd currently knows about (from netman), followed by an Airplane Mode toggle.
 func (n *network) showMenu() {
+	// NetworkManager systems get the full Wi-Fi picker.
+	if nmcli, _ := exec.LookPath("nmcli"); nmcli != "" && WifiPicker != nil {
+		WifiPicker()
+		return
+	}
+
 	// Avoid hanging with network calls.
 	go func() {
 		blocked, _ := n.isBlocked()

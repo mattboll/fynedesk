@@ -13,6 +13,7 @@ import (
 
 	"fyshos.com/tyde"
 	wmtheme "fyshos.com/tyde/theme"
+	"fyshos.com/tyde/wlipc"
 )
 
 var soundMeta = tyde.ModuleMetadata{
@@ -21,9 +22,10 @@ var soundMeta = tyde.ModuleMetadata{
 }
 
 type sound struct {
-	bar    *widget.ProgressBar
+	bar    *statusBar
 	client *pulseaudio.Client
 	mute   *scrollButton
+	done   chan struct{} // closed to stop IPC watcher goroutines
 }
 
 func newSound() tyde.Module {
@@ -73,12 +75,26 @@ func (b *sound) Shortcuts() map[*tyde.Shortcut]func() {
 	return map[*tyde.Shortcut]func(){
 		tyde.NewShortcut("Mute Sound", tyde.KeyVolumeMute, tyde.AnyModifier): func() {
 			b.toggleMute()
+			vol, err := b.value()
+			if err == nil {
+				icon := wmtheme.SoundHighIcon
+				if b.muted() {
+					icon = wmtheme.MuteIcon
+				}
+				showOSD(icon, float64(vol))
+			}
 		},
-		tyde.NewShortcut("Increase Sound Volume", tyde.KeyVolumeDown, tyde.AnyModifier): func() {
+		tyde.NewShortcut("Reduce Sound Volume", tyde.KeyVolumeDown, tyde.AnyModifier): func() {
 			b.offsetValue(-5)
+			if vol, err := b.value(); err == nil {
+				showOSD(wmtheme.SoundHighIcon, float64(vol))
+			}
 		},
-		tyde.NewShortcut("Reduce Sound Volume", tyde.KeyVolumeUp, tyde.AnyModifier): func() {
+		tyde.NewShortcut("Increase Sound Volume", tyde.KeyVolumeUp, tyde.AnyModifier): func() {
 			b.offsetValue(5)
+			if vol, err := b.value(); err == nil {
+				showOSD(wmtheme.SoundHighIcon, float64(vol))
+			}
 		},
 	}
 }
@@ -90,7 +106,8 @@ func (b *sound) StatusAreaWidget() fyne.CanvasObject {
 		return nil
 	}
 
-	b.bar = &widget.ProgressBar{Max: 100}
+	b.bar = newStatusBar()
+	b.bar.Max = 100
 	b.mute = newScrollButton(wmtheme.SoundHighIcon)
 	b.mute.scroll = func(f float32) {
 		if b.muted() {
@@ -116,7 +133,49 @@ func (b *sound) StatusAreaWidget() fyne.CanvasObject {
 	sound := container.NewBorder(nil, nil, less, more, b.bar)
 
 	go b.offsetValue(0)
+
+	// Poll volume changes periodically to catch external changes
+	// (e.g. volume keys handled by host compositor, wpctl, etc.)
+	go b.watchVolume()
+
+	// Also watch IPC volume events from compositor (more reliable than PulseAudio
+	// protocol when compositor uses wpctl to change PipeWire volume)
+	if wlipc.IsWaylandSession() {
+		b.done = make(chan struct{})
+		wlipc.WatchVolumeEvent(func() {
+			vol, err := b.value()
+			if err != nil {
+				return
+			}
+			muted := b.muted()
+			fyne.Do(func() {
+				b.bar.SetValue(float64(vol))
+				b.updateIcon(vol, muted)
+			})
+		}, b.done)
+	}
+
 	return container.New(&handleNarrow{}, b.mute, sound)
+}
+
+func (b *sound) watchVolume() {
+	updates, err := b.client.Updates()
+	if err != nil {
+		fyne.LogError("Failed to subscribe to PulseAudio updates", err)
+		return
+	}
+
+	for range updates {
+		vol, err := b.value()
+		if err != nil {
+			continue
+		}
+		muted := b.muted()
+		fyne.Do(func() {
+			b.bar.SetValue(float64(vol))
+			b.updateIcon(vol, muted)
+		})
+	}
 }
 
 // Metadata returns ModuleMetadata
@@ -199,15 +258,21 @@ func (i *volItem) Launch() {
 	}
 }
 
+// startsWith implements lenient prefix matching for the launcher: it returns
+// true when one string is a prefix of the other. The launcher uses this so
+// the user can type a partial keyword (e.g. "vol") and still match the
+// keyword "volume", AND so the keyword "vol " can match a fully-typed
+// "volume up". The original buggy implementation used strings.IndexAny
+// which made unrelated strings match by character (e.g. "mug" → "mute");
+// commit bd1be76 over-corrected to HasPrefix only, which broke partial
+// typing. This restores the intended bidirectional prefix semantic without
+// the IndexAny char-matching bug.
 func startsWith(haystack, needle string) bool {
 	if haystack == "" {
 		return false
 	}
-	if haystack == needle {
-		return true
+	if len(haystack) >= len(needle) {
+		return strings.HasPrefix(haystack, needle)
 	}
-	if len(haystack) < len(needle) {
-		return haystack == needle[:len(haystack)]
-	}
-	return strings.Index(haystack, needle) == 0
+	return strings.HasPrefix(needle, haystack)
 }

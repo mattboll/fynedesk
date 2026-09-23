@@ -1,6 +1,7 @@
 package status
 
 import (
+	"errors"
 	"image/color"
 	"strconv"
 	"strings"
@@ -14,6 +15,8 @@ import (
 
 	"fyshos.com/tyde"
 	wmtheme "fyshos.com/tyde/theme"
+	"fyshos.com/tyde/wlipc"
+	"fyshos.com/tyde/wm"
 )
 
 // BrightnessModuleName is the name of the screen brightness module.
@@ -26,12 +29,23 @@ var brightnessMeta = tyde.ModuleMetadata{
 
 // Brightness is a progress bar module to modify screen brightness
 type brightness struct {
-	bright *dryvers.Brightness
+	bright brightnessDriver
 
-	bar *widget.ProgressBar
+	bar  *statusBar
+	done chan struct{} // closed to stop IPC watcher goroutines
+}
+
+// brightnessDriver reads and sets the screen brightness, between 0 and 1.
+type brightnessDriver interface {
+	Get() (float64, error)
+	Set(float64) error
 }
 
 func (b *brightness) Destroy() {
+	if b.done != nil {
+		close(b.done)
+		b.done = nil
+	}
 }
 
 func (b *brightness) offsetValue(diff int) {
@@ -54,7 +68,9 @@ func (b *brightness) setValue(value int) {
 	_ = b.bright.Set(float64(value) / 100)
 
 	newVal, _ := b.bright.Get()
-	b.bar.SetValue(newVal)
+	fyne.Do(func() {
+		b.bar.SetValue(newVal)
+	})
 }
 
 func (b *brightness) LaunchSuggestions(input string) []tyde.LaunchSuggestion {
@@ -107,11 +123,17 @@ func (b *brightness) Metadata() tyde.ModuleMetadata {
 
 func (b *brightness) Shortcuts() map[*tyde.Shortcut]func() {
 	return map[*tyde.Shortcut]func(){
-		tyde.NewShortcut("Increase Screen Brightness", tyde.KeyBrightnessDown, tyde.AnyModifier): func() {
+		tyde.NewShortcut("Reduce Screen Brightness", tyde.KeyBrightnessDown, tyde.AnyModifier): func() {
 			b.offsetValue(-5)
+			if val, err := b.bright.Get(); err == nil {
+				showOSD(wmtheme.BrightnessIcon, val*100)
+			}
 		},
-		tyde.NewShortcut("Reduce Screen Brightness", tyde.KeyBrightnessUp, tyde.AnyModifier): func() {
+		tyde.NewShortcut("Increase Screen Brightness", tyde.KeyBrightnessUp, tyde.AnyModifier): func() {
 			b.offsetValue(5)
+			if val, err := b.bright.Get(); err == nil {
+				showOSD(wmtheme.BrightnessIcon, val*100)
+			}
 		},
 	}
 }
@@ -121,10 +143,10 @@ func (b *brightness) StatusAreaWidget() fyne.CanvasObject {
 		return nil
 	}
 
-	b.bar = widget.NewProgressBar()
+	b.bar = newStatusBar()
 	brightnessIcon := newScrollIcon(wmtheme.BrightnessIcon)
 	brightnessIcon.scroll = func(f float32) {
-		b.offsetValue(int(f / 10))
+		go b.offsetValue(int(f / 10))
 	}
 
 	prop := canvas.NewRectangle(color.Transparent)
@@ -132,22 +154,68 @@ func (b *brightness) StatusAreaWidget() fyne.CanvasObject {
 	icon := container.NewCenter(prop, brightnessIcon)
 
 	less := &widget.Button{Icon: theme.ContentRemoveIcon(), Importance: widget.LowImportance, OnTapped: func() {
-		b.offsetValue(-5)
+		go b.offsetValue(-5)
 	}}
 
 	more := &widget.Button{Icon: theme.ContentAddIcon(), Importance: widget.LowImportance, OnTapped: func() {
-		b.offsetValue(5)
+		go b.offsetValue(5)
 	}}
 
 	bright := container.NewBorder(nil, nil, less, more, b.bar)
 
 	go b.offsetValue(0)
+
+	if wlipc.IsWaylandSession() {
+		b.done = make(chan struct{})
+		wlipc.WatchBrightnessEvent(func() {
+			val, err := b.bright.Get()
+			if err != nil {
+				return
+			}
+			fyne.Do(func() {
+				b.bar.SetValue(val)
+			})
+		}, b.done)
+	}
+
 	return container.New(&handleNarrow{}, icon, bright)
 }
 
 // newBrightness creates a new module that will show screen brightness in the status area
 func newBrightness() tyde.Module {
+	if wlipc.IsWaylandSession() {
+		// Under Wayland, xbacklight doesn't work (no RandR backlight in XWayland)
+		// and the compositor uses brightnessctl, so the panel must too.
+		return &brightness{bright: &brightnessCtl{}}
+	}
 	return &brightness{bright: dryvers.NewBrightness()}
+}
+
+// brightnessCtl drives the backlight with brightnessctl.
+type brightnessCtl struct{}
+
+func (brightnessCtl) Get() (float64, error) {
+	out, err := wm.ExecOutput("brightnessctl", "get")
+	if err != nil {
+		return 0, err
+	}
+	maxOut, err := wm.ExecOutput("brightnessctl", "max")
+	if err != nil {
+		return 0, err
+	}
+	val, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+	if err != nil {
+		return 0, err
+	}
+	max, err := strconv.ParseFloat(strings.TrimSpace(string(maxOut)), 64)
+	if err != nil || max <= 0 {
+		return 0, errors.New("invalid maximum brightness")
+	}
+	return val / max, nil
+}
+
+func (brightnessCtl) Set(value float64) error {
+	return wm.ExecRun("brightnessctl", "set", strconv.Itoa(int(value*100))+"%")
 }
 
 type brightItem struct {

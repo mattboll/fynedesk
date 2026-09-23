@@ -35,7 +35,7 @@
 		"shadow": "#00080f88",
 		"success": "#6fb69a",
 		"warning": "#e8ae74",
-		"fynedeskPanelBackground": "#0e2634b3"
+		"tydePanelBackground": "#0e2634b3"
 	},
 	"Colors-light": {
 		"background": "#f4f8f9",
@@ -68,6 +68,6 @@
 		"shadow": "#12354730",
 		"success": "#4a8a71",
 		"warning": "#c1803f",
-		"fynedeskPanelBackground": "#eef5f7b3"
+		"tydePanelBackground": "#eef5f7b3"
 	}
 }

@@ -8,7 +8,6 @@ import (
 	"github.com/BurntSushi/xgb/xproto"
 	"github.com/BurntSushi/xgbutil"
 	"github.com/BurntSushi/xgbutil/ewmh"
-	"github.com/BurntSushi/xgbutil/icccm"
 )
 
 const (
@@ -50,10 +49,11 @@ func windowClientListStackingUpdate(wm *x11WM) {
 }
 
 func windowOverrideGet(x *xgbutil.XUtil, win xproto.Window) bool {
-	hints, err := icccm.WmHintsGet(x, win)
-	if err == nil && (hints.Flags&xproto.CwOverrideRedirect) != 0 {
-		return true
-	}
+	// override-redirect is a window attribute, not an ICCCM WM_HINTS flag.
+	// The previous icccm.WmHintsGet check used xproto.CwOverrideRedirect against
+	// hints.Flags, which encodes ICCCM flags (HintInput, HintState, ...). The
+	// bits don't overlap so the check was always false. Just consult the
+	// authoritative attribute.
 	attrs, err := xproto.GetWindowAttributes(x.Conn(), win).Reply()
 	if err == nil && attrs.OverrideRedirect {
 		return true
