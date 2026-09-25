@@ -4,9 +4,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/widget"
@@ -56,6 +58,7 @@ func TestPhoneModuleConnectsAScannedPhone(t *testing.T) {
 	test.NewTempApp(t)
 	newPairing = func() phone.Pairing { return phone.Pairing{Name: "tyde-test", Code: "code"} }
 	defer func() { newPairing = phone.NewPairing }()
+	noKDE(t)
 
 	known := phone.LoadKnown(filepath.Join(t.TempDir(), "phones.json"))
 	p := &phoneModule{adb: phone.ADB{Path: fakePhoneADB(t)}, browser: fakePhoneNet{}, known: known}
@@ -72,14 +75,83 @@ func TestPhoneModuleConnectsAScannedPhone(t *testing.T) {
 	p.Destroy()
 	p.running.Wait()
 	assert.Equal(t, "Pixel 8", p.label.Text)
-	if devices := p.phones(); assert.Len(t, devices, 1) {
+	if devices, _ := p.phones(); assert.Len(t, devices, 1) {
 		assert.True(t, devices[0].Wireless())
 	}
 }
 
-func TestPhoneModuleNeedsAdb(t *testing.T) {
+func TestPhoneModuleNeedsAdbOrKDEConnect(t *testing.T) {
 	test.NewTempApp(t)
 	t.Setenv("PATH", t.TempDir())
 	p := newPhone().(*phoneModule)
-	assert.Nil(t, p.StatusAreaWidget(), "a widget without adb")
+	assert.Nil(t, p.StatusAreaWidget(), "a widget without adb nor KDE Connect")
+}
+
+// noKDE keeps the test away from the KDE Connect of the machine.
+func noKDE(t *testing.T) {
+	connectKDE = func() kdeLink { return nil }
+	t.Cleanup(func() { connectKDE = defaultConnectKDE })
+}
+
+var defaultConnectKDE = connectKDE
+
+// fakeKDE is KDE Connect with a paired phone and one asking to pair.
+type fakeKDE struct {
+	mu       sync.Mutex
+	accepted []string
+}
+
+func (f *fakeKDE) Devices(context.Context) ([]phone.KDEDevice, error) {
+	return []phone.KDEDevice{
+		{ID: "pixel", Name: "Pixel 8", Reachable: true, Paired: true, Battery: 78},
+		{ID: "tablet", Name: "Tab S9", Reachable: true, PairRequested: true, Battery: -1},
+	}, nil
+}
+
+func (f *fakeKDE) AcceptPairing(_ context.Context, id string) error {
+	f.mu.Lock()
+	f.accepted = append(f.accepted, id)
+	f.mu.Unlock()
+	return nil
+}
+func (*fakeKDE) RequestPairing(context.Context, string) error       { return nil }
+func (*fakeKDE) CancelPairing(context.Context, string) error        { return nil }
+func (*fakeKDE) Ring(context.Context, string) error                 { return nil }
+func (*fakeKDE) ShareFiles(context.Context, string, []string) error { return nil }
+func (*fakeKDE) MountFiles(context.Context, string) (string, error) { return "", nil }
+func (*fakeKDE) Watch(ctx context.Context, _ func()) error          { <-ctx.Done(); return nil }
+
+func TestPhoneModuleShowsKDEConnect(t *testing.T) {
+	test.NewTempApp(t)
+	t.Setenv("PATH", t.TempDir()) // no adb
+	kde := &fakeKDE{}
+	p := &phoneModule{kde: kde, known: phone.LoadKnown(filepath.Join(t.TempDir(), "phones.json"))}
+	if p.StatusAreaWidget() == nil {
+		t.Fatal("no widget with KDE Connect there")
+	}
+	assert.Eventually(t, func() bool {
+		_, linked := p.phones()
+		return len(linked) == 2
+	}, 5*time.Second, 20*time.Millisecond)
+
+	// The tablet asks to pair: it can be accepted from Tyde.
+	_, linked := p.phones()
+	row := p.linkedRow(linked[1]).(*fyne.Container)
+	buttons := row.Objects[1].(*fyne.Container) // the border's right side
+	test.Tap(buttons.Objects[0].(*widget.Button))
+
+	p.Destroy()
+	p.running.Wait()
+	assert.Equal(t, "Pixel 8 · 78 %", p.label.Text)
+	kde.mu.Lock()
+	defer kde.mu.Unlock()
+	assert.Equal(t, []string{"tablet"}, kde.accepted)
+}
+
+func TestPanelText(t *testing.T) {
+	usb := []phone.Device{{Serial: "0A15", Model: "Pixel 7"}}
+	away := []phone.KDEDevice{{Name: "S23", Paired: true, Battery: 50}}
+	here := []phone.KDEDevice{{Name: "S23", Paired: true, Reachable: true, Battery: -1}}
+	assert.Equal(t, "Pixel 7", panelText(usb, away), "a phone out of reach is not shown")
+	assert.Equal(t, "S23", panelText(usb, here), "KDE Connect first, battery unknown")
 }

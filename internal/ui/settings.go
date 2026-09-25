@@ -681,8 +681,8 @@ func (d *deskSettings) load() {
 	if herdrInstalled() {
 		d.migrateModules(wlipc.AgentsModule) // offered once herdr is there
 	}
-	if _, err := exec.LookPath("adb"); err == nil {
-		d.migrateModules(status.PhoneModule) // offered once adb is there
+	if phoneToolsInstalled() {
+		d.migrateModules(status.PhoneModule) // offered once adb or KDE Connect is there
 	}
 
 	if cfg.Input.KeyboardModifier == "Alt" {
@@ -932,4 +932,15 @@ func newDeskSettings() *deskSettings {
 	settings.load()
 
 	return settings
+}
+
+// phoneToolsInstalled reports whether a phone can be linked: with KDE Connect
+// or adb.
+func phoneToolsInstalled() bool {
+	for _, tool := range []string{"kdeconnectd", "adb"} {
+		if _, err := exec.LookPath(tool); err == nil {
+			return true
+		}
+	}
+	return false
 }
