@@ -562,6 +562,18 @@ func (s *server) positionNewXdgWindow(v *xdgView, winWidth, winHeight int) {
 	outGeo := s.getActiveOutputGeo()
 	cx, cy, cw, ch := s.contentBounds(outGeo)
 
+	// A window of fixed size is a dialog of its own (a chooser, a prompt):
+	// it goes in the middle, where the user looks.
+	if isFixedSize(v) && winWidth > 0 && winHeight > 0 && winWidth <= cw && winHeight <= ch {
+		top := 0
+		if v.decorated {
+			top = titlebarHeight
+		}
+		v.x = float64(cx + (cw-winWidth)/2)
+		v.y = float64(cy + top + (ch-top-winHeight)/2)
+		return
+	}
+
 	contentX := cx + 20
 	contentY := cy + 20
 	contentWidth := cw - 40
@@ -615,6 +627,13 @@ func (s *server) positionNewXdgWindow(v *xdgView, winWidth, winHeight int) {
 	}
 
 	s.cascadeOffsets[outName] = (s.cascadeOffsets[outName] + 1) % maxCascade
+}
+
+// isFixedSize reports whether a window cannot be resized: the minimum and
+// maximum sizes the client set are the same.
+func isFixedSize(v *xdgView) bool {
+	return v.parent == nil && v.minWidth > 0 && v.minHeight > 0 &&
+		v.minWidth == v.maxWidth && v.minHeight == v.maxHeight
 }
 
 func (s *server) closeXdgWindow(v *xdgView) {

@@ -114,6 +114,9 @@ func newChooser(a fyne.App, choices []choice) *chooser {
 		container.NewVScroll(sections)))
 	c.win.Canvas().SetOnTypedKey(c.typedKey)
 	c.win.Resize(fyne.NewSize(460, 520))
+	// A fixed size tells the compositor it is a dialog: Tyde centres it
+	// (CenterOnScreen does nothing on Wayland).
+	c.win.SetFixedSize(true)
 	c.win.CenterOnScreen()
 
 	if len(c.rows) > 0 {
