@@ -33,6 +33,7 @@ type KDEDevice struct {
 	PairPending    bool // by us: to accept on the phone
 	Battery        int  // percent; -1 when unknown
 	Charging       bool
+	Addresses      []string // where it is on the network
 }
 
 // KDEConnect talks to kdeconnectd.
@@ -111,6 +112,7 @@ func (k *KDEConnect) device(ctx context.Context, id string) (KDEDevice, error) {
 	get("isPaired", &d.Paired)
 	get("isPairRequestedByPeer", &d.PairRequested)
 	get("isPairRequested", &d.PairPending)
+	get("reachableAddresses", &d.Addresses)
 	if d.Paired && d.Reachable {
 		var battery map[string]dbus.Variant
 		err := k.object(devicePath(id)+"/battery").CallWithContext(ctx, "org.freedesktop.DBus.Properties.GetAll", 0, kdeBatteryIf).Store(&battery)

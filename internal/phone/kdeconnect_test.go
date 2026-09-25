@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -98,6 +99,7 @@ func deviceProps(name string, reachable, paired bool) map[string]*prop.Prop {
 	return map[string]*prop.Prop{
 		"name": p(name), "type": p("phone"), "isReachable": p(reachable), "isPaired": p(paired),
 		"isPairRequestedByPeer": p(false), "isPairRequested": p(false),
+		"reachableAddresses": p([]string{"192.168.1.20"}),
 	}
 }
 
@@ -149,8 +151,11 @@ func TestKDEConnectDevices(t *testing.T) {
 	if len(devices) != 2 {
 		t.Fatalf("devices %+v, want the paired one then the one in reach", devices)
 	}
-	want := KDEDevice{ID: "pixel", Name: "Pixel 8", Type: "phone", Reachable: true, Paired: true, Battery: 78, Charging: true}
-	if devices[0] != want {
+	want := KDEDevice{
+		ID: "pixel", Name: "Pixel 8", Type: "phone", Reachable: true, Paired: true, Battery: 78, Charging: true,
+		Addresses: []string{"192.168.1.20"},
+	}
+	if !reflect.DeepEqual(devices[0], want) {
 		t.Errorf("paired phone %+v, want %+v", devices[0], want)
 	}
 	if devices[1].ID != "stranger" || devices[1].Paired || devices[1].Battery != -1 {

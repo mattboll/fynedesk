@@ -5,8 +5,10 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"net"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -146,9 +148,6 @@ func (p *phoneModule) findTools() {
 		}
 	}
 	p.hasADB = p.adb.Path != ""
-	if _, err := exec.LookPath("scrcpy"); err == nil {
-		p.scrcpyFound = true
-	}
 	if p.kde == nil {
 		p.kde = connectKDE()
 	}
@@ -237,7 +236,7 @@ func panelText(devices []phone.Device, linked []phone.KDEDevice) string {
 	case 0:
 		return locale.T("phone.none")
 	case 1:
-		return phoneName(devices[0])
+		return adbPhoneName(devices[0], linked)
 	}
 	return fmt.Sprintf(locale.T("phone.count"), len(devices))
 }
@@ -260,6 +259,20 @@ func phoneName(d phone.Device) string {
 	return d.Serial
 }
 
+// adbPhoneName names a phone connected with adb: by the name KDE Connect
+// knows it by when it is the same phone (at the same address), else by its
+// model.
+func adbPhoneName(d phone.Device, linked []phone.KDEDevice) string {
+	if host, _, err := net.SplitHostPort(d.Serial); err == nil {
+		for _, l := range linked {
+			if slices.Contains(l.Addresses, host) {
+				return l.Name
+			}
+		}
+	}
+	return phoneName(d)
+}
+
 func heading(text string) *widget.Label {
 	return widget.NewLabelWithStyle(text, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 }
@@ -274,10 +287,15 @@ func hint(text string) *widget.Label {
 // showWindow opens the phone window: the phones of KDE Connect, those
 // connected for debugging, and a way to connect a new one.
 func (p *phoneModule) showWindow() {
+	p.shown.Lock()
+	defer p.shown.Unlock()
 	if p.win != nil {
 		p.win.RequestFocus()
 		return
 	}
+	// Looked for each time: it may have been installed since.
+	_, err := exec.LookPath("scrcpy")
+	p.scrcpyFound = err == nil
 	w := fyne.CurrentApp().NewWindow(locale.T("phone.title"))
 	p.win = w
 	content := container.NewVBox()
@@ -307,6 +325,8 @@ func (p *phoneModule) showWindow() {
 	}
 	w.SetContent(container.NewPadded(content))
 	w.SetOnClosed(func() {
+		p.shown.Lock()
+		defer p.shown.Unlock()
 		if p.pairCancel != nil {
 			p.pairCancel()
 			p.pairCancel = nil
@@ -338,7 +358,7 @@ func (p *phoneModule) fillLists() {
 			p.list.Add(hint(locale.T("phone.noneConnected")))
 		}
 		for _, d := range devices {
-			p.list.Add(p.deviceRow(d))
+			p.list.Add(p.deviceRow(d, adbPhoneName(d, linked)))
 		}
 		p.list.Refresh()
 	}
@@ -417,15 +437,15 @@ func (p *phoneModule) browseFiles(id string) {
 
 // deviceRow shows a phone connected with adb, with its screen and a way to
 // disconnect it.
-func (p *phoneModule) deviceRow(d phone.Device) fyne.CanvasObject {
+func (p *phoneModule) deviceRow(d phone.Device, title string) fyne.CanvasObject {
 	link := locale.T("phone.usb")
 	if d.Wireless() {
 		link = locale.T("phone.wifi")
 	}
-	name := widget.NewLabel(phoneName(d) + " · " + link)
+	name := widget.NewLabel(title + " · " + link)
 	buttons := container.NewHBox()
 	if p.scrcpyFound {
-		serial, title := d.Serial, phoneName(d)
+		serial := d.Serial
 		buttons.Add(widget.NewButtonWithIcon(locale.T("phone.screen"), theme.ComputerIcon(), func() {
 			showPhoneScreen(serial, title)
 		}))

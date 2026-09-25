@@ -155,3 +155,35 @@ func TestPanelText(t *testing.T) {
 	assert.Equal(t, "Pixel 7", panelText(usb, away), "a phone out of reach is not shown")
 	assert.Equal(t, "S23", panelText(usb, here), "KDE Connect first, battery unknown")
 }
+
+func TestPhoneWindowFindsScrcpyInstalledLater(t *testing.T) {
+	test.NewTempApp(t)
+	noKDE(t)
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	p := &phoneModule{
+		adb: phone.ADB{Path: fakePhoneADB(t)}, browser: fakePhoneNet{},
+		known: phone.LoadKnown(filepath.Join(t.TempDir(), "phones.json")),
+	}
+	if p.StatusAreaWidget() == nil {
+		t.Fatal("no widget with adb there")
+	}
+	defer func() { p.Destroy(); p.running.Wait() }()
+
+	// scrcpy is installed after the panel started.
+	if err := os.WriteFile(filepath.Join(bin, "scrcpy"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p.showWindow()
+	defer p.win.Close()
+	assert.True(t, p.scrcpyFound, "scrcpy installed since is not found")
+}
+
+func TestAdbPhoneNameFromKDEConnect(t *testing.T) {
+	d := phone.Device{Serial: "192.168.1.24:34499", Model: "SM S918B"}
+	linked := []phone.KDEDevice{{Name: "Galaxy S23 Ultra", Addresses: []string{"192.168.1.24"}}}
+	assert.Equal(t, "Galaxy S23 Ultra", adbPhoneName(d, linked))
+	assert.Equal(t, "SM S918B", adbPhoneName(d, nil))
+	usb := phone.Device{Serial: "R5CT", Model: "SM S918B"}
+	assert.Equal(t, "SM S918B", adbPhoneName(usb, linked), "a cable has no address")
+}
