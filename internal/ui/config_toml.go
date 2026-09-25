@@ -172,6 +172,20 @@ func configDir() string {
 	return dir
 }
 
+// legacySaverLabel is what the screensaver showed by default before Tyde
+// was called Tyde; configurations copied from FyneDesk still have it.
+const legacySaverLabel = "FyneDesk"
+
+// renameLegacyDefaults replaces the defaults of FyneDesk that name it by
+// those of Tyde, and reports whether it changed anything.
+func renameLegacyDefaults(cfg *Config) bool {
+	if cfg.ScreenSaver.Label != legacySaverLabel {
+		return false
+	}
+	cfg.ScreenSaver.Label = defaultConfig().ScreenSaver.Label
+	return true
+}
+
 // loadConfig reads config.toml if it exists, otherwise migrates from Fyne prefs.
 // Returns the loaded config and whether migration occurred.
 func loadConfig() (*Config, bool) {
@@ -182,6 +196,11 @@ func loadConfig() (*Config, bool) {
 		// TOML file exists — load it
 		if _, err := toml.DecodeFile(path, cfg); err != nil {
 			log.Printf("Warning: error reading %s: %v (using defaults)\n", path, err)
+		}
+		if renameLegacyDefaults(cfg) {
+			if err := saveConfig(cfg); err != nil {
+				log.Printf("Warning: could not update %s: %v\n", path, err)
+			}
 		}
 		return cfg, false
 	}
