@@ -141,14 +141,11 @@ func (s *server) dispatchWindowAction(action string) (ok, handled bool) {
 		}
 
 	case wlipc.ActionMinimize:
+		focusNext := func() { s.focusTopmostOnDesk(s.currentDesk) }
 		if s.activeXdg != nil {
-			s.minimizeXdgWindow(s.activeXdg)
-			s.focusTopmostOnDesk(s.currentDesk)
-			s.writeWindowsState()
+			s.minimizeWithEffect(s.activeXdg, focusNext)
 		} else if s.activeXway != nil && !s.activeXway.isPanel && !s.activeXway.isOverlay {
-			s.minimizeXwayWindow(s.activeXway)
-			s.focusTopmostOnDesk(s.currentDesk)
-			s.writeWindowsState()
+			s.minimizeWithEffect(s.activeXway, focusNext)
 		} else {
 			return false, true
 		}

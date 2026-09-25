@@ -510,12 +510,11 @@ func (s *server) handleWindowFocusAction(action string, xdgV *xdgView, xwayV *xw
 			s.closeXwayWindow(xwayV)
 		}
 	case "iconify":
+		focusNext := func() { s.focusTopmostOnDesk(s.currentDesk) }
 		if xdgV != nil {
-			s.minimizeXdgWindow(xdgV)
-			s.focusTopmostOnDesk(s.currentDesk)
+			s.minimizeWithEffect(xdgV, focusNext)
 		} else if xwayV != nil {
-			s.minimizeXwayWindow(xwayV)
-			s.focusTopmostOnDesk(s.currentDesk)
+			s.minimizeWithEffect(xwayV, focusNext)
 		}
 		s.writeWindowsState()
 	case "uniconify":

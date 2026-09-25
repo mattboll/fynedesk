@@ -760,6 +760,7 @@ func (s *server) tickAnimations() bool {
 	animActive = s.tickPenFade() || animActive
 	animActive = s.tickAttention() || animActive
 	animActive = s.tickWobble() || animActive
+	animActive = s.tickGenie() || animActive
 	animActive = s.tickFocusDim() || animActive
 	animActive = s.tickDeskSwipe() || animActive
 	return animActive

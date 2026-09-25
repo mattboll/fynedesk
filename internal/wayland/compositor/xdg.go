@@ -401,11 +401,12 @@ func (s *server) handleXdgRequestMinimize(v *xdgView) {
 	if !v.mapped || v.minimized {
 		return
 	}
-	s.minimizeXdgWindow(v)
-	if s.activeXdg == v {
-		s.focusTopmostOnDesk(s.currentDesk)
-	}
-	s.writeWindowsState()
+	wasActive := s.activeXdg == v
+	s.minimizeWithEffect(v, func() {
+		if wasActive {
+			s.focusTopmostOnDesk(s.currentDesk)
+		}
+	})
 }
 
 // handleXdgInitialCommit sends the first configure of a toplevel: decoration

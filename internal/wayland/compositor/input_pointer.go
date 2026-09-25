@@ -349,9 +349,9 @@ func (s *server) handleDecorationClick(xdgV *xdgView, xwayV *xwayView) bool {
 		}
 	case decoMinButton:
 		if decoXdg != nil {
-			s.minimizeXdgWindow(decoXdg)
+			s.minimizeWithEffect(decoXdg, nil)
 		} else if decoXway != nil {
-			s.minimizeXwayWindow(decoXway)
+			s.minimizeWithEffect(decoXway, nil)
 		}
 	case decoTitlebar:
 		s.handleTitlebarClick(decoXdg, decoXway)

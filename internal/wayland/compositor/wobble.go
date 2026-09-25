@@ -67,7 +67,7 @@ struct wobble {
     int *order; // the sources to draw this frame, in scene order
     int norder, caporder;
     double ox, oy, w, h; // extent of the window in its tree
-    int mx, my;          // room around it for the bends
+    int ml, mt, mr, mb;  // room around it (left, top, right, bottom) for the bends
     float scale;         // buffer pixels per layout pixel
     int gx, gy;          // cells of the springs mesh
     GLfloat *verts;      // mesh drawn: x, y, u, v per vertex
@@ -518,7 +518,7 @@ static struct wlr_buffer *render_bent(struct wobble *wb, const float *mx, const 
                     double u = (double)corners[k][0] / nx, t = (double)corners[k][1] / ny;
                     double dx, dy;
                     mesh_at(wb, mx, my, u * wb->gx, t * wb->gy, &dx, &dy);
-                    double x = wb->mx + u * wb->w + dx, y = wb->my + t * wb->h + dy;
+                    double x = wb->ml + u * wb->w + dx, y = wb->mt + t * wb->h + dy;
                     v[nv * 4 + 0] = (GLfloat)(2 * x / W - 1);
                     v[nv * 4 + 1] = (GLfloat)(2 * y / H - 1);
                     v[nv * 4 + 2] = (GLfloat)(u * wb->w * wb->scale / wb->flat_w);
@@ -572,7 +572,8 @@ static void wobble_set_pixels(struct wobble *wb, struct wlr_scene_node **nodes, 
 // wobble_create prepares the wobbling picture of the window drawn by view
 // (a tree), just above it. It returns NULL when the renderer is not GLES2.
 static struct wobble *wobble_create(struct wlr_scene_tree *view, struct wlr_output *output,
-        double cell, double bend, float scale, struct wlr_scene_node **nodes, struct wlr_buffer **buffers, int npix) {
+        double cell, double bend, float scale, struct wlr_scene_node **nodes, struct wlr_buffer **buffers, int npix,
+        bool reach, double reach_x, double reach_y) {
     struct wlr_renderer *renderer = output->renderer;
     struct wlr_allocator *allocator = output->allocator;
     if (!renderer || !allocator || !output->swapchain) {
@@ -611,16 +612,25 @@ static struct wobble *wobble_create(struct wlr_scene_tree *view, struct wlr_outp
     wb->oy = box[1];
     wb->w = box[2] - box[0];
     wb->h = box[3] - box[1];
-    wb->mx = (int)ceil(wb->w * bend) + 2;
-    wb->my = (int)ceil(wb->h * bend) + 2;
+    wb->ml = wb->mr = (int)ceil(wb->w * bend) + 2;
+    wb->mt = wb->mb = (int)ceil(wb->h * bend) + 2;
+    if (reach) {
+        // The picture also reaches a point of the tree, with room around it
+        // (the dock, for the magic lamp).
+        const int around = 48;
+        wb->ml = (int)fmax(wb->ml, wb->ox - (reach_x - around));
+        wb->mt = (int)fmax(wb->mt, wb->oy - (reach_y - around));
+        wb->mr = (int)fmax(wb->mr, (reach_x + around) - (wb->ox + wb->w));
+        wb->mb = (int)fmax(wb->mb, (reach_y + around) - (wb->oy + wb->h));
+    }
     wb->scale = scale;
     wb->gx = (int)fmin(fmax(round(wb->w / cell), 3), 40);
     wb->gy = (int)fmin(fmax(round(wb->h / cell), 3), 40);
     wb->verts = calloc(wb->gx * wb->gy * WOBBLE_SUBDIV * WOBBLE_SUBDIV * 6 * 4, sizeof(GLfloat));
     wb->flat_w = (int)ceil(wb->w * scale);
     wb->flat_h = (int)ceil(wb->h * scale);
-    wb->out_chain = wlr_swapchain_create(allocator, (int)ceil((wb->w + 2 * wb->mx) * scale),
-        (int)ceil((wb->h + 2 * wb->my) * scale), format);
+    wb->out_chain = wlr_swapchain_create(allocator, (int)ceil((wb->w + wb->ml + wb->mr) * scale),
+        (int)ceil((wb->h + wb->mt + wb->mb) * scale), format);
     wlr_drm_format_set_finish(&formats); // the swapchains keep a copy
     wb->picture = wlr_scene_buffer_create(view->node.parent, NULL);
     if (!wb->out_chain || !wb->picture || !wb->verts) {
@@ -657,8 +667,8 @@ static bool wobble_update(struct wobble *wb, const float *mx, const float *my, i
     hide_sources(wb);
     wlr_scene_buffer_set_buffer(wb->picture, out);
     wlr_buffer_unlock(out); // the scene buffer holds it now
-    wlr_scene_buffer_set_dest_size(wb->picture, (int)(wb->w + 2 * wb->mx), (int)(wb->h + 2 * wb->my));
-    wlr_scene_node_set_position(&wb->picture->node, px + (int)wb->ox - wb->mx, py + (int)wb->oy - wb->my);
+    wlr_scene_buffer_set_dest_size(wb->picture, (int)(wb->w + wb->ml + wb->mr), (int)(wb->h + wb->mt + wb->mb));
+    wlr_scene_node_set_position(&wb->picture->node, px + (int)wb->ox - wb->ml, py + (int)wb->oy - wb->mt);
     return true;
 }
 
@@ -778,7 +788,7 @@ func (s *server) startWobble(view any) {
 	nodes, buffers := decorationPixels(view)
 	c := C.wobble_create((*C.struct_wlr_scene_tree)(tree), outputPtr(out.output),
 		C.double(wobbleCell), C.double(wobbleMaxBend), C.float(s.maxOutputScale()),
-		&nodes[0], &buffers[0], C.int(len(nodes)))
+		&nodes[0], &buffers[0], C.int(len(nodes)), false, 0, 0)
 	if c == nil {
 		return
 	}
@@ -998,4 +1008,164 @@ func decorationPixels(view any) ([4]*C.struct_wlr_scene_node, [4]*C.struct_wlr_b
 		}
 	}
 	return nodes, buffers
+}
+
+// The magic lamp: a window minimized by the user flows into the dock, the
+// side nearest to it first, narrowing to the dock's width. It is drawn like a
+// wobbling window (wobble.go), on a mesh that follows a path instead of
+// springs.
+const (
+	genieDuration = 480 * time.Millisecond
+	genieWidth    = 36.0 // what the window narrows to, about an icon
+)
+
+type genieState struct {
+	view         any
+	tree         unsafe.Pointer
+	c            *C.struct_wobble
+	gx, gy       int
+	w, h, ox, oy float64
+	tx, ty       float64 // the dock, in the view tree
+	horizontal   bool    // the dock is on a side: the window flows sideways
+	start        time.Time
+	dx, dy       []float32
+	done         func() // minimizes the window for good
+}
+
+// minimizeWithEffect minimizes a window the user asked to minimize, through
+// the magic lamp when the effects allow it, then runs then (if not nil).
+func (s *server) minimizeWithEffect(view any, then func()) {
+	minimize := func() {
+		switch v := view.(type) {
+		case *xdgView:
+			s.minimizeXdgWindow(v)
+		case *xwayView:
+			s.minimizeXwayWindow(v)
+		}
+		if then != nil {
+			then()
+		}
+		s.writeWindowsState()
+	}
+	if s.genie != nil || !s.startGenie(view, minimize) {
+		minimize()
+	}
+}
+
+// startGenie starts the magic lamp of a view, which calls done at the end.
+// It reports false when the window cannot be drawn so (no GPU, reduced
+// motion, not shown).
+func (s *server) startGenie(view any, done func()) bool {
+	if s.reduceMotion || !s.wobblyWindows {
+		return false
+	}
+	tree, _, _, mapped := viewTreeAndPos(view)
+	out := s.getActiveOutput()
+	if tree == nil || !mapped || out == nil {
+		return false
+	}
+	treeX, treeY := s.viewTreeOrigin(view)
+	dockX, dockY := s.dockCenter()
+	tx, ty := dockX-treeX, dockY-treeY
+
+	nodes, buffers := decorationPixels(view)
+	c := C.wobble_create((*C.struct_wlr_scene_tree)(tree), outputPtr(out.output),
+		C.double(wobbleCell), 0, C.float(s.maxOutputScale()),
+		&nodes[0], &buffers[0], C.int(len(nodes)), true, C.double(tx), C.double(ty))
+	if c == nil {
+		return false
+	}
+	g := &genieState{
+		view: view, tree: tree, c: c,
+		gx: int(C.wobble_gx(c)), gy: int(C.wobble_gy(c)),
+		w: float64(C.wobble_w(c)), h: float64(C.wobble_h(c)),
+		ox: float64(C.wobble_ox(c)), oy: float64(C.wobble_oy(c)),
+		tx: tx, ty: ty, horizontal: s.barPosition != "bottom",
+		start: time.Now(), done: done,
+	}
+	n := (g.gx + 1) * (g.gy + 1)
+	g.dx, g.dy = make([]float32, n), make([]float32, n)
+	s.genie = g
+	s.setShadowVisible(view, false)
+	if !s.drawGenie() {
+		s.endGenie()
+		return false
+	}
+	return true
+}
+
+// genieEase is smoothstep: slow at both ends.
+func genieEase(p float64) float64 {
+	p = math.Max(0, math.Min(1, p))
+	return p * p * (3 - 2*p)
+}
+
+// shape sets the mesh for the progress t of the animation, from 0 to 1.
+func (g *genieState) shape(t float64) {
+	n := g.gx + 1
+	for j := 0; j <= g.gy; j++ {
+		for i := 0; i <= g.gx; i++ {
+			u, v := float64(i)/float64(g.gx), float64(j)/float64(g.gy)
+			x, y := g.ox+u*g.w, g.oy+v*g.h
+			// The side facing the dock goes first; the window narrows
+			// before it slides.
+			along, across := u, v
+			if g.tx > g.ox+g.w/2 { // the dock is on the other side
+				along = 1 - u
+			}
+			if !g.horizontal {
+				along, across = 1-v, u
+				if g.ty < g.oy+g.h/2 {
+					along = v
+				}
+			}
+			slide := genieEase(t*1.6 - along*0.6)
+			narrow := genieEase(t*2.2 - along*0.9)
+			var nx, ny float64
+			if g.horizontal {
+				ny = y + (g.ty+(across-0.5)*genieWidth-y)*narrow
+				nx = x + (g.tx-x)*slide
+			} else {
+				nx = x + (g.tx+(across-0.5)*genieWidth-x)*narrow
+				ny = y + (g.ty-y)*slide
+			}
+			g.dx[j*n+i] = float32(nx - x)
+			g.dy[j*n+i] = float32(ny - y)
+		}
+	}
+}
+
+func (s *server) drawGenie() bool {
+	g := s.genie
+	g.shape(float64(time.Since(g.start)) / float64(genieDuration))
+	tx, ty := s.viewTreeOrigin(g.view)
+	return bool(C.wobble_update(g.c, (*C.float)(unsafe.Pointer(&g.dx[0])), (*C.float)(unsafe.Pointer(&g.dy[0])),
+		C.int(math.Round(tx)), C.int(math.Round(ty))))
+}
+
+// tickGenie moves the lamp on and reports whether it still runs.
+func (s *server) tickGenie() bool {
+	g := s.genie
+	if g == nil {
+		return false
+	}
+	tree, _, _, mapped := viewTreeAndPos(g.view)
+	if tree != g.tree || !mapped || time.Since(g.start) >= genieDuration || !s.drawGenie() {
+		s.endGenie()
+		return false
+	}
+	return true
+}
+
+// endGenie minimizes the window, if it is still there, and shows its
+// picture no more.
+func (s *server) endGenie() {
+	g := s.genie
+	s.genie = nil
+	tree, _, _, mapped := viewTreeAndPos(g.view)
+	if tree == g.tree && mapped {
+		g.done() // hidden first, so that the restored picture does not flash
+	}
+	s.setShadowVisible(g.view, true)
+	C.wobble_destroy(g.c)
 }
