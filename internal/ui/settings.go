@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 
@@ -814,19 +815,18 @@ func bindingsEqual(a, b []wlipc.KeyBinding) bool {
 }
 
 // migrateModules adds newly introduced modules to the user's saved module list.
+// migrateModules turns on, once, modules that appeared after the user's
+// configuration was made; turned off later, they stay off.
 func (d *deskSettings) migrateModules(names ...string) {
 	changed := false
 	for _, name := range names {
-		found := false
-		for _, m := range d.moduleNames {
-			if m == name {
-				found = true
-				break
-			}
+		if slices.Contains(d.cfg.Modules.Offered, name) {
+			continue
 		}
-		if !found {
+		d.cfg.Modules.Offered = append(d.cfg.Modules.Offered, name)
+		changed = true
+		if !slices.Contains(d.moduleNames, name) {
 			d.moduleNames = append(d.moduleNames, name)
-			changed = true
 		}
 	}
 	if changed {

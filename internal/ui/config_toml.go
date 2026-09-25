@@ -137,6 +137,9 @@ type ScreenSaverConfig struct {
 // ModulesConfig holds enabled module names.
 type ModulesConfig struct {
 	Enabled []string `toml:"enabled"`
+	// Offered lists the modules added to Enabled when they appeared, so that
+	// they are added once: the user may turn them off.
+	Offered []string `toml:"offered,omitempty"`
 }
 
 // ThemeConfig holds the active desktop theme.
