@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image/color"
 	"math"
-	"sync/atomic"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -36,7 +35,7 @@ type statusBar struct {
 	// Called with the new value after each change.
 	OnChanged func(float64)
 
-	animGen atomic.Int64 // generation counter to cancel stale animations
+	anim *fyne.Animation // the value sliding to its new level, if any
 }
 
 func newStatusBar() *statusBar {
@@ -64,38 +63,26 @@ func (b *statusBar) SetValue(v float64) {
 		v = max
 	}
 
+	if b.anim != nil {
+		b.anim.Stop() // a newer value wins
+		b.anim = nil
+	}
 	// Skip animation if reduce motion is enabled or change is tiny
 	if reduceMotion() || math.Abs(b.Value-v) < 0.5 {
-		b.animGen.Add(1) // cancel any running animation
 		b.Value = v
 		b.Refresh()
 		return
 	}
 
-	// Cancel previous animation and start a new one
+	// Fyne runs the animation on its own thread, like the rest of the UI.
 	from := b.Value
-	gen := b.animGen.Add(1)
-	go func() {
-		dur := 150 * time.Millisecond
-		start := time.Now()
-		ticker := time.NewTicker(16 * time.Millisecond)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			if b.animGen.Load() != gen {
-				return // newer animation started, bail out
-			}
-			t := float64(time.Since(start)) / float64(dur)
-			if t >= 1 {
-				b.Value = v
-				fyne.Do(func() { b.Refresh() })
-				return
-			}
-			ease := 1 - math.Pow(1-t, 3) // easeOutCubic
-			b.Value = from + (v-from)*ease
-			fyne.Do(func() { b.Refresh() })
-		}
-	}()
+	b.anim = fyne.NewAnimation(150*time.Millisecond, func(t float32) {
+		ease := 1 - math.Pow(1-float64(t), 3) // easeOutCubic
+		b.Value = from + (v-from)*ease
+		b.Refresh()
+	})
+	b.anim.Curve = fyne.AnimationLinear
+	b.anim.Start()
 }
 
 // interactive returns true when OnChanged is set.
@@ -165,7 +152,10 @@ func (b *statusBar) setToValue(v float64) {
 		return
 	}
 
-	b.animGen.Add(1) // cancel running animations
+	if b.anim != nil {
+		b.anim.Stop() // the user drags: no slide
+		b.anim = nil
+	}
 	b.Value = v
 	b.Refresh()
 	if b.OnChanged != nil {
