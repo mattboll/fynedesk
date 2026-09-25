@@ -618,6 +618,9 @@ func (s *server) initProtocols() {
 	s.screencopyMgr = wlr.CreateScreencopyManagerV1(s.display)
 	setupCapture(s)
 
+	// Clipboard tools without a window (wlr/ext-data-control).
+	setupDataControl(s)
+
 	// Enable fractional scaling (wp_fractional_scale_v1 + wp_viewporter)
 	s.setupFractionalScaling()
 
