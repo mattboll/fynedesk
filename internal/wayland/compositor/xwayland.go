@@ -442,10 +442,12 @@ func (s *server) mapXwayRegular(v *xwayView, surface wlr.XwaylandSurface, title 
 	log.Printf("[DECO] XWayland map: class=%q title=%q size=%dx%d hints=0x%x hasCSD=%v → decorated=%v\n",
 		xwayClass, title, w, h, decoHints, hasCSD, v.decorated)
 
+	ruled := false
 	if !v.everMapped {
 		// Apply per-app window rules before positioning
 		if rule := s.matchWindowRule(xwayClass); rule != nil {
 			s.applyWindowRuleXway(v, rule)
+			ruled = true
 		}
 
 		// Restore session window state (position, desktop, maximize)
@@ -473,6 +475,9 @@ func (s *server) mapXwayRegular(v *xwayView, surface wlr.XwaylandSurface, title 
 		targetY := float64(cy + topMargin)
 		v.x, v.y = targetX, targetY
 		v.surface.Configure(int16(targetX), int16(targetY), uint16(cw), uint16(ch-topMargin))
+	}
+	if !v.everMapped && v.parent == nil {
+		s.placeNewWindow(placeable{xway: v}, ruled) // where it was with these screens
 	}
 
 	onCurrentDesk := v.pinned || v.desk == s.currentDesk

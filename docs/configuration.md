@@ -61,6 +61,16 @@ through. It needs the GLES2 renderer: with another one (pixman) they stay
 opaque. Turn it off with `blur = false` under `[windows]`, or in Settings >
 Advanced.
 
+## Window places
+
+Tyde remembers where each application's windows are for each set of screens
+plugged in: maximized, on a half or a quarter of a screen, or left free, and on
+which desktop. Plug a screen in or out and the windows go back where you had
+them with those screens; a window that opens goes where the same one was.
+Arrange the windows once for each set of screens: the places are learnt a
+moment after you move them, and kept in `~/.config/tyde/window-places.json`.
+A window rule for an application takes precedence over its remembered place.
+
 ## Idle curtain
 
 Twenty seconds before the screen locks, turns off or the machine sleeps for

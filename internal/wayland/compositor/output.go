@@ -716,8 +716,10 @@ func (s *server) addOutputToDesktop(out *outputState, config *OutputLayoutConfig
 		s.startBootSequence()
 	} else {
 		// A monitor was hotplugged into a running session: re-fit existing
-		// windows so they can reclaim space on the new output layout.
+		// windows so they can reclaim space on the new output layout, then
+		// put them where they were with these screens.
 		s.refitWindowsToOutputs()
+		s.screensChanged()
 	}
 }
 
@@ -1036,6 +1038,7 @@ func (s *server) handleOutputDestroy(out *outputState) {
 	// Re-fit all windows to the remaining outputs (panel already restarted above
 	// so contentBounds reflects the new primary layout).
 	s.refitWindowsToOutputs()
+	s.screensChanged()
 
 	log.Printf("Output %s disconnected, %d outputs remaining\n", outName, len(s.outputs))
 

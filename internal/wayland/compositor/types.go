@@ -240,6 +240,10 @@ type server struct {
 	idleSuspended      bool         // true after auto-suspend initiated, cleared on resume
 	curtain            curtainState // the screen darkening before the idle action (curtain.go)
 	zoom               magnifier    // the screen enlarged around the pointer (zoom.go)
+	places             *placeBook   // where the windows go, by set of screens (places.go)
+	placesTimer        *time.Timer  // learning the places a moment after the windows moved
+	placesHoldUntil    time.Time    // the screens just changed: no learning until then
+	placeSeqNext       uint64       // the order the windows opened in
 
 	// Configurable power timeouts (minutes, 0 = disabled)
 	powerLockTimeout    int    // default 5
@@ -538,6 +542,7 @@ type xdgView struct {
 	fullscreen  bool
 	minimized   bool
 	snapped     snapZone // Current snap state (snapNone, snapLeft, snapRight)
+	placeSeq    uint64   // the order it opened in, for its place (places.go); 0 until then
 	pinned      bool     // Show on all desktops
 	floating    bool     // Exempted from tiling layout
 	urgent      bool     // Requesting user attention (XDG activation)
@@ -602,6 +607,7 @@ type xwayView struct {
 	fullscreen       bool
 	minimized        bool
 	snapped          snapZone  // Current snap state (snapNone, snapLeft, snapRight)
+	placeSeq         uint64    // the order it opened in, for its place (places.go); 0 until then
 	pinned           bool      // Show on all desktops
 	floating         bool      // Exempted from tiling layout
 	urgent           bool      // Requesting user attention (XDG activation)

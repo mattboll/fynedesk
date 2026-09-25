@@ -208,7 +208,8 @@ func (s *server) handleXdgMap(v *xdgView, viewTree *C.struct_wlr_scene_tree, top
 
 	// Apply per-app window rules before positioning
 	appID := getXdgToplevelAppID(toplevel)
-	if rule := s.matchWindowRule(appID); rule != nil {
+	rule := s.matchWindowRule(appID)
+	if rule != nil {
 		s.applyWindowRuleXdg(v, rule)
 	}
 
@@ -226,6 +227,9 @@ func (s *server) handleXdgMap(v *xdgView, viewTree *C.struct_wlr_scene_tree, top
 	// Apply maximize geometry if set by window rule (rule only sets flag, not geometry)
 	if v.maximized {
 		s.configureXdgMaximized(v)
+	}
+	if v.parent == nil {
+		s.placeNewWindow(placeable{xdg: v}, rule != nil) // where it was with these screens
 	}
 
 	// Determine if open animation will run

@@ -81,6 +81,7 @@ func truncateIPCTitle(s string, maxLen int) string {
 // happens once per frame in renderOutput, batching rapid successive changes.
 func (s *server) writeWindowsState() {
 	s.windowsStateDirty = true
+	s.windowsMoved()
 }
 
 // flushWindowsState snapshots the window list on the main thread (wlroots

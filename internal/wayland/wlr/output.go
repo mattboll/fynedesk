@@ -34,6 +34,16 @@ func (o Output) Valid() bool { return o.p != nil }
 // Name returns the output connector name (e.g. "eDP-1").
 func (o Output) Name() string { return C.GoString(o.p.name) }
 
+// Make returns the manufacturer of the display, from its EDID ("" if unknown).
+func (o Output) Make() string { return C.GoString(o.p.make) }
+
+// Model returns the model of the display, from its EDID ("" if unknown).
+func (o Output) Model() string { return C.GoString(o.p.model) }
+
+// Serial returns the serial number of the display, from its EDID ("" if
+// unknown).
+func (o Output) Serial() string { return C.GoString(o.p.serial) }
+
 // Enabled reports whether the output is currently enabled.
 func (o Output) Enabled() bool { return bool(o.p.enabled) }
 
