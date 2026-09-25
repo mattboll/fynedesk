@@ -404,6 +404,15 @@ func (p *notificationPanel) buildNotificationRow(n *wm.Notification) fyne.Canvas
 		btn.Importance = widget.LowImportance
 		buttons = append(buttons, btn)
 	}
+	for _, b := range n.Buttons {
+		tap := b.OnTap
+		btn := widget.NewButton(truncateText(b.Label, 24), func() {
+			wm.RemoveNotification(n.ID)
+			tap()
+		})
+		btn.Importance = widget.LowImportance
+		buttons = append(buttons, btn)
+	}
 	openBtn := widget.NewButton(locale.T("notif.open"), func() { p.openAndDismiss(n) })
 	openBtn.Importance = widget.LowImportance
 	buttons = append(buttons, openBtn)

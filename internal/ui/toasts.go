@@ -9,6 +9,8 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	deskDriver "fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/tyde"
 	wmtheme "fyshos.com/tyde/theme"
@@ -18,13 +20,14 @@ import (
 
 // Toast geometry, in Fyne units.
 const (
-	toastW       = float32(320)
-	toastH       = float32(76)
-	toastGap     = float32(8)
-	toastMargin  = float32(10)
-	maxToasts    = 3
-	toastDefault = 4 * time.Second
-	toastMax     = 30 * time.Second
+	toastW        = float32(320)
+	toastH        = float32(76)
+	toastGap      = float32(8)
+	toastMargin   = float32(10)
+	maxToasts     = 3
+	toastButtonsH = float32(34)
+	toastDefault  = 4 * time.Second
+	toastMax      = 30 * time.Second
 )
 
 // toast is a notification popup on screen.
@@ -37,6 +40,7 @@ type toast struct {
 	body    *canvas.Text
 	icon    *canvas.Image
 
+	h       float32 // height: taller with buttons
 	x, y    float32 // current position
 	anim    int     // generation of the running animation; a newer one stops it
 	timer   *time.Timer
@@ -79,9 +83,12 @@ func (s *toastStack) find(id uint32) *toast {
 // show pops a notification up, or updates the popup of the one it replaces.
 func (s *toastStack) show(n *wm.Notification) {
 	if t := s.find(n.ID); t != nil && n.Replaced {
-		t.update(n)
-		s.startTimer(t)
-		return
+		if len(t.n.Buttons) == len(n.Buttons) {
+			t.update(n)
+			s.startTimer(t)
+			return
+		}
+		s.dismiss(t) // other buttons: another popup
 	}
 
 	t := newToast(n)
@@ -98,35 +105,35 @@ func (s *toastStack) show(n *wm.Notification) {
 	}
 
 	x, _ := s.slot(0)
-	t.x, t.y = x, -toastH // slides down from above the screen
-	t.win.Resize(fyne.NewSize(toastW, toastH))
-	wlipc.RequestOverlayPosition(t.title, t.x, t.y, toastW, toastH)
+	t.x, t.y = x, -t.h // slides down from above the screen
+	t.win.Resize(fyne.NewSize(toastW, t.h))
+	wlipc.RequestOverlayPosition(t.title, t.x, t.y, toastW, t.h)
 	t.win.Show()
 	s.layout()
 	s.startTimer(t)
 }
 
-// slot returns the position of the i-th toast from the top.
-func (s *toastStack) slot(i int) (float32, float32) {
+// slot returns the position of a toast below others that take height.
+func (s *toastStack) slot(above float32) (float32, float32) {
 	screen := tyde.Instance().Screens().Primary()
 	screenW := float32(screen.Width) / screen.CanvasScale()
 	panelW := wmtheme.WidgetPanelWidth
 	if tyde.Instance().Settings().NarrowWidgetPanel() {
 		panelW = wmtheme.NarrowBarWidth
 	}
-	return screenW - toastW - toastMargin - panelW, toastMargin + float32(i)*(toastH+toastGap)
+	return screenW - toastW - toastMargin - panelW, toastMargin + above
 }
 
 // layout moves every toast to its slot.
 func (s *toastStack) layout() {
-	i := 0
+	above := float32(0)
 	for _, t := range s.toasts {
 		if t.closing {
 			continue
 		}
-		x, y := s.slot(i)
+		x, y := s.slot(above)
 		t.moveTo(x, y, 300*time.Millisecond, easeOutCubic, nil)
-		i++
+		above += t.h + toastGap
 	}
 }
 
@@ -212,6 +219,11 @@ func newToast(n *wm.Notification) *toast {
 		borderFrame.StrokeWidth = 2
 	}
 
+	t.h = toastH
+	if len(n.Buttons) > 0 {
+		t.h += toastButtonsH
+		inner = container.NewBorder(nil, toastButtons(t, n.Buttons), nil, nil, inner)
+	}
 	styled := container.NewStack(windowFill, bg, borderFrame, newGlowAccent(), inner)
 
 	t.win = fyne.CurrentApp().Driver().(deskDriver.Driver).CreateSplashWindow()
@@ -248,7 +260,7 @@ func (t *toast) moveTo(x, y float32, dur time.Duration, ease func(float64) float
 	fromX, fromY := t.x, t.y
 	t.x, t.y = x, y
 	if tyde.Instance().Settings().ReduceMotion() || (fromX == x && fromY == y) {
-		wlipc.RequestOverlayPosition(t.title, x, y, toastW, toastH)
+		wlipc.RequestOverlayPosition(t.title, x, y, toastW, t.h)
 		if done != nil {
 			done()
 		}
@@ -267,14 +279,14 @@ func (t *toast) moveTo(x, y float32, dur time.Duration, ease func(float64) float
 			}
 			p := float64(time.Since(start)) / float64(dur)
 			if p >= 1 {
-				wlipc.RequestOverlayPosition(t.title, x, y, toastW, toastH)
+				wlipc.RequestOverlayPosition(t.title, x, y, toastW, t.h)
 				if done != nil {
 					fyne.Do(done)
 				}
 				return
 			}
 			e := float32(ease(p))
-			wlipc.RequestOverlayPosition(t.title, fromX+e*(x-fromX), fromY+e*(y-fromY), toastW, toastH)
+			wlipc.RequestOverlayPosition(t.title, fromX+e*(x-fromX), fromY+e*(y-fromY), toastW, t.h)
 		}
 	}()
 }
@@ -292,4 +304,19 @@ func activateNotification(n *wm.Notification) {
 		invokeNotificationAction(n, "default")
 	}
 	activateApp(n.AppName)
+}
+
+// toastButtons lays out the answers a notification offers; each dismisses it.
+func toastButtons(t *toast, buttons []wm.NotificationButton) fyne.CanvasObject {
+	row := container.NewHBox(layout.NewSpacer())
+	for _, b := range buttons {
+		tap := b.OnTap
+		btn := widget.NewButton(truncateText(b.Label, 13), func() {
+			toasts.dismiss(t)
+			tap()
+		})
+		btn.Importance = widget.LowImportance
+		row.Add(btn)
+	}
+	return container.NewPadded(row)
 }

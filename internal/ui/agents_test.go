@@ -1,0 +1,120 @@
+package ui
+
+import (
+	"bufio"
+	"encoding/json"
+	"net"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+
+	"fyshos.com/tyde/internal/agents"
+	"fyshos.com/tyde/wm"
+)
+
+// fakeHerdr answers the herdr API calls the hub makes, and records the keys
+// sent to agents.
+type fakeHerdr struct {
+	mu     sync.Mutex
+	screen string
+	keys   [][]string
+}
+
+func startFakeHerdr(t *testing.T, screen string) (*fakeHerdr, string) {
+	f := &fakeHerdr{screen: screen}
+	path := filepath.Join(t.TempDir(), "h.sock")
+	l, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go f.serve(conn)
+		}
+	}()
+	return f, path
+}
+
+func (f *fakeHerdr) serve(conn net.Conn) {
+	defer conn.Close()
+	r := bufio.NewScanner(conn)
+	for r.Scan() {
+		var req struct {
+			ID     string          `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		_ = json.Unmarshal(r.Bytes(), &req)
+		var result any = map[string]string{"type": "ok"}
+		switch req.Method {
+		case "agent.read":
+			f.mu.Lock()
+			result = map[string]any{"read": map[string]string{"text": f.screen}}
+			f.mu.Unlock()
+		case "agent.send_keys":
+			var p struct{ Keys []string }
+			_ = json.Unmarshal(req.Params, &p)
+			f.mu.Lock()
+			f.keys = append(f.keys, p.Keys)
+			f.mu.Unlock()
+		}
+		data, _ := json.Marshal(map[string]any{"id": req.ID, "result": result})
+		_, _ = conn.Write(append(data, '\n'))
+	}
+}
+
+func (f *fakeHerdr) sentKeys() [][]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][]string(nil), f.keys...)
+}
+
+func TestAgentQuestionAnsweredFromNotification(t *testing.T) {
+	screen := " Do you want to proceed?\n ❯ 1. Yes\n   2. Yes, and don't ask again\n   3. No (esc)\n"
+	fake, path := startFakeHerdr(t, screen)
+	h := &agentHub{client: &agents.Client{Path: path}}
+
+	got := make(chan *wm.Notification, 1)
+	wm.AddNotificationListener(func(n *wm.Notification) {
+		if n.Tag == agentTag("w1:p2") {
+			got <- n
+		}
+	})
+	h.notify(agents.Notice{Kind: agents.NeedsInput, Agent: agents.Agent{Pane: agents.Pane{PaneID: "w1:p2", Agent: "claude"}}})
+
+	var n *wm.Notification
+	select {
+	case n = <-got:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no notification")
+	}
+	if assert.Len(t, n.Buttons, 3) {
+		assert.Equal(t, "Yes", n.Buttons[0].Label)
+		assert.Equal(t, wm.UrgencyCritical, n.Urgency, "it waits for the answer")
+		n.Buttons[2].OnTap()
+		assert.Eventually(t, func() bool { return len(fake.sentKeys()) == 1 }, 2*time.Second, 10*time.Millisecond)
+		assert.Equal(t, [][]string{{"3"}}, fake.sentKeys())
+	}
+}
+
+func TestAgentFinishedHasNoButtons(t *testing.T) {
+	got := make(chan *wm.Notification, 1)
+	wm.AddNotificationListener(func(n *wm.Notification) {
+		if n.Tag == agentTag("w1:p9") {
+			got <- n
+		}
+	})
+	h := &agentHub{client: &agents.Client{Path: "/nonexistent"}}
+	h.notify(agents.Notice{Kind: agents.Finished, Agent: agents.Agent{Pane: agents.Pane{PaneID: "w1:p9", Agent: "claude"}}})
+	n := <-got
+	assert.Empty(t, n.Buttons)
+	assert.Equal(t, wm.UrgencyNormal, n.Urgency)
+}

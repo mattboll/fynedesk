@@ -170,8 +170,10 @@ func (c *Client) Watch(done <-chan struct{}, onEvent func(Event)) error {
 	}()
 
 	var subs []map[string]string
-	for _, kind := range []string{"pane.updated", "pane.closed", "pane.focused", "pane.agent_detected",
-		"pane.exited", "tab.closed", "workspace.closed"} {
+	for _, kind := range []string{
+		"pane.updated", "pane.closed", "pane.focused", "pane.agent_detected",
+		"pane.exited", "tab.closed", "workspace.closed",
+	} {
 		subs = append(subs, map[string]string{"type": kind})
 	}
 	if err := send(conn, "events.subscribe", map[string]any{"subscriptions": subs}); err != nil {
@@ -228,4 +230,27 @@ func parseEvent(line []byte) (Event, bool) {
 		return Event{Resync: true}, true
 	}
 	return Event{}, false
+}
+
+// Screen returns the text an agent shows, its last lines at most.
+func (c *Client) Screen(paneID string, lines int) (string, error) {
+	res, err := c.call("agent.read", map[string]any{"target": paneID, "source": "visible", "lines": lines})
+	if err != nil {
+		return "", err
+	}
+	var read struct {
+		Read struct {
+			Text string `json:"text"`
+		} `json:"read"`
+	}
+	if err := json.Unmarshal(res, &read); err != nil {
+		return "", err
+	}
+	return read.Read.Text, nil
+}
+
+// SendKeys types keys into an agent: "1", "enter", "esc"…
+func (c *Client) SendKeys(paneID string, keys ...string) error {
+	_, err := c.call("agent.send_keys", map[string]any{"target": paneID, "keys": keys})
+	return err
 }

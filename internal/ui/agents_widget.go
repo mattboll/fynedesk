@@ -14,9 +14,11 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
+	"fyshos.com/tyde"
 	"fyshos.com/tyde/internal/agents"
 	"fyshos.com/tyde/locale"
 	wmtheme "fyshos.com/tyde/theme"
+	"fyshos.com/tyde/wlipc"
 )
 
 // Colours of the agent statuses.
@@ -52,6 +54,7 @@ type agentsWidget struct {
 	showIdle bool
 	dots     []*statusDot // the animated ones
 	anim     *time.Ticker
+	peekGen  int // hovers counted: a late preview of an earlier one is dropped
 }
 
 func newAgentsWidget(h *agentHub) *agentsWidget {
@@ -156,7 +159,32 @@ func (w *agentsWidget) agentRow(a agents.Agent) fyne.CanvasObject {
 	dotBox := container.NewCenter(container.NewGridWrap(fyne.NewSquareSize(8), dot.circle))
 	row := container.NewBorder(nil, nil, dotBox, nil, text)
 	pane := a.PaneID
-	return newHoverRow(container.NewPadded(row), func() { focusAgent(pane) })
+	r := newHoverRow(container.NewPadded(row), func() { focusAgent(pane) })
+	r.onHover = func(in bool) { w.peek(r, pane, in) }
+	return r
+}
+
+// peek shows, while the pointer rests on an agent, the last lines of its
+// screen beside the panel.
+func (w *agentsWidget) peek(row fyne.CanvasObject, pane string, in bool) {
+	w.peekGen++
+	gen := w.peekGen
+	if !in {
+		closePeek()
+		return
+	}
+	time.AfterFunc(350*time.Millisecond, func() {
+		screen, err := w.hub.client.Screen(pane, 60)
+		if err != nil {
+			return
+		}
+		lines := agents.Preview(screen, peekLines)
+		fyne.Do(func() {
+			if gen == w.peekGen && len(lines) > 0 {
+				showPeek(row, lines)
+			}
+		})
+	})
 }
 
 // foldRow is a small link-like row ("+3 idle").
@@ -253,6 +281,7 @@ type hoverRow struct {
 	content fyne.CanvasObject
 	bg      *canvas.Rectangle
 	tapped  func()
+	onHover func(in bool) // optional
 }
 
 func newHoverRow(content fyne.CanvasObject, tapped func()) *hoverRow {
@@ -272,10 +301,72 @@ func (r *hoverRow) CreateRenderer() fyne.WidgetRenderer {
 func (r *hoverRow) Tapped(*fyne.PointEvent) { r.tapped() }
 
 // MouseIn highlights the row.
-func (r *hoverRow) MouseIn(*deskDriver.MouseEvent) { r.bg.Show(); r.bg.Refresh() }
+func (r *hoverRow) MouseIn(*deskDriver.MouseEvent) {
+	r.bg.Show()
+	r.bg.Refresh()
+	if r.onHover != nil {
+		r.onHover(true)
+	}
+}
 
 // MouseMoved is required by desktop.Hoverable.
 func (r *hoverRow) MouseMoved(*deskDriver.MouseEvent) {}
 
 // MouseOut removes the highlight.
-func (r *hoverRow) MouseOut() { r.bg.Hide(); r.bg.Refresh() }
+func (r *hoverRow) MouseOut() {
+	r.bg.Hide()
+	r.bg.Refresh()
+	if r.onHover != nil {
+		r.onHover(false)
+	}
+}
+
+// The preview of an agent's screen.
+const (
+	peekLines = 12
+	peekW     = float32(460)
+)
+
+var peekWin fyne.Window
+
+// showPeek shows the lines left of the widget panel, level with row.
+func showPeek(row fyne.CanvasObject, lines []string) {
+	closePeek()
+	d, ok := fyne.CurrentApp().Driver().(deskDriver.Driver)
+	if !ok {
+		return
+	}
+	text := container.NewVBox()
+	for _, l := range lines {
+		t := canvas.NewText(truncateText(l, 64), theme.Color(theme.ColorNameForeground))
+		t.TextStyle.Monospace = true
+		t.TextSize = 11
+		text.Add(t)
+	}
+	bg := canvas.NewRectangle(wmtheme.WidgetPanelBackground())
+	bg.CornerRadius = 8
+	bg.StrokeColor = wmtheme.ToastBorder()
+	bg.StrokeWidth = 1
+
+	win := d.CreateSplashWindow()
+	win.SetTitle("Agent preview " + SkipTaskbarHint + " " + NoFocusHint)
+	win.SetPadded(false)
+	win.SetContent(container.NewStack(bg, container.New(layout.NewCustomPaddedLayout(8, 8, 10, 10), text)))
+	size := fyne.NewSize(peekW, text.MinSize().Height+16)
+	win.Resize(size)
+
+	pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(row)
+	screen := tyde.Instance().Screens().Primary()
+	screenW := float32(screen.Width) / screen.CanvasScale()
+	x := screenW - wmtheme.WidgetPanelWidth - peekW - 8
+	wlipc.RequestOverlayPosition(win.Title(), x, pos.Y, size.Width, size.Height)
+	win.Show()
+	peekWin = win
+}
+
+func closePeek() {
+	if peekWin != nil {
+		peekWin.Close()
+		peekWin = nil
+	}
+}

@@ -149,7 +149,7 @@ func (h *agentHub) tick() {
 			h.tracker.MarkSeen() // the user may have switched to herdr
 			notices := h.tracker.Settle(time.Now())
 			for _, n := range notices {
-				notifyAgent(n)
+				h.notify(n)
 			}
 			after := attentionSet(h.tracker)
 			for pane := range before {
@@ -178,8 +178,41 @@ func agentTag(paneID string) string {
 	return "agent:" + paneID
 }
 
+// notify posts a notification for an agent that finished or waits. When it
+// asks a question with numbered options, they become buttons of the
+// notification, which answer right away.
+func (h *agentHub) notify(notice agents.Notice) {
+	if notice.Kind != agents.NeedsInput {
+		notifyAgent(notice, nil)
+		return
+	}
+	pane := notice.Agent.PaneID
+	go func() {
+		var buttons []wm.NotificationButton
+		if screen, err := h.client.Screen(pane, 40); err == nil {
+			for _, c := range agents.Choices(screen) {
+				if len(buttons) == maxAnswerButtons {
+					break
+				}
+				key := c.Key
+				buttons = append(buttons, wm.NotificationButton{Label: c.Label, OnTap: func() {
+					go func() {
+						if err := h.client.SendKeys(pane, key); err != nil {
+							log.Println("[agents] answer:", err)
+						}
+					}()
+				}})
+			}
+		}
+		fyne.Do(func() { notifyAgent(notice, buttons) })
+	}()
+}
+
+// maxAnswerButtons is how many options of a question a notification offers.
+const maxAnswerButtons = 3
+
 // notifyAgent posts a notification for an agent that finished or waits.
-func notifyAgent(notice agents.Notice) {
+func notifyAgent(notice agents.Notice, buttons []wm.NotificationButton) {
 	a := notice.Agent
 	name := agents.DisplayName(a.Agent)
 	title := fmt.Sprintf(locale.T("agents.finished"), name)
@@ -196,6 +229,10 @@ func notifyAgent(notice agents.Notice) {
 	n.Tag = agentTag(a.PaneID)
 	pane := a.PaneID
 	n.OnActivate = func() { focusAgent(pane) }
+	n.Buttons = buttons
+	if len(buttons) > 0 {
+		n.Urgency = wm.UrgencyCritical // it stays until answered or dismissed
+	}
 	wm.SendNotification(n)
 }
 

@@ -70,6 +70,15 @@ type Notification struct {
 	// OnActivate, if set, runs when the notification is clicked instead of
 	// the default action of its application.
 	OnActivate func()
+	// Buttons are answers offered right in the notification (Tyde's own
+	// notifications; those of applications have Actions).
+	Buttons []NotificationButton
+}
+
+// NotificationButton is an answer offered in a notification.
+type NotificationButton struct {
+	Label string
+	OnTap func()
 }
 
 // NewNotification creates a new message that can be passed to SendNotification
