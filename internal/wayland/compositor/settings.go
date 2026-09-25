@@ -121,6 +121,14 @@ type compositorConfig struct {
 		Type  string `toml:"type"`
 		Label string `toml:"label"`
 	} `toml:"screensaver"`
+	// Power holds the idle timeouts, in minutes (0: never); unset ones keep
+	// the defaults.
+	Power struct {
+		LockTimeoutMin    *int   `toml:"lock_timeout_min"`
+		BlankTimeoutMin   *int   `toml:"blank_timeout_min"`
+		SuspendTimeoutMin *int   `toml:"suspend_timeout_min"`
+		SuspendAction     string `toml:"suspend_action"`
+	} `toml:"power"`
 	Keybindings map[string][]struct {
 		Key  string   `toml:"key"`
 		Mods []string `toml:"mods"`
@@ -188,6 +196,20 @@ func readTOMLAsPrefs(path string) (map[string]interface{}, error) {
 	// Screensaver
 	prefs["savertype"] = cfg.Screensaver.Type
 	prefs["saverlabel"] = cfg.Screensaver.Label
+
+	// Power management
+	for key, v := range map[string]*int{
+		"power_lock_timeout":    cfg.Power.LockTimeoutMin,
+		"power_blank_timeout":   cfg.Power.BlankTimeoutMin,
+		"power_suspend_timeout": cfg.Power.SuspendTimeoutMin,
+	} {
+		if v != nil {
+			prefs[key] = float64(*v)
+		}
+	}
+	if cfg.Power.SuspendAction != "" {
+		prefs["power_suspend_action"] = cfg.Power.SuspendAction
+	}
 
 	// Keybindings: convert to JSON string for existing loadKeybindings()
 	if len(cfg.Keybindings) > 0 {
