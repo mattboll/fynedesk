@@ -24,6 +24,7 @@
   "advanced.windows": "Fenêtres",
   "advanced.wobbly": "Fenêtres molles pendant le déplacement",
   "advanced.blur": "Verre dépoli derrière le panneau, les menus et les notifications",
+  "advanced.shadows": "Ombres douces sous les fenêtres",
   "agents.finished": "%s a terminé",
   "agents.hideIdle": "Masquer les inactifs",
   "agents.idle": "%d inactifs",

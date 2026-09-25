@@ -778,5 +778,6 @@ func (s *server) tickAnimations() bool {
 	animActive = s.tickDeskSwipe() || animActive
 	animActive = s.tickCurtain() || animActive
 	animActive = s.tickZoom() || animActive
+	animActive = s.tickShadows() || animActive
 	return animActive
 }

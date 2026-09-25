@@ -24,6 +24,7 @@
   "advanced.windows": "Windows",
   "advanced.wobbly": "Wobbly windows while dragging",
   "advanced.blur": "Frosted glass behind the panel, menus and notifications",
+  "advanced.shadows": "Soft shadows under the windows",
   "agents.finished": "%s is done",
   "agents.hideIdle": "Hide idle",
   "agents.idle": "%d idle",

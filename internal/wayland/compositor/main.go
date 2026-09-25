@@ -522,6 +522,7 @@ func newServer() *server {
 		shadows:           map[any]*glow{},
 		wobblyWindows:     true,
 		blurBehind:        true,
+		windowShadows:     true,
 	}
 	clipServer = srv
 	srv.initPowerDefaults()

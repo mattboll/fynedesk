@@ -148,6 +148,7 @@ type compositorConfig struct {
 		OuterGap int   `toml:"outer_gap"`
 		Wobbly   *bool `toml:"wobbly"`
 		Blur     *bool `toml:"blur"`
+		Shadows  *bool `toml:"shadows"`
 	} `toml:"windows"`
 	HotCorners struct {
 		TopLeft     string `toml:"top_left"`
@@ -251,6 +252,7 @@ func readTOMLAsPrefs(path string) (map[string]interface{}, error) {
 	prefs["windowoutergap"] = float64(cfg.Windows.OuterGap)
 	prefs["wobblywindows"] = cfg.Windows.Wobbly == nil || *cfg.Windows.Wobbly
 	prefs["blurbehind"] = cfg.Windows.Blur == nil || *cfg.Windows.Blur
+	prefs["windowshadows"] = cfg.Windows.Shadows == nil || *cfg.Windows.Shadows
 	if cfg.Modules.Enabled != nil {
 		prefs["agentsmodule"] = slices.Contains(cfg.Modules.Enabled, wlipc.AgentsModule)
 	}
@@ -464,6 +466,9 @@ func (s *server) applyWindowPrefs(prefs map[string]interface{}) {
 	}
 	if b, ok := prefs["blurbehind"].(bool); ok {
 		s.setBlurBehind(b)
+	}
+	if on, ok := prefs["windowshadows"].(bool); ok {
+		s.setWindowShadows(on)
 	}
 
 	// High contrast (accessibility)

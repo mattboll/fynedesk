@@ -4,11 +4,13 @@ package compositor
 #include <wlr/types/wlr_scene.h>
 #include "pixel_buffer.h"
 
-static struct wlr_scene_tree *attention_tree_create(struct wlr_scene_tree *parent) {
+static struct wlr_scene_tree *attention_tree_create(struct wlr_scene_tree *parent, bool still) {
     struct wlr_scene_tree *tree = wlr_scene_tree_create(parent);
     if (tree) {
         wlr_scene_node_lower_to_bottom(&tree->node);
-        tree->node.data = (void *)0x7; // WOBBLE_SKIP: the halo keeps still (wobble.go)
+        if (still) {
+            tree->node.data = (void *)0x7; // WOBBLE_SKIP: the halo keeps still (wobble.go)
+        }
     }
     return tree;
 }
@@ -23,8 +25,19 @@ static struct wlr_scene_buffer *attention_part_create(struct wlr_scene_tree *par
     }
     return part;
 }
-static void attention_part_place(struct wlr_scene_buffer *part, int x, int y, int w, int h, float opacity) {
+// attention_part_place puts a piece of a halo at (x, y), w×h, showing the
+// part (sx, sy, sw, sh) of its buffer (all of it when sw is 0); a piece with
+// nothing to show is disabled.
+static void attention_part_place(struct wlr_scene_buffer *part, int x, int y, int w, int h,
+        double sx, double sy, double sw, double sh, float opacity) {
+    if (w <= 0 || h <= 0) {
+        wlr_scene_node_set_enabled(&part->node, false);
+        return;
+    }
+    wlr_scene_node_set_enabled(&part->node, true);
     wlr_scene_node_set_position(&part->node, x, y);
+    struct wlr_fbox src = { sx, sy, sw, sh };
+    wlr_scene_buffer_set_source_box(part, sw > 0 ? &src : NULL);
     wlr_scene_buffer_set_dest_size(part, w, h);
     wlr_scene_buffer_set_opacity(part, opacity);
 }
@@ -86,6 +99,7 @@ type glow struct {
 	parent unsafe.Pointer // the view tree it lives in: it goes with it
 	tree   *C.struct_wlr_scene_tree
 	parts  [8]*C.struct_wlr_scene_buffer
+	shadow shadowGeometry // for a shadow: where it was laid (shadow.go)
 }
 
 // newGlowParts draws the pieces of a halo for windows with rounded corners
@@ -159,28 +173,57 @@ func transpose(src *image.NRGBA) *image.NRGBA {
 
 // place lays the halo around the rectangle (x, y, w, h) of the view tree.
 func (g *glow) place(p *glowParts, x, y, w, h int, opacity float32) {
+	g.placeClipped(p, x, y, w, h, opacity, image.Rectangle{})
+}
+
+// haloBoxes returns where the eight pieces of a halo around (x, y, w, h) go.
+func haloBoxes(p *glowParts, x, y, w, h int) [8]image.Rectangle {
 	s, r, cr := p.radius+p.cornerRadius, p.radius, p.cornerRadius
-	inner := func(n int) int { return max(n-2*cr, 0) }
-	boxes := [8][4]int{
-		{x - r, y - r, s, s},
-		{x + w - cr, y - r, s, s},
-		{x - r, y + h - cr, s, s},
-		{x + w - cr, y + h - cr, s, s},
-		{x + cr, y - r, inner(w), r},
-		{x + cr, y + h, inner(w), r},
-		{x - r, y + cr, r, inner(h)},
-		{x + w, y + cr, r, inner(h)},
-	}
-	for i, b := range boxes {
-		C.attention_part_place(g.parts[i], C.int(b[0]), C.int(b[1]), C.int(max(b[2], 1)), C.int(max(b[3], 1)), C.float(opacity))
+	inner := func(n int) int { return max(n-2*cr, 1) }
+	box := func(x, y, w, h int) image.Rectangle { return image.Rect(x, y, x+max(w, 1), y+max(h, 1)) }
+	return [8]image.Rectangle{
+		box(x-r, y-r, s, s),
+		box(x+w-cr, y-r, s, s),
+		box(x-r, y+h-cr, s, s),
+		box(x+w-cr, y+h-cr, s, s),
+		box(x+cr, y-r, inner(w), r),
+		box(x+cr, y+h, inner(w), r),
+		box(x-r, y+cr, r, inner(h)),
+		box(x+w, y+cr, r, inner(h)),
 	}
 }
 
+// placeClipped lays the halo around (x, y, w, h), cut to clip (in the same
+// coordinates; none if empty). It reports whether anything was cut.
+func (g *glow) placeClipped(p *glowParts, x, y, w, h int, opacity float32, clip image.Rectangle) bool {
+	cut := false
+	for i, b := range haloBoxes(p, x, y, w, h) {
+		shown := b
+		if !clip.Empty() {
+			shown = b.Intersect(clip)
+		}
+		if shown == b {
+			C.attention_part_place(g.parts[i], C.int(b.Min.X), C.int(b.Min.Y), C.int(b.Dx()), C.int(b.Dy()), 0, 0, 0, 0, C.float(opacity))
+			continue
+		}
+		cut = true
+		// The part of the buffer that shows: the pieces are stretched from
+		// their buffer to their box.
+		bw, bh := float64(p.buffers[i].base.width), float64(p.buffers[i].base.height)
+		fx, fy := bw/float64(b.Dx()), bh/float64(b.Dy())
+		C.attention_part_place(g.parts[i], C.int(shown.Min.X), C.int(shown.Min.Y), C.int(shown.Dx()), C.int(shown.Dy()),
+			C.double(float64(shown.Min.X-b.Min.X)*fx), C.double(float64(shown.Min.Y-b.Min.Y)*fy),
+			C.double(float64(shown.Dx())*fx), C.double(float64(shown.Dy())*fy), C.float(opacity))
+	}
+	return cut
+}
+
 // newGlow puts a halo made of parts at the bottom of a view tree, below the
-// window; it goes with the tree.
-func newGlow(tree unsafe.Pointer, parts *glowParts) *glow {
+// window; it goes with the tree. A still halo stays out of the wobbling
+// window; the others bend with it.
+func newGlow(tree unsafe.Pointer, parts *glowParts, still bool) *glow {
 	g := &glow{parent: tree}
-	g.tree = C.attention_tree_create((*C.struct_wlr_scene_tree)(tree))
+	g.tree = C.attention_tree_create((*C.struct_wlr_scene_tree)(tree), C.bool(still))
 	if g.tree == nil {
 		return nil
 	}
@@ -296,7 +339,7 @@ func (s *server) tickAttention() bool {
 	for view, t := range targets {
 		g := s.glows[view]
 		if g == nil {
-			if g = newGlow(t.tree, s.glowParts); g == nil {
+			if g = newGlow(t.tree, s.glowParts, true); g == nil {
 				continue
 			}
 			s.glows[view] = g

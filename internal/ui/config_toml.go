@@ -52,6 +52,13 @@ type WindowConfig struct {
 	// Blur frosts what lies behind the panel, the menus and the
 	// notifications (Wayland); unset means on.
 	Blur *bool `toml:"blur,omitempty"`
+	// Shadows are the soft shadows under the windows; unset means on.
+	Shadows *bool `toml:"shadows,omitempty"`
+}
+
+// WindowShadows reports whether windows have soft shadows (the default).
+func (w WindowConfig) WindowShadows() bool {
+	return w.Shadows == nil || *w.Shadows
 }
 
 // WobblyWindows reports whether dragged windows wobble (the default).
@@ -534,6 +541,7 @@ func syncToFynePrefs(cfg *Config) {
 	p.SetInt("windowoutergap", cfg.Windows.OuterGap)
 	p.SetBool("wobblywindows", cfg.Windows.WobblyWindows())
 	p.SetBool("blurbehind", cfg.Windows.BlurBehind())
+	p.SetBool("windowshadows", cfg.Windows.WindowShadows())
 
 	// Hot corners
 	p.SetString("hotcorner_topleft", cfg.HotCorners.TopLeft)
@@ -669,6 +677,7 @@ func LoadConfigForCompositor() (map[string]any, error) {
 	prefs["windowoutergap"] = float64(cfg.Windows.OuterGap)
 	prefs["wobblywindows"] = cfg.Windows.WobblyWindows()
 	prefs["blurbehind"] = cfg.Windows.BlurBehind()
+	prefs["windowshadows"] = cfg.Windows.WindowShadows()
 	prefs["agentsmodule"] = slices.Contains(cfg.Modules.Enabled, wlipc.AgentsModule)
 
 	// Hot corners

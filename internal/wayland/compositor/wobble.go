@@ -109,14 +109,15 @@ static bool node_size(struct wobble *wb, struct wlr_scene_node *node, int *w, in
     }
     struct wlr_scene_buffer *buf = wlr_scene_buffer_from_node(node);
     struct wlr_buffer *buffer = node_buffer(wb, buf);
-    if (!buffer || buf->opacity == 0) {
+    struct wlr_texture *kept = buf->WLR_PRIVATE.texture; // the scene's, when it let go of the buffer
+    if ((!buffer && !kept) || buf->opacity == 0) {
         return false;
     }
     *w = buf->dst_width;
     *h = buf->dst_height;
     if (*w <= 0 || *h <= 0) {
-        *w = buffer->width;
-        *h = buffer->height;
+        *w = buffer ? (int)buffer->width : (int)kept->width;
+        *h = buffer ? (int)buffer->height : (int)kept->height;
         if (buf->transform & WL_OUTPUT_TRANSFORM_90) {
             int t = *w; *w = *h; *h = t;
         }
@@ -349,7 +350,9 @@ static struct wlr_texture *source_texture(struct wobble *wb, struct wobble_src *
     }
     struct wlr_buffer *buffer = node_buffer(wb, sb);
     if (!buffer) {
-        return src->texture;
+        // A buffer of the compositor the scene let go of (the pieces of a
+        // shadow): the scene's texture of it, which stays the scene's.
+        return src->texture ? src->texture : sb->WLR_PRIVATE.texture;
     }
     if (src->texture) {
         wlr_texture_destroy(src->texture);
@@ -824,7 +827,6 @@ func (s *server) startWobble(view any) {
 		}
 	}
 	s.wobble = w
-	s.setShadowVisible(view, false) // the jelly has no shadow: it would not bend
 	if !s.drawWobble() {
 		s.stopWobble()
 	}
@@ -862,7 +864,6 @@ func (s *server) stopWobble() {
 		return
 	}
 	s.wobble = nil
-	s.setShadowVisible(w.view, true)
 	// The picture is a sibling of the view tree: it is still there even if
 	// the view went away (the nodes it stood in for are then gone).
 	C.wobble_destroy(w.c)
@@ -1086,7 +1087,6 @@ func (s *server) startGenie(view any, done func()) bool {
 	n := (g.gx + 1) * (g.gy + 1)
 	g.dx, g.dy = make([]float32, n), make([]float32, n)
 	s.genie = g
-	s.setShadowVisible(view, false)
 	if !s.drawGenie() {
 		s.endGenie()
 		return false
@@ -1166,7 +1166,6 @@ func (s *server) endGenie() {
 	if tree == g.tree && mapped {
 		g.done() // hidden first, so that the restored picture does not flash
 	}
-	s.setShadowVisible(g.view, true)
 	C.wobble_destroy(g.c)
 }
 

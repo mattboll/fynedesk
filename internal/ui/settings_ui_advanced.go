@@ -43,9 +43,11 @@ func (d *settingsUI) loadAdvancedScreen() fyne.CanvasObject {
 	wobbly.Checked = d.settings.cfg.Windows.WobblyWindows()
 	blur := widget.NewCheck(locale.T("advanced.blur"), nil)
 	blur.Checked = d.settings.cfg.Windows.BlurBehind()
+	shadows := widget.NewCheck(locale.T("advanced.shadows"), nil)
+	shadows.Checked = d.settings.cfg.Windows.WindowShadows()
 
 	windowsCard := widget.NewCard(locale.T("advanced.windows"), "",
-		container.NewVBox(innerGapLabel, innerGapSlider, outerGapLabel, outerGapSlider, wobbly, blur))
+		container.NewVBox(innerGapLabel, innerGapSlider, outerGapLabel, outerGapSlider, wobbly, blur, shadows))
 
 	// Power profile (only if powerprofilesctl is available)
 	var powerCard fyne.CanvasObject
@@ -91,6 +93,7 @@ func (d *settingsUI) loadAdvancedScreen() fyne.CanvasObject {
 			d.settings.setWindowGaps(int(innerGapSlider.Value), int(outerGapSlider.Value))
 			d.settings.setWobblyWindows(wobbly.Checked)
 			d.settings.setBlurBehind(blur.Checked)
+			d.settings.setWindowShadows(shadows.Checked)
 			wm.SendNotification(wm.NewNotification(locale.T("settings.settings"), locale.T("notif.applied")))
 		}})
 

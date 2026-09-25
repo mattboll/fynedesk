@@ -174,6 +174,7 @@ type server struct {
 	glows              map[any]*glow           // attention halos, by view
 	glowParts          *glowParts
 	shadows            map[any]*glow // soft shadows under the decorated windows, by view (shadow.go)
+	windowShadows      bool          // the shadows are on (Settings > Advanced)
 	shadowParts        *glowParts
 	wobblyWindows      bool                      // dragged windows bend (wobble.go)
 	wobble             *wobbleState              // the window wobbling, if any

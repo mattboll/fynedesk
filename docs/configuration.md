@@ -27,6 +27,7 @@ layouts = ["us", "fr:bepo_afnor"]
 [windows]
 wobbly = true                   # dragged windows bend like jelly
 blur = true                     # frosted glass behind the panel, menus and notifications (Wayland)
+shadows = true                  # soft shadows under the free windows
 
 [power]
 lock_timeout_min = 5            # idle minutes before the screen locks (0 = never)
@@ -51,7 +52,7 @@ The settings panel provides graphical access to all configuration:
 - **Dock** — Bar position (left/bottom), icons, size and zoom
 - **Desktops**, **Keyboard** (layouts and keybindings), **Window Rules**, **Modules**, **AI**
 - **Account**, **Display** (resolution, scale, arrangement, duplicate or turn off a screen), **Network**, **Time/Date**,
-  **Power**, **Calendar**, **Advanced** (natural scroll, window gaps, wobbly windows, frosted glass, power profile)
+  **Power**, **Calendar**, **Advanced** (natural scroll, window gaps, wobbly windows, frosted glass, window shadows, power profile)
 
 ## Frosted glass
 

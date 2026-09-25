@@ -367,6 +367,12 @@ func (d *deskSettings) setWobblyWindows(on bool) {
 	d.saveAndApply()
 }
 
+// setWindowShadows turns the soft shadows under the windows on or off.
+func (d *deskSettings) setWindowShadows(on bool) {
+	d.cfg.Windows.Shadows = &on
+	d.saveAndApply()
+}
+
 // setBlurBehind turns the frosted glass behind the panel, the menus and the
 // notifications on or off. Windows opened from then on follow it.
 func (d *deskSettings) setBlurBehind(on bool) {
@@ -882,6 +888,7 @@ func (d *deskSettings) prefsSnapshot() map[string]any {
 	// Windows and modules
 	snapshot["wobblywindows"] = d.cfg.Windows.WobblyWindows()
 	snapshot["blurbehind"] = d.cfg.Windows.BlurBehind()
+	snapshot["windowshadows"] = d.cfg.Windows.WindowShadows()
 	snapshot["agentsmodule"] = slices.Contains(d.moduleNames, wlipc.AgentsModule)
 
 	// Power management

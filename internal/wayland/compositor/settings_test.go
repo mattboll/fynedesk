@@ -12,7 +12,7 @@ import (
 func TestReadTOMLAsPrefsPowerAndBlur(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	cfg := "[power]\n  lock_timeout_min = 0\n  blank_timeout_min = 12\n  suspend_action = \"hibernate\"\n" +
-		"[windows]\n  blur = false\n"
+		"[windows]\n  blur = false\n  shadows = false\n"
 	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -25,6 +25,7 @@ func TestReadTOMLAsPrefsPowerAndBlur(t *testing.T) {
 		"power_blank_timeout":  float64(12),
 		"power_suspend_action": "hibernate",
 		"blurbehind":           false,
+		"windowshadows":        false,
 	}
 	for k, v := range want {
 		if prefs[k] != v {
@@ -45,8 +46,8 @@ func TestReadTOMLAsPrefsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prefs["blurbehind"] != true {
-		t.Errorf("blurbehind = %v, want true by default", prefs["blurbehind"])
+	if prefs["blurbehind"] != true || prefs["windowshadows"] != true {
+		t.Errorf("blurbehind = %v, windowshadows = %v, want both on by default", prefs["blurbehind"], prefs["windowshadows"])
 	}
 	if _, ok := prefs["power_blank_timeout"]; ok {
 		t.Error("power_blank_timeout is set although config.toml has no [power]")
