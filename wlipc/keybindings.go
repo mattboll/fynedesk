@@ -62,6 +62,7 @@ const (
 	ActionToggleFloat       = "toggle_float"
 	ActionToggleNightLight  = "toggle_night_light"
 	ActionFocusMode         = "focus_mode"
+	ActionNextAgent         = "next_agent"
 	ActionShowDesktop       = "show_desktop"
 	ActionConfirmSwitcher   = "confirm_switcher"
 	ActionCancelSwitcher    = "cancel_switcher"
@@ -117,6 +118,7 @@ func DefaultBindings() ActionBindings {
 		ActionToggleFloat:       {{Key: "f", Mods: []string{"WM", "Shift"}}},
 		ActionToggleNightLight:  {{Key: "n", Mods: []string{"WM", "Shift"}}},
 		ActionFocusMode:         {{Key: "f", Mods: []string{"WM"}}},
+		ActionNextAgent:         {{Key: "g", Mods: []string{"WM"}}},
 	}
 }
 
@@ -170,6 +172,7 @@ func ActionDisplayName(action string) string {
 		ActionToggleFloat:       "Toggle float (tiling)",
 		ActionToggleNightLight:  "Toggle night light",
 		ActionFocusMode:         "Focus mode",
+		ActionNextAgent:         "Go to the agent waiting for you",
 		ActionShowDesktop:       "Show desktop",
 	}
 	if n, ok := names[action]; ok {
@@ -226,6 +229,7 @@ func ActionOrder() []string {
 		ActionBrightnessDown,
 		ActionToggleNightLight,
 		ActionFocusMode,
+		ActionNextAgent,
 		ActionShowDesktop,
 		ActionEmergencyLogout,
 		ActionCalculator,

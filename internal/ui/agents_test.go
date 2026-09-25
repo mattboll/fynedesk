@@ -118,3 +118,24 @@ func TestAgentFinishedHasNoButtons(t *testing.T) {
 	assert.Empty(t, n.Buttons)
 	assert.Equal(t, wm.UrgencyNormal, n.Urgency)
 }
+
+func TestNextWaiting(t *testing.T) {
+	now := time.Now()
+	p := func(id string, st agents.Status, focused bool) agents.Pane {
+		return agents.Pane{PaneID: id, Agent: "claude", Status: st, Focused: focused}
+	}
+	tr := agents.NewTracker([]agents.Pane{
+		p("a", agents.StatusBlocked, false),
+		p("b", agents.StatusWorking, true),
+		p("c", agents.StatusDone, false),
+	}, now)
+	assert.Equal(t, "a", nextWaiting(tr.Agents()), "from an agent that does not wait: the first waiting")
+
+	tr = agents.NewTracker([]agents.Pane{p("a", agents.StatusBlocked, true), p("c", agents.StatusDone, false)}, now)
+	assert.Equal(t, "c", nextWaiting(tr.Agents()), "then the next one")
+	tr = agents.NewTracker([]agents.Pane{p("a", agents.StatusBlocked, false), p("c", agents.StatusDone, true)}, now)
+	assert.Equal(t, "a", nextWaiting(tr.Agents()), "and round")
+
+	tr = agents.NewTracker([]agents.Pane{p("b", agents.StatusWorking, false)}, now)
+	assert.Equal(t, "", nextWaiting(tr.Agents()), "nobody waits")
+}

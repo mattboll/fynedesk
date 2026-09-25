@@ -172,8 +172,9 @@ func (t *Tracker) Pending() bool {
 	return false
 }
 
-// Agents returns the agents, those that need the user first, then those at
-// work, then the idle ones; by title within each group.
+// Agents returns the agents: those asking something first, then those
+// that finished unseen, those at work, then the idle ones; by title within
+// each group.
 func (t *Tracker) Agents() []Agent {
 	list := make([]Agent, 0, len(t.agents))
 	for _, a := range t.agents {
@@ -181,12 +182,14 @@ func (t *Tracker) Agents() []Agent {
 	}
 	rank := func(a Agent) int {
 		switch {
-		case a.NeedsAttention():
+		case a.shown == StatusBlocked:
 			return 0
-		case a.shown == StatusWorking:
+		case a.NeedsAttention():
 			return 1
+		case a.shown == StatusWorking:
+			return 2
 		}
-		return 2
+		return 3
 	}
 	sort.Slice(list, func(i, j int) bool {
 		if ri, rj := rank(list[i]), rank(list[j]); ri != rj {

@@ -320,3 +320,34 @@ func setHerdrAttention(on bool) {
 		}
 	}()
 }
+
+// focusWaiting goes to an agent that waits for the user: the next one after
+// the agent in view, so that pressing again goes round them.
+func (h *agentHub) focusWaiting() {
+	if h.tracker == nil {
+		return
+	}
+	if pane := nextWaiting(h.tracker.Agents()); pane != "" {
+		focusAgent(pane)
+	}
+}
+
+// nextWaiting picks, among agents listed those waiting first, the waiting
+// agent after the focused one.
+func nextWaiting(list []agents.Agent) string {
+	var waiting []agents.Agent
+	current := -1
+	for _, a := range list {
+		if !a.NeedsAttention() {
+			continue
+		}
+		if a.Focused {
+			current = len(waiting)
+		}
+		waiting = append(waiting, a)
+	}
+	if len(waiting) == 0 {
+		return ""
+	}
+	return waiting[(current+1)%len(waiting)].PaneID
+}

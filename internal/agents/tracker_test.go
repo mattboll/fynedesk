@@ -69,12 +69,14 @@ func TestTrackerAgentsOrder(t *testing.T) {
 		*pane("idle", StatusIdle, false),
 		*pane("work", StatusWorking, false),
 		*pane("done", StatusDone, false),
+		*pane("asks", StatusBlocked, false),
 	}, now)
 	var ids []string
 	for _, a := range tr.Agents() {
 		ids = append(ids, a.PaneID)
 	}
-	assert.Equal(t, []string{"done", "work", "idle"}, ids)
+	assert.Equal(t, []string{"asks", "done", "work", "idle"}, ids)
+	tr.Apply(Event{Closed: "asks"}, now)
 
 	tr.Apply(Event{Closed: "work"}, now)
 	tr.Apply(Event{Pane: &Pane{PaneID: "idle"}}, now) // the agent exited

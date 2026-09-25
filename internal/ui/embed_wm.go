@@ -218,6 +218,7 @@ func (e *embededWM) startIPCWatcher() {
 			wlipc.EventNotifClosed,
 			wlipc.EventCommandPalette,
 			wlipc.EventSidebar,
+			wlipc.EventNextAgent,
 			wlipc.EventOverview,
 			wlipc.EventPanelHotspot,
 		); err == nil {
@@ -302,6 +303,13 @@ func (e *embededWM) setupSocketEventHandlers(client *wlipc.IPCClient) {
 	})
 	client.OnEvent(wlipc.EventCommandPalette, func(data json.RawMessage) {
 		fyne.Do(func() { ShowCommandPalette() })
+	})
+	client.OnEvent(wlipc.EventNextAgent, func(json.RawMessage) {
+		fyne.Do(func() {
+			if h := agentHubInstance(); h != nil {
+				h.focusWaiting()
+			}
+		})
 	})
 	client.OnEvent(wlipc.EventSidebar, func(data json.RawMessage) {
 		fyne.Do(func() { ToggleSidebar() })

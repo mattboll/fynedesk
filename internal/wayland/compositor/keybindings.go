@@ -2,6 +2,7 @@ package compositor
 
 import (
 	"log"
+	"time"
 
 	"fyshos.com/tyde/internal/wayland/wlr"
 	"fyshos.com/tyde/internal/wayland/wlr/xkb"
@@ -242,6 +243,12 @@ func (s *server) dispatchLaunchAction(action string) bool {
 
 	case wlipc.ActionToggleSidebar:
 		s.requestSidebar()
+
+	case wlipc.ActionNextAgent:
+		// The panel follows the agents: it goes to the one waiting.
+		if s.ipcServer != nil {
+			s.ipcServer.Broadcast(wlipc.EventNextAgent, map[string]int64{"timestamp": time.Now().UnixMilli()})
+		}
 
 	case wlipc.ActionWindowOverview:
 		s.toggleOverview()

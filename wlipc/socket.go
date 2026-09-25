@@ -49,6 +49,7 @@ const (
 	EventClipboardShow    = "clipboard-show"
 	EventCommandPalette   = "command-palette"
 	EventSidebar          = "sidebar-toggle"
+	EventNextAgent        = "next-agent"
 	EventOverview         = "overview"
 	EventPanelHotspot     = "panel-hotspot"
 )

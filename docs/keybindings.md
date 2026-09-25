@@ -49,6 +49,7 @@ All shortcuts are configurable via Settings > Keyboard. The **WM modifier** defa
 |----------|--------|
 | Super+W | Window overview (Exposé) |
 | Super+F | Focus mode: dim everything but the focused window |
+| Super+G | Go to the coding agent waiting for you (again: the next one) |
 | Super+A | Toggle sidebar (Raven) |
 | Super+L | Lock screen |
 | PrintScreen | Screenshot (full screen) |
