@@ -577,6 +577,7 @@ func (s *server) simulateButton(pressed bool) {
 // (hot-corner detection, hover updates) without sending a button event.
 // Used by QA scenarios to test edge/corner behavior.
 func (s *server) simulateMove(x, y float64) {
+	s.resetIdleTimer() // like a real move (and like simulateClick)
 	C.cursor_warp_closest(cursorPtr(s.cursor), C.double(x), C.double(y))
 	s.processCursorMotion(time.Now())
 	log.Printf("[SIMULATE] Move to (%.0f, %.0f)", x, y)

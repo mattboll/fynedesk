@@ -235,9 +235,10 @@ type server struct {
 	// Idle tracking for screensaver / power management
 	lastInputTime      time.Time
 	idleLocked         bool
-	suspendLockPending bool        // true between PrepareForSleep and lock acquisition — prevents resetIdleTimer from clearing idleLocked
-	displayBlanked     atomic.Bool // read by the watchdog goroutine
-	idleSuspended      bool        // true after auto-suspend initiated, cleared on resume
+	suspendLockPending bool         // true between PrepareForSleep and lock acquisition — prevents resetIdleTimer from clearing idleLocked
+	displayBlanked     atomic.Bool  // read by the watchdog goroutine
+	idleSuspended      bool         // true after auto-suspend initiated, cleared on resume
+	curtain            curtainState // the screen darkening before the idle action (curtain.go)
 
 	// Configurable power timeouts (minutes, 0 = disabled)
 	powerLockTimeout    int    // default 5

@@ -61,6 +61,13 @@ through. It needs the GLES2 renderer: with another one (pixman) they stay
 opaque. Turn it off with `blur = false` under `[windows]`, or in Settings >
 Advanced.
 
+## Idle curtain
+
+Twenty seconds before the screen locks, turns off or the machine sleeps for
+want of use, the screen slowly darkens; moving the mouse or pressing a key
+lifts the curtain and puts the countdown back to zero. Nothing darkens while an
+application holds the screensaver off (a video playing, a presentation).
+
 ## Notifications
 
 Popups stack in the top-right corner, three at most. Tyde follows the hints of

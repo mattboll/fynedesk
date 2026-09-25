@@ -663,6 +663,9 @@ func (s *server) renderOutput(output wlr.Output) {
 	// Tick all animations (snap, transitions, close effects, etc.)
 	// Each returns true if still running, used to decide frame scheduling.
 	animActive := s.tickAnimations()
+	if s.displayBlanked.Load() {
+		return // the curtain came down and the idle action blanked the outputs
+	}
 	s.updateBlurs(output)
 
 	// Resolve this output's state once — used by the animated wallpaper tick
@@ -764,5 +767,6 @@ func (s *server) tickAnimations() bool {
 	animActive = s.tickGenie() || animActive
 	animActive = s.tickFocusDim() || animActive
 	animActive = s.tickDeskSwipe() || animActive
+	animActive = s.tickCurtain() || animActive
 	return animActive
 }

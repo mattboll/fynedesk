@@ -251,6 +251,7 @@ func (s *server) resetIdleTimer() {
 	}
 
 	s.idleSuspended = false
+	s.liftCurtain()
 
 	// Unblank display on input
 	if s.displayBlanked.Load() {
@@ -273,6 +274,9 @@ func (s *server) initPowerDefaults() {
 	s.powerSuspendAction = "suspend"
 }
 
+// idleCheckEvery is how often the idle timeouts are checked.
+const idleCheckEvery = 30 * time.Second
+
 func (s *server) watchIdleTimeout() {
 	defer func() {
 		if r := recover(); r != nil {
@@ -285,7 +289,7 @@ func (s *server) watchIdleTimeout() {
 		return
 	}
 
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(idleCheckEvery)
 	defer ticker.Stop()
 
 	for {
@@ -305,33 +309,40 @@ func (s *server) watchIdleTimeout() {
 		// Route idle checks through mainThreadActions to avoid data races
 		// on idleLocked/displayBlanked fields (read/written by main thread).
 		s.mainThreadActions <- func() {
-			idle := time.Since(s.lastInputTime)
-
-			// Lock screen
-			lockTimeout := time.Duration(s.powerLockTimeout) * time.Minute
-			if s.powerLockTimeout > 0 && !s.idleLocked && idle >= lockTimeout {
-				s.idleLocked = true
-				log.Println("Idle timeout reached, locking screen")
-				go s.lockScreen()
-			}
-
-			// Blank display
-			blankTimeout := time.Duration(s.powerBlankTimeout) * time.Minute
-			if s.powerBlankTimeout > 0 && !s.displayBlanked.Load() && idle >= blankTimeout {
-				log.Println("Blank timeout reached, blanking display")
-				s.setDisplayBlanked(true)
-			}
-
-			// Auto-suspend/hibernate
-			suspendTimeout := time.Duration(s.powerSuspendTimeout) * time.Minute
-			if s.powerSuspendTimeout > 0 && !s.idleSuspended && idle >= suspendTimeout &&
-				s.powerSuspendAction != "nothing" {
-				s.idleSuspended = true
-				log.Printf("Suspend timeout reached, executing: %s\n", s.powerSuspendAction)
-				go s.performSuspendAction(s.powerSuspendAction)
-			}
+			s.checkIdle()
+			s.armCurtain(idleCheckEvery)
 		}
 		s.triggerWakeup()
+	}
+}
+
+// checkIdle locks the screen, blanks it or suspends the machine once the
+// user has been away long enough for each. Main thread.
+func (s *server) checkIdle() {
+	idle := time.Since(s.lastInputTime)
+
+	// Lock screen
+	lockTimeout := time.Duration(s.powerLockTimeout) * time.Minute
+	if s.powerLockTimeout > 0 && !s.idleLocked && idle >= lockTimeout {
+		s.idleLocked = true
+		log.Println("Idle timeout reached, locking screen")
+		go s.lockScreen()
+	}
+
+	// Blank display
+	blankTimeout := time.Duration(s.powerBlankTimeout) * time.Minute
+	if s.powerBlankTimeout > 0 && !s.displayBlanked.Load() && idle >= blankTimeout {
+		log.Println("Blank timeout reached, blanking display")
+		s.setDisplayBlanked(true)
+	}
+
+	// Auto-suspend/hibernate
+	suspendTimeout := time.Duration(s.powerSuspendTimeout) * time.Minute
+	if s.powerSuspendTimeout > 0 && !s.idleSuspended && idle >= suspendTimeout &&
+		s.powerSuspendAction != "nothing" {
+		s.idleSuspended = true
+		log.Printf("Suspend timeout reached, executing: %s\n", s.powerSuspendAction)
+		go s.performSuspendAction(s.powerSuspendAction)
 	}
 }
 
