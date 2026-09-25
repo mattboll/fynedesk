@@ -86,7 +86,8 @@ the freedesktop specification: a notification with the same id (or the same
 one instead of piling up, `urgency=low` only goes to the history, `critical`
 stays until dismissed, and `transient` leaves no trace in the history. An
 application that closes its notification removes it from the screen and the
-history.
+history. The actions an application offers (*Reply*, *Mark as read*…) are
+buttons of its popup.
 
 ## Coding agents
 

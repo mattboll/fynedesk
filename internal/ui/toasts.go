@@ -83,7 +83,7 @@ func (s *toastStack) find(id uint32) *toast {
 // show pops a notification up, or updates the popup of the one it replaces.
 func (s *toastStack) show(n *wm.Notification) {
 	if t := s.find(n.ID); t != nil && n.Replaced {
-		if len(t.n.Buttons) == len(n.Buttons) {
+		if len(notificationButtons(t.n)) == len(notificationButtons(n)) {
 			t.update(n)
 			s.startTimer(t)
 			return
@@ -223,9 +223,9 @@ func newToast(n *wm.Notification) *toast {
 	}
 
 	t.h = toastH
-	if len(n.Buttons) > 0 {
+	if buttons := notificationButtons(n); len(buttons) > 0 {
 		t.h += toastButtonsH
-		inner = container.NewBorder(nil, toastButtons(t, n.Buttons), nil, nil, inner)
+		inner = container.NewBorder(nil, toastButtons(t, buttons), nil, nil, inner)
 	}
 	styled := container.NewStack(windowFill, bg, borderFrame, newGlowAccent(), inner)
 

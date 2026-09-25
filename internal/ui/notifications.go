@@ -388,23 +388,10 @@ func (p *notificationPanel) buildNotificationRow(n *wm.Notification) fyne.Canvas
 		items = append(items, body)
 	}
 
-	// D-Bus action buttons (excluding the body-click "default" action), plus an
-	// explicit Open button. Each dismisses the notification after firing.
+	// The buttons of the notification, plus an explicit Open button. Each
+	// dismisses the notification after firing.
 	var buttons []fyne.CanvasObject
-	for i := 0; i+1 < len(n.Actions) && len(buttons) < 2; i += 2 {
-		key, actionLabel := n.Actions[i], n.Actions[i+1]
-		if key == "default" || actionLabel == "" {
-			continue
-		}
-		k := key
-		btn := widget.NewButton(actionLabel, func() {
-			invokeNotificationAction(n, k)
-			wm.RemoveNotification(n.ID)
-		})
-		btn.Importance = widget.LowImportance
-		buttons = append(buttons, btn)
-	}
-	for _, b := range n.Buttons {
+	for _, b := range notificationButtons(n) {
 		tap := b.OnTap
 		btn := widget.NewButton(truncateText(b.Label, 24), func() {
 			wm.RemoveNotification(n.ID)
@@ -435,6 +422,29 @@ func (p *notificationPanel) toggleExpand(id uint32) {
 func (p *notificationPanel) openAndDismiss(n *wm.Notification) {
 	activateNotification(n)
 	wm.RemoveNotification(n.ID)
+}
+
+// maxActionButtons is how many actions of an application a notification
+// shows as buttons.
+const maxActionButtons = 3
+
+// notificationButtons returns the buttons of a notification: those Tyde gave
+// it, then the actions of the application that sent it (but its "default"
+// action, which is a click on the notification). An action button fires the
+// action back to the application and takes the notification away.
+func notificationButtons(n *wm.Notification) []wm.NotificationButton {
+	buttons := append([]wm.NotificationButton(nil), n.Buttons...)
+	for i := 0; i+1 < len(n.Actions) && len(buttons) < maxActionButtons; i += 2 {
+		key, label := n.Actions[i], n.Actions[i+1]
+		if key == "default" || label == "" {
+			continue
+		}
+		buttons = append(buttons, wm.NotificationButton{Label: label, OnTap: func() {
+			invokeNotificationAction(n, key)
+			wm.RemoveNotification(n.ID)
+		}})
+	}
+	return buttons
 }
 
 // notificationHasAction reports whether the notification carries the given action key.

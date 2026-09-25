@@ -165,3 +165,18 @@ func TestAgentHubOutlivesModuleReload(t *testing.T) {
 		t.Error("the stopped hub still runs")
 	}
 }
+
+func TestNotificationButtonsIncludeApplicationActions(t *testing.T) {
+	n := wm.NewNotificationFull("KDE Connect", "", "Alice", "on se voit ?",
+		[]string{"default", "Open", "reply", "Reply", "mute", "Mute", "block", "Block", "extra", "Extra"}, 0)
+	n.Buttons = []wm.NotificationButton{{Label: "Mine", OnTap: func() {}}}
+
+	var labels []string
+	for _, b := range notificationButtons(n) {
+		labels = append(labels, b.Label)
+	}
+	assert.Equal(t, []string{"Mine", "Reply", "Mute"}, labels, "Tyde's first, no default action, three at most")
+
+	plain := wm.NewNotificationFull("app", "", "title", "", []string{"default", ""}, 0)
+	assert.Empty(t, notificationButtons(plain))
+}
