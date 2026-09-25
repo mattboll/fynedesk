@@ -54,6 +54,8 @@ func (d *settingsUI) loadResolutionSelector() fyne.CanvasObject {
 				label += " (" + locale.T("screens.primaryShort") + ")"
 			case out.MirrorOf != "":
 				label += " (" + locale.T("screens.mirrorShort") + ")"
+			case out.Disabled:
+				label += " (" + locale.T("screens.offShort") + ")"
 			}
 			outputNames = append(outputNames, label)
 		}
@@ -98,6 +100,12 @@ func settingsRow(label string, trailing, content fyne.CanvasObject) fyne.CanvasO
 func (d *settingsUI) outputControls(out CompositorOutputState, outputs []CompositorOutputState) []fyne.CanvasObject {
 	if out.MirrorOf != "" {
 		return d.mirrorControls(out)
+	}
+	if out.Disabled {
+		turnOn := widget.NewButton(locale.T("screens.turnOn"), func() {
+			d.requestLayoutChange(out.OutputName, "enable", "", false)
+		})
+		return []fyne.CanvasObject{settingsRow(locale.T("screens.state"), turnOn, widget.NewLabel(locale.T("screens.off")))}
 	}
 	if len(out.Modes) == 0 {
 		return []fyne.CanvasObject{widget.NewLabel(locale.T("screens.noModes"))}
@@ -197,11 +205,21 @@ func (d *settingsUI) positionRows(out CompositorOutputState, outputs []Composito
 		}
 	})
 	primaryCheck.Checked = out.Primary
-	objects := []fyne.CanvasObject{primaryCheck}
+	var objects []fyne.CanvasObject
+	if out.Primary {
+		objects = append(objects, primaryCheck)
+	} else {
+		// Another output is primary: this one can be turned off.
+		turnOff := widget.NewButton(locale.T("screens.turnOff"), func() {
+			d.requestLayoutChange(out.OutputName, "disable", "", false)
+		})
+		turnOff.Importance = widget.LowImportance
+		objects = append(objects, container.NewBorder(nil, nil, nil, turnOff, primaryCheck))
+	}
 
 	var otherNames []string
 	for _, o := range outputs {
-		if o.OutputName != out.OutputName && o.MirrorOf == "" {
+		if o.OutputName != out.OutputName && o.MirrorOf == "" && !o.Disabled {
 			otherNames = append(otherNames, o.OutputName)
 		}
 	}

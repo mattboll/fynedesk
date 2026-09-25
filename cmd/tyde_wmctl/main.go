@@ -25,6 +25,7 @@
 //	logout                      Logout / terminate compositor
 //	restart                     Restart compositor
 //	disable-output <name>       Disable an output (e.g. eDP-1)
+//	enable-output <name>        Turn a disabled output on again
 //	subscribe [events...]       Subscribe and stream events (default: all)
 //	config                      Show config file path and contents
 package main
@@ -129,7 +130,10 @@ func runCommand(client *wlipc.IPCClient, cmd string, args []string) bool {
 		cmdSwitchDesktop(client, parseDesktop(args[0]))
 	case "disable-output":
 		requireArg(args, "output name")
-		cmdDisableOutput(client, args[0])
+		cmdSetOutputEnabled(client, args[0], false)
+	case "enable-output":
+		requireArg(args, "output name")
+		cmdSetOutputEnabled(client, args[0], true)
 	case "action":
 		requireArg(args, "action name")
 		cmdAction(client, args[0])
@@ -180,6 +184,7 @@ Commands:
   move-to-desktop <id> <n>    Move window to desktop N (1-based)
   switch-desktop <n>          Switch to desktop N (1-based)
   disable-output <name>       Disable an output (e.g. eDP-1)
+  enable-output <name>        Turn a disabled output on again
   lock                        Lock the screen
   logout                      Logout / terminate compositor
   restart                     Restart compositor
@@ -403,13 +408,14 @@ func cmdConfig() {
 	fmt.Print(string(data))
 }
 
-func cmdDisableOutput(client *wlipc.IPCClient, name string) {
-	req := struct {
-		OutputName string `json:"output_name"`
-		Position   string `json:"position"`
-	}{OutputName: name, Position: "disable"}
-
-	resp, err := client.Request(wlipc.ReqLayoutRequest, req)
+func cmdSetOutputEnabled(client *wlipc.IPCClient, name string, on bool) {
+	// The compositor handles it later, and may refuse (the primary output
+	// stays on): only the request is reported.
+	position, done := "disable", "off"
+	if on {
+		position, done = "enable", "on"
+	}
+	resp, err := client.Request(wlipc.ReqLayoutRequest, wlipc.LayoutRequest{OutputName: name, Position: position})
 	if err != nil {
 		fatal("request failed: %v", err)
 	}
@@ -417,7 +423,7 @@ func cmdDisableOutput(client *wlipc.IPCClient, name string) {
 		fmt.Fprintf(os.Stderr, "tyde_wmctl: %s\n", string(resp.Data))
 		os.Exit(1)
 	}
-	fmt.Printf("Output %q disabled\n", name)
+	fmt.Printf("Asked to turn output %q %s\n", name, done)
 }
 
 func cmdAction(client *wlipc.IPCClient, action string) {

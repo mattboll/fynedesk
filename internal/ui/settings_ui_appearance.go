@@ -198,8 +198,8 @@ func readOutputNames() []string {
 	}
 	var names []string
 	for _, out := range state.Outputs {
-		if out.MirrorOf != "" {
-			continue // shows another output's wallpaper
+		if out.MirrorOf != "" || out.Disabled {
+			continue // shows another output's wallpaper, or nothing
 		}
 		names = append(names, out.OutputName)
 	}

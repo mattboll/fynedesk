@@ -409,6 +409,7 @@ func Run() {
 		mainThreadActions: make(chan func(), 64),
 		shutdown:          make(chan struct{}),
 		mirrors:           map[string]*mirrorState{},
+		disabledOutputs:   map[string]*outputState{},
 		attentionTitles:   map[string]bool{},
 		glows:             map[any]*glow{},
 		wobblyWindows:     true,

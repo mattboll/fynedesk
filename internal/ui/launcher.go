@@ -63,8 +63,8 @@ func positionLauncherAtCursor(title string, cx, cy float32, size fyne.Size) {
 	state := readCompositorState()
 	if state != nil {
 		for _, out := range state.Outputs {
-			if out.MirrorOf != "" {
-				continue // shows another output, not part of the desktop
+			if out.MirrorOf != "" || out.Disabled {
+				continue // not part of the desktop
 			}
 			ox, oy := float32(out.X), float32(out.Y)
 			ow := float32(out.Width)

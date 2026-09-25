@@ -96,7 +96,7 @@ func execSystemctl(action string) error {
 // LayoutRequest is written by the panel to request output positioning/mirroring/primary changes
 type LayoutRequest struct {
 	OutputName string `json:"output_name"` // Output to reposition
-	Position   string `json:"position"`    // "left","right","above","below","mirror" (empty = primary-only change)
+	Position   string `json:"position"`    // "left","right","above","below","mirror","disable","enable" (empty = primary-only change)
 	RelativeTo string `json:"relative_to"` // Reference output name
 	Primary    bool   `json:"primary"`     // Set as primary output
 }

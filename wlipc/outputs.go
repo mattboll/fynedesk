@@ -35,6 +35,9 @@ type CompositorOutputState struct {
 	// MirrorOf names the output this one shows the picture of. A mirrored
 	// output is not part of the desktop: no windows, no position.
 	MirrorOf string `json:"mirror_of,omitempty"`
+	// Disabled is set for an output turned off: it is not part of the
+	// desktop until it is enabled (layout request "enable").
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 // CompositorState is written by the compositor to compositor-state.json.

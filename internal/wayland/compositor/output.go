@@ -526,6 +526,8 @@ func (s *server) handleNewOutput(output wlr.Output) {
 		if entry, ok := config.Layouts[output.Name()]; ok && entry.Position == "disable" {
 			log.Printf("Output %s: layout config says disabled, skipping setup\n", output.Name())
 			commitOutput(output, func(st *wlr.OutputState) { st.SetEnabled(false) })
+			s.trackDisabledOutput(out)
+			s.writeCompositorState()
 			return
 		}
 	}

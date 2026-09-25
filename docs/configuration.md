@@ -40,7 +40,7 @@ The settings panel provides graphical access to all configuration:
 - **Color Scheme** — Themes and colour overrides (titlebars, panels, accent)
 - **Dock** — Bar position (left/bottom), icons, size and zoom
 - **Desktops**, **Keyboard** (layouts and keybindings), **Window Rules**, **Modules**, **AI**
-- **Account**, **Display** (resolution, scale, arrangement, duplicate a screen), **Network**, **Time/Date**,
+- **Account**, **Display** (resolution, scale, arrangement, duplicate or turn off a screen), **Network**, **Time/Date**,
   **Power**, **Calendar**, **Advanced** (natural scroll, window gaps, wobbly windows, power profile)
 
 ## Notifications

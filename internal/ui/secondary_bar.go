@@ -82,7 +82,7 @@ func (m *secondaryBarManager) reconcile(outputs []CompositorOutputState) {
 	// Build set of non-primary outputs
 	secondary := make(map[string]CompositorOutputState)
 	for _, out := range outputs {
-		if !out.Primary && out.MirrorOf == "" {
+		if !out.Primary && out.MirrorOf == "" && !out.Disabled {
 			secondary[out.OutputName] = out
 		}
 	}

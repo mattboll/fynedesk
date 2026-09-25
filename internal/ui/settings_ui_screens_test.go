@@ -26,3 +26,9 @@ func TestMirroredOutputControls(t *testing.T) {
 	objs := d.outputControls(CompositorOutputState{OutputName: "HDMI-A-1", MirrorOf: "eDP-1"}, nil)
 	assert.Len(t, objs, 1, "a mirrored output only offers to extend the desktop again")
 }
+
+func TestDisabledOutputControls(t *testing.T) {
+	d := &settingsUI{}
+	objs := d.outputControls(CompositorOutputState{OutputName: "eDP-1", Disabled: true}, nil)
+	assert.Len(t, objs, 1, "an output that is off only offers to turn it on")
+}

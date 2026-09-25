@@ -169,6 +169,7 @@ type server struct {
 
 	outputs            []*outputState
 	mirrors            map[string]*mirrorState // outputs showing another's picture, by name
+	disabledOutputs    map[string]*outputState // outputs turned off, by name, until enabled or unplugged
 	attentionTitles    map[string]bool         // windows with these titles call for attention (attention.go)
 	glows              map[any]*glow           // attention halos, by view
 	glowParts          *glowParts

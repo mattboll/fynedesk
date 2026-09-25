@@ -82,6 +82,15 @@ func (s *server) writeCompositorState() {
 		}
 	}
 
+	for name, out := range s.disabledOutputs {
+		physW, physH := getOutputPhysSize(out)
+		state.Outputs = append(state.Outputs, CompositorOutputState{
+			OutputName: name,
+			PhysWidth:  physW,
+			PhysHeight: physH,
+			Disabled:   true,
+		})
+	}
 	for name, m := range s.mirrors {
 		physW, physH := getOutputPhysSize(m.target)
 		state.Outputs = append(state.Outputs, CompositorOutputState{
@@ -459,17 +468,44 @@ func (s *server) disableOutput(name string) {
 
 	log.Printf("[LAYOUT] Disabling output %q\n", name)
 
-	// Disable at DRM level — tells kernel to stop scanning out
+	// Out of the desktop (layout, scene output, windows moved away), then
+	// off at the DRM level.
+	s.removeOutputFromDesktop(out)
 	if !commitOutput(out.output, func(st *wlr.OutputState) { st.SetEnabled(false) }) {
 		log.Printf("[LAYOUT] disableOutput: disabling %q rejected by the backend\n", name)
 	}
-
-	// Reuse handleOutputDestroy for all CGO cleanup (frame listener, wallpaper,
-	// scene nodes), window migration, and output list management.
-	s.handleOutputDestroy(out)
+	s.trackDisabledOutput(out)
 
 	// Persist disable in layout config so it stays disabled on restart
 	s.persistCurrentLayout(name, "disable", "")
+	s.writeCompositorState()
+}
+
+// trackDisabledOutput remembers an output that is off, so that it can be
+// turned on again, until it is unplugged.
+func (s *server) trackDisabledOutput(out *outputState) {
+	name := out.output.Name()
+	s.disabledOutputs[name] = out
+	out.listeners.Add(out.output.OnDestroy(func(wlr.Output) {
+		out.listeners.DestroyAll()
+		delete(s.disabledOutputs, name)
+		s.writeCompositorState()
+	}))
+}
+
+// enableOutput turns a disabled output on again and adds it to the desktop,
+// to the right of the others. It reports whether the output was disabled.
+func (s *server) enableOutput(name string) bool {
+	out := s.disabledOutputs[name]
+	if out == nil {
+		return false
+	}
+	log.Printf("[LAYOUT] Enabling output %q\n", name)
+	out.listeners.DestroyAll()
+	delete(s.disabledOutputs, name)
+	s.persistCurrentLayout(name, "", "")
+	s.addOutputToDesktop(out, s.readLayoutConfig())
+	return true
 }
 
 // setOutputLayout repositions an output relative to another, or sets primary.
@@ -491,6 +527,13 @@ func (s *server) setOutputLayout(req LayoutRequest) {
 	if req.Position == "disable" {
 		s.disableOutput(req.OutputName)
 		return
+	}
+	// A disabled output is turned on, then placed if asked.
+	if s.enableOutput(req.OutputName) && (req.Position == "enable" || req.Position == "") {
+		return
+	}
+	if req.Position == "enable" {
+		return // not disabled: nothing to do
 	}
 
 	// Handle primary-only request (no position change)
