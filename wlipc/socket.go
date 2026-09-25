@@ -80,6 +80,7 @@ const (
 	ReqRaiseByClass       = "raise-by-class"
 	ReqNotificationAction = "notification-action"
 	ReqWindowAttention    = "window-attention"
+	ReqDockIcons          = "dock-icons"
 )
 
 // SubscribeRequest is sent by clients to register for events.

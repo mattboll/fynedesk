@@ -1065,7 +1065,7 @@ func (s *server) startGenie(view any, done func()) bool {
 		return false
 	}
 	treeX, treeY := s.viewTreeOrigin(view)
-	dockX, dockY := s.dockCenter()
+	dockX, dockY := s.dockTarget(view)
 	tx, ty := dockX-treeX, dockY-treeY
 
 	nodes, buffers := decorationPixels(view)
@@ -1168,4 +1168,20 @@ func (s *server) endGenie() {
 	}
 	s.setShadowVisible(g.view, true)
 	C.wobble_destroy(g.c)
+}
+
+// dockTarget returns where a window goes in the dock: its icon, as the
+// panel reported it, or the middle of the dock.
+func (s *server) dockTarget(view any) (float64, float64) {
+	var id string
+	switch v := view.(type) {
+	case *xdgView:
+		id = v.id
+	case *xwayView:
+		id = v.id
+	}
+	if icon, ok := s.dockIcons[id]; ok {
+		return float64(icon.X), float64(icon.Y)
+	}
+	return s.dockCenter()
 }

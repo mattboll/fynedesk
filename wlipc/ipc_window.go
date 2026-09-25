@@ -2,6 +2,7 @@ package wlipc
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"time"
@@ -383,4 +384,26 @@ func WatchEmojiPickerRequest(callback func(req *EmojiPickerRequest), done <-chan
 			}
 		}
 	}()
+}
+
+// DockIcon is where the dock shows a window: the centre of its icon, in
+// layout coordinates.
+type DockIcon struct {
+	X float32 `json:"x"`
+	Y float32 `json:"y"`
+}
+
+// ReportDockIcons tells the compositor where the dock shows each window, by
+// window ID (effects fly windows to their icon). Socket only.
+func ReportDockIcons(icons map[string]DockIcon) error {
+	if trySendRequest(ReqDockIcons, icons) {
+		return nil
+	}
+	return errors.New("dock icons: compositor socket unavailable")
+}
+
+// DockIconAbsolute converts a position on the primary output's panel to
+// layout coordinates.
+func DockIconAbsolute(x, y float32) DockIcon {
+	return DockIcon{X: x + primaryScreenOffX, Y: y + primaryScreenOffY}
 }

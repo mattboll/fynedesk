@@ -38,6 +38,9 @@ func (bl *barLayout) setPointerPosition(position fyne.Position) {
 
 // Layout is called to pack all icons into a specified size.  It also handles the zooming effect of the icons.
 func (bl *barLayout) Layout(objects []fyne.CanvasObject, size fyne.Size) {
+	if bl.bar != nil {
+		defer bl.bar.scheduleIconReport()
+	}
 	narrow := tyde.Instance().Settings().BarPosition() == "left"
 	bg := objects[0]
 	objects = objects[1:]

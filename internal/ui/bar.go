@@ -15,6 +15,7 @@ import (
 	"fyshos.com/tyde"
 	"fyshos.com/tyde/locale"
 	wmTheme "fyshos.com/tyde/theme"
+	"fyshos.com/tyde/wlipc"
 	"fyshos.com/tyde/wm"
 )
 
@@ -41,6 +42,9 @@ type bar struct {
 	// correct monitor.
 	outputOffsetX, outputOffsetY float32
 	outputW, outputH             float32
+
+	iconReport *time.Timer               // reports the icons to the compositor (dock_icons.go)
+	lastIcons  map[string]wlipc.DockIcon // what it reported last
 }
 
 // MouseIn alerts the widget that the mouse has entered

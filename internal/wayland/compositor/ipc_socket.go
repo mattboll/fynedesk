@@ -52,6 +52,7 @@ var socketHandlers = map[string]socketHandler{
 	wlipc.ReqRaiseByClass:       (*server).socketRaiseByClass,
 	wlipc.ReqNotificationAction: (*server).socketNotificationAction,
 	wlipc.ReqWindowAttention:    (*server).socketWindowAttention,
+	wlipc.ReqDockIcons:          (*server).socketDockIcons,
 	"dump-scene":                (*server).socketDumpScene,
 	"simulate-click":            (*server).socketSimulateClick,
 	"simulate-move":             (*server).socketSimulateMove,
@@ -417,6 +418,16 @@ func (s *server) socketWindowAttention(msg *wlipc.Message) (json.RawMessage, err
 		return nil, fmt.Errorf("invalid window attention: %w", err)
 	}
 	_ = s.enqueueAction(func() { s.setWindowAttention(req.Title, req.On) })
+	return nil, nil
+}
+
+// socketDockIcons records where the dock shows each window.
+func (s *server) socketDockIcons(msg *wlipc.Message) (json.RawMessage, error) {
+	var icons map[string]wlipc.DockIcon
+	if err := json.Unmarshal(msg.Data, &icons); err != nil {
+		return nil, fmt.Errorf("invalid dock icons: %w", err)
+	}
+	_ = s.enqueueAction(func() { s.dockIcons = icons })
 	return nil, nil
 }
 
