@@ -211,7 +211,7 @@ func atomicWriteFile(path string, data []byte) error {
 
 func writeOverlayRequest(x, y float32) {
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0755)
+	os.MkdirAll(configDir, 0o755)
 
 	req := struct {
 		Title  string  `json:"title"`
@@ -233,7 +233,7 @@ func writeOverlayRequest(x, y float32) {
 
 func requestEmojiPaste(emoji string) {
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0755)
+	os.MkdirAll(configDir, 0o755)
 
 	req := struct {
 		Emoji     string `json:"emoji"`
@@ -290,7 +290,7 @@ func saveEmojiRecent(em string) {
 	}
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0755)
+	os.MkdirAll(configDir, 0o755)
 	content := strings.Join(filtered, ",")
 	atomicWriteFile(getRecentsPath(), []byte(content))
 }

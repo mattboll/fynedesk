@@ -488,8 +488,7 @@ func (s *server) reconcileXdgDecorations(v *xdgView) {
 			C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, C.int(titlebarHeight))
 		}
 		w, h := xdgDecoSize(v)
-		_, _, v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR =
-			s.createDecoNodes((*C.struct_wlr_scene_tree)(v.sceneTree), w, h, s.activeXdg == v)
+		_, _, v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = s.createDecoNodes((*C.struct_wlr_scene_tree)(v.sceneTree), w, h, s.activeXdg == v)
 		setXdgScenePos(v)
 		s.updateXdgViewDecorations(v)
 	case !want && have:
@@ -521,8 +520,7 @@ func (s *server) reconcileXwayDecorations(v *xwayView) {
 			C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, C.int(titlebarHeight))
 		}
 		w, h := xwayDecoSize(v)
-		_, _, v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR =
-			s.createDecoNodes((*C.struct_wlr_scene_tree)(v.sceneTree), w, h, s.activeXway == v)
+		_, _, v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = s.createDecoNodes((*C.struct_wlr_scene_tree)(v.sceneTree), w, h, s.activeXway == v)
 		setXwayScenePos(v)
 		s.updateXwayViewDecorations(v)
 	case !want && have:

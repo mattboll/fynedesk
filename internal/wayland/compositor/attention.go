@@ -150,10 +150,14 @@ func (g *glow) place(p *glowParts, x, y, w, h int, opacity float32) {
 	s, r, cr := glowRadius+p.cornerRadius, glowRadius, p.cornerRadius
 	inner := func(n int) int { return max(n-2*cr, 0) }
 	boxes := [8][4]int{
-		{x - r, y - r, s, s}, {x + w - cr, y - r, s, s},
-		{x - r, y + h - cr, s, s}, {x + w - cr, y + h - cr, s, s},
-		{x + cr, y - r, inner(w), r}, {x + cr, y + h, inner(w), r},
-		{x - r, y + cr, r, inner(h)}, {x + w, y + cr, r, inner(h)},
+		{x - r, y - r, s, s},
+		{x + w - cr, y - r, s, s},
+		{x - r, y + h - cr, s, s},
+		{x + w - cr, y + h - cr, s, s},
+		{x + cr, y - r, inner(w), r},
+		{x + cr, y + h, inner(w), r},
+		{x - r, y + cr, r, inner(h)},
+		{x + w, y + cr, r, inner(h)},
 	}
 	for i, b := range boxes {
 		C.attention_part_place(g.parts[i], C.int(b[0]), C.int(b[1]), C.int(max(b[2], 1)), C.int(max(b[3], 1)), C.float(opacity))

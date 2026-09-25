@@ -96,6 +96,6 @@ func runWithRecovery() bool {
 func compositorLogDir() string {
 	homeDir, _ := os.UserHomeDir()
 	dir := filepath.Join(homeDir, ".cache", "fyne", "com.fyshos.tyde")
-	os.MkdirAll(dir, 0700)
+	os.MkdirAll(dir, 0o700)
 	return dir
 }

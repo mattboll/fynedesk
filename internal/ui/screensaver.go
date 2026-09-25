@@ -68,7 +68,6 @@ func (l *desktop) watchScreenActivity() {
 
 	for range to.C {
 		if inhibitCount.Load() == 0 && lastActivity.Add(time.Minute*5).Before(time.Now()) {
-
 			if !idle {
 				idle = true
 

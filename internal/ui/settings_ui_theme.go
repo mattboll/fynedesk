@@ -42,7 +42,7 @@ func (d *settingsUI) loadThemeScreen() fyne.CanvasObject {
 
 	// Also scan user themes in ~/.config/tyde/themes/
 	userThemesDir := filepath.Join(configDir(), "themes")
-	os.MkdirAll(userThemesDir, 0755)
+	os.MkdirAll(userThemesDir, 0o755)
 	if entries, err := os.ReadDir(userThemesDir); err == nil {
 		for _, e := range entries {
 			if e.IsDir() {
@@ -422,7 +422,7 @@ func updateThemeJSONColor(path, colorName, hexValue string) {
 	colorsMap[colorName] = hexValue
 	themeData["Colors"] = colorsMap
 	data, _ := json.MarshalIndent(themeData, "", "\t")
-	_ = os.WriteFile(path, data, 0644)
+	_ = os.WriteFile(path, data, 0o644)
 }
 
 // watchAccentColor watches for accent color IPC from the compositor and
@@ -529,7 +529,7 @@ func (d *settingsUI) mergeCustomColors(colors map[string]string) {
 	themeData["Colors"] = colorsMap
 
 	data, _ := json.MarshalIndent(themeData, "", "\t")
-	_ = os.WriteFile(dest, data, 0644)
+	_ = os.WriteFile(dest, data, 0o644)
 }
 
 // exportThemeDialog shows a dialog to save the current theme as a shareable TOML file.
@@ -552,7 +552,7 @@ func (d *settingsUI) exportThemeDialog() {
 // exportTheme saves the current theme to ~/.config/tyde/themes/<name>/
 func (d *settingsUI) exportTheme(name string) {
 	dir := filepath.Join(configDir(), "themes", name)
-	os.MkdirAll(dir, 0755)
+	os.MkdirAll(dir, 0o755)
 
 	// Read current active theme.json
 	storageRoot := fyne.CurrentApp().Storage().RootURI()
@@ -565,7 +565,7 @@ func (d *settingsUI) exportTheme(name string) {
 
 	// Write to the theme directory
 	dest := filepath.Join(dir, "theme.json")
-	if err := os.WriteFile(dest, data, 0644); err != nil {
+	if err := os.WriteFile(dest, data, 0o644); err != nil {
 		fyne.LogError("Could not export theme", err)
 		return
 	}

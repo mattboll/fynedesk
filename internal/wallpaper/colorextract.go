@@ -166,7 +166,8 @@ func colorDistSq(a, b rgbPixel) float64 {
 func pickAccentColor(clusters []struct {
 	center rgbPixel
 	size   int
-}) color.NRGBA {
+},
+) color.NRGBA {
 	fallback := color.NRGBA{R: 0x21, G: 0x96, B: 0xf3, A: 0xff}
 	if len(clusters) == 0 {
 		return fallback

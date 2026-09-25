@@ -27,7 +27,7 @@ func RequestWindowActionWithDesktop(windowID, action string, desktop int) error 
 	}
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -47,7 +47,7 @@ func RequestRaiseByTitle(title string) error {
 		return nil
 	}
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -67,7 +67,7 @@ func RequestRaiseByClass(class string) error {
 		return nil
 	}
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -230,7 +230,7 @@ func RequestOverlayPositionAbsolute(title string, x, y, w, h float32) error {
 	}
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -262,7 +262,7 @@ func RequestLauncher() error {
 	}
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -329,7 +329,7 @@ func RequestEmojiPaste(emoji string) error {
 	}
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(req)
 	if err != nil {
 		return err

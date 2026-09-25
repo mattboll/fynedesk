@@ -180,7 +180,6 @@ func (s *server) positionOverlay(v *xwayView, surface wlr.XwaylandSurface) {
 	} else {
 		setXwayScenePos(v)
 	}
-
 }
 
 // repositionMappedOverlay moves an already-mapped overlay window to a new position.

@@ -143,7 +143,8 @@ func hintUrgency(hints map[string]dbus.Variant) string {
 }
 
 func (n *notificationsDBus) Notify(appName string, replacesID uint32, appIcon, summary, body string,
-	actions []string, hints map[string]dbus.Variant, timeout int32) (uint32, *dbus.Error) {
+	actions []string, hints map[string]dbus.Variant, timeout int32,
+) (uint32, *dbus.Error) {
 	var tag string
 	for _, key := range stackTagHints {
 		if tag = hintString(hints, key); tag != "" {
@@ -199,8 +200,10 @@ func (n *notificationsDBus) GetServerInformation() (string, string, string, stri
 }
 
 func (n *notificationsDBus) GetCapabilities() ([]string, *dbus.Error) {
-	return []string{"actions", "body", "icon-static", "persistence",
-		"x-canonical-private-synchronous", "x-dunst-stack-tag"}, nil
+	return []string{
+		"actions", "body", "icon-static", "persistence",
+		"x-canonical-private-synchronous", "x-dunst-stack-tag",
+	}, nil
 }
 
 // emitAction emits ActionInvoked for a notification (so the app acts on it, e.g.

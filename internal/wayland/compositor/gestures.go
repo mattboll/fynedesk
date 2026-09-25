@@ -66,6 +66,7 @@ static void gestures_send_swipe_end(struct wlr_pointer_gestures_v1 *gestures,
 }
 */
 import "C"
+
 import (
 	"math"
 	"unsafe"

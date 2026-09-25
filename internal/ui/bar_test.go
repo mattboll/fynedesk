@@ -253,7 +253,7 @@ func TestIconTaskbarDisabled(t *testing.T) {
 	testBar.updateIconOrder()
 	testBar.updateTaskbar()
 
-	//Last Child at this point should not be the separator or a taskbar icon
+	// Last Child at this point should not be the separator or a taskbar icon
 	taskbarIconTest = false
 	if testBar.children[len(testBar.children)-1].(*barIcon).windowData == nil {
 		taskbarIconTest = true

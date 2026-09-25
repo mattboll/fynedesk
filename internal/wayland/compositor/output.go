@@ -505,7 +505,6 @@ func (s *server) getOutputForPosition(x, y float64) *outputState {
 }
 
 func (s *server) handleNewOutput(output wlr.Output) {
-
 	out := &outputState{output: output, savedMode: -1}
 
 	// Initialize render FIRST (required for DRM backend)

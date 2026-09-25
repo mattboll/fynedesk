@@ -142,7 +142,7 @@ func (s *server) requestShowClipboard() {
 	s.preOverlayXway = s.activeXway
 
 	configDir := s.getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 
 	ts := map[string]int64{"timestamp": time.Now().UnixMilli()}
 	data, _ := json.Marshal(ts)

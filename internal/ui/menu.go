@@ -314,7 +314,8 @@ func (w *widgetPanel) showAccountMenuWindow(_ fyne.CanvasObject) {
 		&widget.Button{Icon: theme.LogoutIcon(), Importance: widget.DangerImportance, OnTapped: func() {
 			w2.Close()
 			w.askLogout()
-		}}}
+		}},
+	}
 	isEmbed := w.desk.(*desktop).root.Title() != RootWindowName
 	items1 = append(items1, &widget.Button{Icon: wmtheme.LockIcon, Importance: widget.LowImportance, OnTapped: func() {
 		w2.Close()
@@ -356,7 +357,8 @@ func (w *widgetPanel) showAccountMenuWindow(_ fyne.CanvasObject) {
 		&widget.Button{Icon: theme.SettingsIcon(), Importance: widget.LowImportance, OnTapped: func() {
 			w.showSettings("")
 			w2.Close()
-		}}}
+		}},
+	}
 	items := container.NewBorder(nil, nil, container.NewHBox(items1...), container.NewHBox(items2...),
 		&widget.Button{Icon: theme.SearchIcon(), Text: locale.T("menu.search"), Importance: widget.LowImportance, OnTapped: func() {
 			ShowAppLauncher()

@@ -113,8 +113,10 @@ func Tf(key string, args ...any) string {
 
 // MonthName returns the localized name of a month (1-12).
 func MonthName(month int) string {
-	keys := []string{"", "cal.jan", "cal.feb", "cal.mar", "cal.apr", "cal.may", "cal.jun",
-		"cal.jul", "cal.aug", "cal.sep", "cal.oct", "cal.nov", "cal.dec"}
+	keys := []string{
+		"", "cal.jan", "cal.feb", "cal.mar", "cal.apr", "cal.may", "cal.jun",
+		"cal.jul", "cal.aug", "cal.sep", "cal.oct", "cal.nov", "cal.dec",
+	}
 	if month >= 1 && month <= 12 {
 		return T(keys[month])
 	}

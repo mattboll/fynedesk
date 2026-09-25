@@ -38,8 +38,10 @@ import (
 	"fyshos.com/tyde/internal/wallpaper"
 )
 
-const transitionDuration = 350 * time.Millisecond
-const slideDuration = 250 * time.Millisecond
+const (
+	transitionDuration = 350 * time.Millisecond
+	slideDuration      = 250 * time.Millisecond
+)
 
 // startSlideTransition begins a horizontal slide animation for desktop switching.
 // A snapshot of the old desktop slides out while the new desktop is revealed beneath.

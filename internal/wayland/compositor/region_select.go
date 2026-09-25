@@ -247,7 +247,7 @@ func (s *server) finishRegionSelect() {
 func (s *server) captureRegion(region string) {
 	homeDir, _ := os.UserHomeDir()
 	picturesDir := filepath.Join(homeDir, "Pictures")
-	os.MkdirAll(picturesDir, 0755)
+	os.MkdirAll(picturesDir, 0o755)
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	filename := filepath.Join(picturesDir, fmt.Sprintf("screenshot_%s.png", timestamp))
 

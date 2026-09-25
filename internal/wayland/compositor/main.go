@@ -872,7 +872,7 @@ func (s *server) finishRun() {
 	if s.shuttingDown.Load() {
 		homeDir, _ := os.UserHomeDir()
 		markerPath := filepath.Join(homeDir, ".cache", "fyne", "com.fyshos.tyde", "shutdown-marker")
-		_ = os.MkdirAll(filepath.Dir(markerPath), 0700)
+		_ = os.MkdirAll(filepath.Dir(markerPath), 0o700)
 		if err := atomicWriteFile(markerPath, []byte("shutdown")); err != nil {
 			log.Printf("Warning: could not write shutdown marker: %v", err)
 		}
@@ -910,7 +910,7 @@ func (s *server) finishRun() {
 // camera/screen sharing in Firefox/Chrome) and GTK handles the rest.
 func (s *server) setupPortalConfig() {
 	configDir := filepath.Join(os.Getenv("HOME"), ".config", "xdg-desktop-portal")
-	if err := os.MkdirAll(configDir, 0700); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		log.Printf("Warning: could not create portal config dir: %v\n", err)
 		return
 	}

@@ -18,7 +18,7 @@ import (
 
 func (s *server) getConfigDir() string {
 	configDir := wlipc.ConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	return configDir
 }
 

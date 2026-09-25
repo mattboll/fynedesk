@@ -38,7 +38,7 @@ func NewStore() *Store {
 		configDir = os.Getenv("HOME") + "/.config"
 	}
 	dir := filepath.Join(configDir, "tyde")
-	os.MkdirAll(dir, 0700)
+	os.MkdirAll(dir, 0o700)
 
 	s := &Store{
 		path: filepath.Join(dir, "notes.json"),
@@ -162,7 +162,7 @@ func (s *Store) saveNow() {
 	defer s.saveMu.Unlock()
 	// Atomic write: temp file + rename
 	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		log.Printf("[notes] failed to write %s: %v", tmp, err)
 		return
 	}

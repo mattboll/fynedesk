@@ -32,8 +32,8 @@ func newPortalDBus(srv *server) *portalDBus {
 // Screenshot implements org.freedesktop.impl.portal.Screenshot.Screenshot
 // See: https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.impl.portal.Screenshot.html
 func (p *portalDBus) Screenshot(handle, appID, parentWindow string,
-	options map[string]dbus.Variant) (uint32, map[string]dbus.Variant, *dbus.Error) {
-
+	options map[string]dbus.Variant,
+) (uint32, map[string]dbus.Variant, *dbus.Error) {
 	log.Printf("[PORTAL] Screenshot request from %q (handle=%s)\n", appID, handle)
 
 	interactive := false
@@ -60,8 +60,8 @@ func (p *portalDBus) Screenshot(handle, appID, parentWindow string,
 
 // PickColor implements org.freedesktop.impl.portal.Screenshot.PickColor
 func (p *portalDBus) PickColor(handle, appID, parentWindow string,
-	options map[string]dbus.Variant) (uint32, map[string]dbus.Variant, *dbus.Error) {
-
+	options map[string]dbus.Variant,
+) (uint32, map[string]dbus.Variant, *dbus.Error) {
 	log.Printf("[PORTAL] PickColor request from %q (not implemented)\n", appID)
 	return 2, nil, nil // not implemented
 }
@@ -70,7 +70,7 @@ func (p *portalDBus) PickColor(handle, appID, parentWindow string,
 func (p *portalDBus) captureScreenshot(interactive bool) (string, error) {
 	homeDir, _ := os.UserHomeDir()
 	picturesDir := filepath.Join(homeDir, "Pictures")
-	os.MkdirAll(picturesDir, 0755)
+	os.MkdirAll(picturesDir, 0o755)
 
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	filename := filepath.Join(picturesDir, fmt.Sprintf("screenshot_%s.png", timestamp))

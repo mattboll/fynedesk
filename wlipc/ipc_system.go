@@ -17,7 +17,7 @@ func RequestLock() error {
 	}
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	req := struct {
 		Timestamp int64 `json:"timestamp"`
 	}{Timestamp: time.Now().UnixMilli()}
@@ -35,7 +35,7 @@ func RequestLogout() error {
 	}
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	req := struct {
 		Timestamp int64 `json:"timestamp"`
 	}{Timestamp: time.Now().UnixMilli()}
@@ -53,7 +53,7 @@ func RequestRestart() error {
 	}
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	req := struct {
 		Timestamp int64 `json:"timestamp"`
 	}{Timestamp: time.Now().UnixMilli()}
@@ -108,7 +108,7 @@ func RequestOutputLayout(req LayoutRequest) error {
 	}
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -123,7 +123,7 @@ func RequestModeChange(modeIndex int, outputName string) error {
 		OutputName string `json:"output_name,omitempty"`
 	}{modeIndex, outputName}
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -138,7 +138,7 @@ func RequestScaleChange(scale float32, outputName string) error {
 		OutputName string  `json:"output_name,omitempty"`
 	}{scale, outputName}
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -153,7 +153,7 @@ func RequestVRRChange(outputName string, enabled bool) error {
 		Enabled    bool   `json:"enabled"`
 	}{outputName, enabled}
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -169,7 +169,7 @@ func NotifyBrightnessEvent() error {
 	broadcastIfServer(EventBrightnessChange, evt)
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(evt)
 	if err != nil {
 		return err
@@ -222,7 +222,7 @@ func NotifyVolumeEvent() error {
 	broadcastIfServer(EventVolumeChange, evt)
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(evt)
 	if err != nil {
 		return err
@@ -288,7 +288,7 @@ func NotifySettingsChanged(prefs map[string]any) error {
 	}
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -308,7 +308,7 @@ func NotifyScreenshot(filePath string) error {
 	broadcastIfServer(EventScreenshot, evt)
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(evt)
 	if err != nil {
 		return err
@@ -406,7 +406,7 @@ func NotifyDBusNotification(n DBusNotification) error {
 	broadcastIfServer(EventNotification, n)
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(n)
 	if err != nil {
 		return err
@@ -496,7 +496,7 @@ func WriteAccentColor(hex string) error {
 		return err
 	}
 	dir := getConfigDir()
-	os.MkdirAll(dir, 0700)
+	os.MkdirAll(dir, 0o700)
 	return atomicWriteFile(filepath.Join(dir, "accent-color.json"), data)
 }
 

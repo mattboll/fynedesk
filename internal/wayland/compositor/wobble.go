@@ -975,11 +975,19 @@ func decorationPixels(view any) ([4]*C.struct_wlr_scene_node, [4]*C.struct_wlr_b
 	var pairs [4][2]unsafe.Pointer
 	switch v := view.(type) {
 	case *xdgView:
-		pairs = [4][2]unsafe.Pointer{{v.decoTitlebar, v.decoTitlePix}, {v.decoCornerBL, v.decoCornerPL},
-			{v.decoCornerBR, v.decoCornerPR}, {v.decoIconBuf, v.decoIconPix}}
+		pairs = [4][2]unsafe.Pointer{
+			{v.decoTitlebar, v.decoTitlePix},
+			{v.decoCornerBL, v.decoCornerPL},
+			{v.decoCornerBR, v.decoCornerPR},
+			{v.decoIconBuf, v.decoIconPix},
+		}
 	case *xwayView:
-		pairs = [4][2]unsafe.Pointer{{v.decoTitlebar, v.decoTitlePix}, {v.decoCornerBL, v.decoCornerPL},
-			{v.decoCornerBR, v.decoCornerPR}, {v.decoIconBuf, v.decoIconPix}}
+		pairs = [4][2]unsafe.Pointer{
+			{v.decoTitlebar, v.decoTitlePix},
+			{v.decoCornerBL, v.decoCornerPL},
+			{v.decoCornerBR, v.decoCornerPR},
+			{v.decoIconBuf, v.decoIconPix},
+		}
 	}
 	for i, p := range pairs {
 		if p[0] != nil && p[1] != nil {

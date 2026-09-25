@@ -15,7 +15,7 @@ func RequestDesktopSwitch(desktop int) error {
 	}
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	fileReq := DesktopRequest{Desktop: desktop}
 	data, err := json.Marshal(fileReq)
 	if err != nil {

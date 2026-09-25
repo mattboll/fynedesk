@@ -143,14 +143,14 @@ func NewIPCServer(handler RequestHandler) (*IPCServer, error) {
 
 	// Set a tight umask before bind so the socket is created mode 0700
 	// instead of being briefly world-accessible between Listen and Chmod.
-	prevMask := syscall.Umask(0077)
+	prevMask := syscall.Umask(0o077)
 	listener, err := net.Listen("unix", sockPath)
 	syscall.Umask(prevMask)
 	if err != nil {
 		return nil, fmt.Errorf("listen %s: %w", sockPath, err)
 	}
 	// Belt-and-braces: enforce 0700 even if the umask path didn't take.
-	os.Chmod(sockPath, 0700)
+	os.Chmod(sockPath, 0o700)
 
 	srv := &IPCServer{
 		listener: listener,

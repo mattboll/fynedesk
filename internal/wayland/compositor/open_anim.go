@@ -451,8 +451,10 @@ func inRoundedRect(x, y, w, h int, r float64) bool {
 	}
 
 	corners := [][2]float64{
-		{r, r}, {fw - r, r},
-		{r, fh - r}, {fw - r, fh - r},
+		{r, r},
+		{fw - r, r},
+		{r, fh - r},
+		{fw - r, fh - r},
 	}
 	for _, c := range corners {
 		dx := fx - c[0]

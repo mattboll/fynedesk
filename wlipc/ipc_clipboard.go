@@ -73,7 +73,7 @@ func WriteClipboardHistory(entries []ClipboardEntry) error {
 	broadcastIfServer(EventClipboardHist, hist)
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(hist)
 	if err != nil {
 		return err
@@ -146,7 +146,7 @@ func RequestClipboardPaste(text string) error {
 	}
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -164,7 +164,7 @@ func RequestClipboardClear() error {
 	}
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(ts)
 	if err != nil {
 		return err
@@ -181,7 +181,7 @@ func RequestShowClipboard() error {
 	}
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(struct {
 		Timestamp int64 `json:"timestamp"`
 	}{Timestamp: time.Now().UnixMilli()})

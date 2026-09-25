@@ -16,8 +16,10 @@ type AnimatedWallpaper interface {
 // --- Decay lookup tables ---
 // Pre-computed: decayLUT[factor][x] = x * factor / 256
 // Matrix uses factor 217 (≈0.85), starfield uses factor 192 (≈0.75).
-var matrixDecayLUT [256]uint8
-var starDecayLUT [256]uint8
+var (
+	matrixDecayLUT [256]uint8
+	starDecayLUT   [256]uint8
+)
 
 func init() {
 	for i := range matrixDecayLUT {

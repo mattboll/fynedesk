@@ -191,7 +191,8 @@ func (s *server) isIPCRequestFile(path string, paths ipcFilePaths) bool {
 // pollIPCFilesLoop is the fallback for environments without inotify support.
 // Same 100 ms cadence as the original implementation.
 func (s *server) pollIPCFilesLoop(paths ipcFilePaths, parseFailures map[string]int,
-	logAndRemoveIfStuck func(string, error), clearFailures func(string)) {
+	logAndRemoveIfStuck func(string, error), clearFailures func(string),
+) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for range ticker.C {
@@ -209,7 +210,8 @@ func (s *server) pollIPCFilesLoop(paths ipcFilePaths, parseFailures map[string]i
 // Returns false if the caller should stop (shutdown / restart / logout
 // terminated the event loop).
 func (s *server) processIPCFiles(paths ipcFilePaths, parseFailures map[string]int,
-	logAndRemoveIfStuck func(string, error), clearFailures func(string)) bool {
+	logAndRemoveIfStuck func(string, error), clearFailures func(string),
+) bool {
 	locked := s.locked.Load()
 
 	s.processDisplayIPCFiles(paths, locked, logAndRemoveIfStuck, clearFailures)
@@ -224,7 +226,8 @@ func (s *server) processIPCFiles(paths ipcFilePaths, parseFailures map[string]in
 
 // processDisplayIPCFiles handles the mode, scale and desktop change requests.
 func (s *server) processDisplayIPCFiles(paths ipcFilePaths, locked bool,
-	logAndRemoveIfStuck func(string, error), clearFailures func(string)) {
+	logAndRemoveIfStuck func(string, error), clearFailures func(string),
+) {
 	// Check for mode change request
 	if data, err := os.ReadFile(paths.modeRequest); err == nil {
 		if len(data) > 0 {
@@ -389,7 +392,8 @@ func (s *server) processSettingsIPCFiles(paths ipcFilePaths, locked bool) {
 // processWindowIPCFiles handles the window action, raise and VRR requests.
 // A partial window action file defers the remaining requests to the next sweep.
 func (s *server) processWindowIPCFiles(paths ipcFilePaths, locked bool,
-	logAndRemoveIfStuck func(string, error), clearFailures func(string)) {
+	logAndRemoveIfStuck func(string, error), clearFailures func(string),
+) {
 	// Check for window action request — blocked while locked
 	if data, err := os.ReadFile(paths.windowAction); err == nil {
 		if len(data) == 0 {
@@ -583,7 +587,7 @@ func (s *server) handleWindowSizeAction(action string, xdgV *xdgView, xwayV *xwa
 
 func (s *server) requestLauncher() {
 	configDir := s.getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 
 	req := wlipc.LauncherRequest{
 		Timestamp: time.Now().UnixMilli(),
@@ -615,7 +619,7 @@ func (s *server) requestEmojiPicker() {
 	}
 
 	configDir := s.getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 
 	emojiReq := struct {
 		X         float64 `json:"x"`
@@ -768,7 +772,7 @@ func (s *server) requestCommandPalette() {
 
 	// File-based fallback
 	configDir := s.getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, _ := json.Marshal(ts)
 	writeAtomic(filepath.Join(configDir, "command-palette-request.json"), data)
 

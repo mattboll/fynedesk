@@ -171,7 +171,7 @@ func configDir() string {
 		base = filepath.Join(os.Getenv("HOME"), ".config")
 	}
 	dir := filepath.Join(base, "tyde")
-	os.MkdirAll(dir, 0755)
+	os.MkdirAll(dir, 0o755)
 	return dir
 }
 

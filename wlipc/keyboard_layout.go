@@ -46,7 +46,7 @@ func RequestKeyboardLayout(index int) error {
 	}
 
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 	data, err := json.Marshal(req)
 	if err != nil {
 		return err
@@ -117,7 +117,7 @@ func WatchKeyboardLayoutState(callback func(state *KeyboardLayoutState), done <-
 // NotifyKeyboardLayoutState writes the current keyboard layout state for the panel
 func NotifyKeyboardLayoutState(state KeyboardLayoutState) error {
 	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0700)
+	os.MkdirAll(configDir, 0o700)
 
 	state.Timestamp = time.Now().UnixMilli()
 	broadcastIfServer(EventKeyboardLayout, state)
