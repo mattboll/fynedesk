@@ -88,6 +88,10 @@ herdr window glow until you have seen it. The agents are read from the herdr
 socket (`$HERDR_SOCKET_PATH`, by default `~/.config/herdr/herdr.sock`), so no
 `notify-send` hook is needed in the agents.
 
+It all comes with the **Coding Agents** module, turned on once when herdr is
+found (Settings > Modules). Turned off, nothing of it is left: no widget, no
+notification, no glow, and Super+G is free.
+
 ## Screen sharing
 
 Screen sharing goes through `xdg-desktop-portal-wlr`. When an application

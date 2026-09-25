@@ -3,7 +3,10 @@ package ui
 import (
 	"fmt"
 	"log"
+	"os"
+	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -15,26 +18,139 @@ import (
 	"fyshos.com/tyde/wm"
 )
 
+func init() {
+	tyde.RegisterModule(agentsModuleMeta)
+}
+
+// agentsModuleMeta describes the Coding Agents module: the agents of herdr
+// in the widget panel, their notifications, the glow of the herdr window and
+// Super+G. It is offered once herdr is found.
+var agentsModuleMeta = tyde.ModuleMetadata{
+	Name:        wlipc.AgentsModule,
+	NewInstance: newAgentsModule,
+}
+
+// agentsModule runs the agent hub while it is enabled.
+type agentsModule struct {
+	hub *agentHub // nil outside a Wayland session
+}
+
+func newAgentsModule() tyde.Module {
+	m := &agentsModule{}
+	if wlipc.IsWaylandSession() {
+		m.hub = acquireAgentHub()
+	}
+	return m
+}
+
+func (m *agentsModule) Metadata() tyde.ModuleMetadata {
+	return agentsModuleMeta
+}
+
+func (m *agentsModule) Destroy() {
+	if m.hub != nil {
+		m.hub.release()
+		m.hub = nil
+	}
+}
+
+// herdrInstalled reports whether herdr is there to follow.
+func herdrInstalled() bool {
+	if _, err := exec.LookPath("herdr"); err == nil {
+		return true
+	}
+	_, err := os.Stat(agents.SocketPath())
+	return err == nil
+}
+
 // agentHub follows the coding agents running in herdr. It is only used from
 // the Fyne thread, except for its connection goroutines.
 type agentHub struct {
 	client    *agents.Client
 	tracker   *agents.Tracker
 	listeners []func()
-	attention bool // some agent waits for the user
+	attention bool           // some agent waits for the user
+	done      chan struct{}  // closed when the module stops
+	refs      int            // module instances using it (hubLock)
+	running   sync.WaitGroup // its goroutines
 }
 
-var hub *agentHub
+var (
+	hub     *agentHub
+	hubLock sync.Mutex
+)
 
-// agentHubInstance returns the hub, started on first use in a Wayland
-// session. It is nil elsewhere.
+// agentHubInstance returns the hub of the Coding Agents module, nil when it
+// is off.
 func agentHubInstance() *agentHub {
-	if hub == nil && wlipc.IsWaylandSession() {
-		hub = &agentHub{client: &agents.Client{Path: agents.SocketPath()}}
+	hubLock.Lock()
+	defer hubLock.Unlock()
+	return hub
+}
+
+// acquireAgentHub returns the hub, started if needed, for a module instance.
+func acquireAgentHub() *agentHub {
+	hubLock.Lock()
+	defer hubLock.Unlock()
+	if hub == nil {
+		hub = &agentHub{client: &agents.Client{Path: agents.SocketPath()}, done: make(chan struct{})}
+		hub.running.Add(2)
 		go hub.run()
 		go hub.tick()
 	}
+	hub.refs++
 	return hub
+}
+
+// hubGrace is how long the hub outlives its last module instance: modules
+// are made again each time settings are applied, and the hub keeps going
+// through that, with what the user has seen.
+const hubGrace = time.Second
+
+// release lets go of the hub; it stops once no instance took it back.
+func (h *agentHub) release() {
+	hubLock.Lock()
+	h.refs--
+	last := h.refs == 0
+	hubLock.Unlock()
+	if last {
+		time.AfterFunc(hubGrace, h.stopUnused)
+	}
+}
+
+// stopUnused stops the hub if no module instance uses it.
+func (h *agentHub) stopUnused() {
+	hubLock.Lock()
+	if h.refs > 0 || hub != h {
+		hubLock.Unlock()
+		return
+	}
+	hub = nil
+	hubLock.Unlock()
+	h.stop()
+}
+
+// stop stops following herdr and forgets the agents: no more widget,
+// notifications or glow. It waits for the goroutines of the hub, so it must
+// not be called from the Fyne thread.
+func (h *agentHub) stop() {
+	close(h.done)
+	h.running.Wait()
+	fyne.Do(func() {
+		h.tracker = nil
+		h.changed()
+		h.listeners = nil
+	})
+}
+
+// wait sleeps for d, and reports false if the hub stopped meanwhile.
+func (h *agentHub) wait(d time.Duration) bool {
+	select {
+	case <-h.done:
+		return false
+	case <-time.After(d):
+		return true
+	}
 }
 
 // onChange registers a function called on the Fyne thread when the agents change.
@@ -71,6 +187,7 @@ func (h *agentHub) Agents() []agents.Agent {
 
 // run keeps a subscription to herdr, reconnecting when it restarts.
 func (h *agentHub) run() {
+	defer h.running.Done()
 	for {
 		panes, err := h.client.Agents()
 		if err != nil {
@@ -80,15 +197,35 @@ func (h *agentHub) run() {
 					h.changed()
 				}
 			})
-			time.Sleep(10 * time.Second) // herdr not running
+			if !h.wait(10 * time.Second) { // herdr not running
+				return
+			}
 			continue
 		}
+		stopped := false
 		fyne.DoAndWait(func() {
+			select {
+			case <-h.done:
+				stopped = true
+				return
+			default:
+			}
 			h.tracker = agents.NewTracker(panes, time.Now())
 			h.tracker.Visible = herdrFocused
 			h.changed()
 		})
+		if stopped {
+			return
+		}
 		done := make(chan struct{})
+		ended := make(chan struct{})
+		go func() { // the subscription ends with the module
+			select {
+			case <-h.done:
+			case <-ended:
+			}
+			close(done)
+		}()
 		go h.resyncEvery(20*time.Second, done)
 		err = h.client.Watch(done, func(ev agents.Event) {
 			if ev.Resync {
@@ -102,9 +239,11 @@ func (h *agentHub) run() {
 				}
 			})
 		})
-		close(done)
+		close(ended)
 		log.Println("[agents] herdr subscription ended:", err)
-		time.Sleep(3 * time.Second)
+		if !h.wait(3 * time.Second) {
+			return
+		}
 	}
 }
 
@@ -140,7 +279,15 @@ func (h *agentHub) resyncEvery(period time.Duration, done <-chan struct{}) {
 // tick settles the status changes and tells about agents that finished or
 // need the user.
 func (h *agentHub) tick() {
-	for range time.Tick(500 * time.Millisecond) {
+	defer h.running.Done()
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-h.done:
+			return
+		case <-ticker.C:
+		}
 		fyne.Do(func() {
 			if h.tracker == nil {
 				return

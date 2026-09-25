@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -668,6 +669,7 @@ func LoadConfigForCompositor() (map[string]any, error) {
 	prefs["windowoutergap"] = float64(cfg.Windows.OuterGap)
 	prefs["wobblywindows"] = cfg.Windows.WobblyWindows()
 	prefs["blurbehind"] = cfg.Windows.BlurBehind()
+	prefs["agentsmodule"] = slices.Contains(cfg.Modules.Enabled, wlipc.AgentsModule)
 
 	// Hot corners
 	prefs["hotcorner_topleft"] = cfg.HotCorners.TopLeft

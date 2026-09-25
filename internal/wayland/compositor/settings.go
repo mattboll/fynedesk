@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"fyshos.com/tyde/internal/wayland/wlr"
@@ -121,6 +122,9 @@ type compositorConfig struct {
 		Type  string `toml:"type"`
 		Label string `toml:"label"`
 	} `toml:"screensaver"`
+	Modules struct {
+		Enabled []string `toml:"enabled"`
+	} `toml:"modules"`
 	// Power holds the idle timeouts, in minutes (0: never); unset ones keep
 	// the defaults.
 	Power struct {
@@ -247,6 +251,9 @@ func readTOMLAsPrefs(path string) (map[string]interface{}, error) {
 	prefs["windowoutergap"] = float64(cfg.Windows.OuterGap)
 	prefs["wobblywindows"] = cfg.Windows.Wobbly == nil || *cfg.Windows.Wobbly
 	prefs["blurbehind"] = cfg.Windows.Blur == nil || *cfg.Windows.Blur
+	if cfg.Modules.Enabled != nil {
+		prefs["agentsmodule"] = slices.Contains(cfg.Modules.Enabled, wlipc.AgentsModule)
+	}
 
 	// Night light
 	prefs["nightlightenabled"] = cfg.NightLight.Enabled
@@ -897,6 +904,9 @@ func (s *server) loadKeybindings(prefs map[string]interface{}) {
 	}
 
 	merged := wlipc.MergeWithDefaults(userBindings)
+	if on, ok := prefs["agentsmodule"].(bool); ok && !on {
+		delete(merged, wlipc.ActionNextAgent) // the key is free for something else
+	}
 	kbMap := make(map[resolvedBinding]string)
 
 	for action, bindings := range merged {

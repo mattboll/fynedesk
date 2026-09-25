@@ -89,6 +89,9 @@ type widgetPanel struct {
 	date                    *widget.Label
 	rotated                 *canvas.Image
 	modules, clocks         *fyne.Container
+	agents                  *fyne.Container // the Coding Agents widget, when the module is on
+	agentsWidget            *agentsWidget   // kept while the hub goes on
+	narrow                  bool
 	notifications           fyne.CanvasObject
 
 	calendarWin     fyne.Window // current calendar overlay (nil if closed)
@@ -254,9 +257,11 @@ func (w *widgetPanel) CreateRenderer() fyne.WidgetRenderer {
 		canvas.NewRectangle(color.Transparent), // clear top edge for clocks
 		clockTap,
 	)
-	if h := agentHubInstance(); h != nil && !narrow {
-		top.Add(newAgentsWidget(h))
+	w.narrow = narrow
+	if w.agents == nil {
+		w.agents = container.NewVBox()
 	}
+	top.Add(w.agents)
 	top.Add(w.notifications)
 
 	w.modules = container.NewVBox()
@@ -342,9 +347,22 @@ func (w *widgetPanel) reloadModules(mods []tyde.Module) {
 	w.modules.Objects = nil
 	w.loadModules(mods)
 	w.modules.Refresh()
+	w.agents.Refresh()
 }
 
 func (w *widgetPanel) loadModules(mods []tyde.Module) {
+	if w.agents == nil {
+		w.agents = container.NewVBox()
+	}
+	w.agents.Objects = nil
+	for _, m := range mods {
+		if am, ok := m.(*agentsModule); ok && am.hub != nil && !w.narrow {
+			if w.agentsWidget == nil || w.agentsWidget.hub != am.hub {
+				w.agentsWidget = newAgentsWidget(am.hub)
+			}
+			w.agents.Objects = []fyne.CanvasObject{w.agentsWidget}
+		}
+	}
 	for _, m := range mods {
 		if statusMod, ok := m.(tyde.StatusAreaModule); ok {
 			wid := statusMod.StatusAreaWidget()

@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"fyshos.com/tyde/internal/wayland/wlr"
+	"fyshos.com/tyde/wlipc"
 )
 
 func TestReadTOMLAsPrefsPowerAndBlur(t *testing.T) {
@@ -47,5 +50,51 @@ func TestReadTOMLAsPrefsDefaults(t *testing.T) {
 	}
 	if _, ok := prefs["power_blank_timeout"]; ok {
 		t.Error("power_blank_timeout is set although config.toml has no [power]")
+	}
+}
+
+func TestReadTOMLAsPrefsAgentsModule(t *testing.T) {
+	dir := t.TempDir()
+	for _, tt := range []struct {
+		cfg  string
+		want any
+	}{
+		{"[modules]\n  enabled = [\"Notes\", \"Coding Agents\"]\n", true},
+		{"[modules]\n  enabled = [\"Notes\"]\n", false},
+		{"", nil}, // no list yet: left to the default
+	} {
+		path := filepath.Join(dir, "config.toml")
+		if err := os.WriteFile(path, []byte(tt.cfg), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		prefs, err := readTOMLAsPrefs(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := prefs["agentsmodule"]; got != tt.want {
+			t.Errorf("%q: agentsmodule = %v, want %v", tt.cfg, got, tt.want)
+		}
+	}
+}
+
+func TestNextAgentKeyFollowsTheModule(t *testing.T) {
+	bound := func(prefs map[string]any) bool {
+		s := &server{wmModifier: wlr.KeyboardModifierLogo}
+		s.loadKeybindings(prefs)
+		for _, action := range s.keybindingMap {
+			if action == wlipc.ActionNextAgent {
+				return true
+			}
+		}
+		return false
+	}
+	if !bound(nil) {
+		t.Error("next_agent is not bound by default")
+	}
+	if !bound(map[string]any{"agentsmodule": true}) {
+		t.Error("next_agent is not bound with the module on")
+	}
+	if bound(map[string]any{"agentsmodule": false}) {
+		t.Error("next_agent is still bound with the module off")
 	}
 }

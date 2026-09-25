@@ -128,6 +128,10 @@ func DefaultBindings() ActionBindings {
 	}
 }
 
+// AgentsModule names the panel module of the coding agents: without it,
+// the next_agent action is left unbound.
+const AgentsModule = "Coding Agents"
+
 // ActionDisplayName returns a human-readable name for an action.
 func ActionDisplayName(action string) string {
 	names := map[string]string{

@@ -678,6 +678,9 @@ func (d *deskSettings) load() {
 	// Auto-migrate: add new modules for existing users
 	d.migrateModules("Keyboard Layout", "Power Profile", "Notes",
 		"Next Meeting", "Today's Agenda")
+	if herdrInstalled() {
+		d.migrateModules(wlipc.AgentsModule) // offered once herdr is there
+	}
 
 	if cfg.Input.KeyboardModifier == "Alt" {
 		d.modifier = fyne.KeyModifierAlt
@@ -873,9 +876,10 @@ func (d *deskSettings) prefsSnapshot() map[string]any {
 		"language":              d.cfg.Display.Language,
 	}
 
-	// Window effects
+	// Windows and modules
 	snapshot["wobblywindows"] = d.cfg.Windows.WobblyWindows()
 	snapshot["blurbehind"] = d.cfg.Windows.BlurBehind()
+	snapshot["agentsmodule"] = slices.Contains(d.moduleNames, wlipc.AgentsModule)
 
 	// Power management
 	snapshot["power_lock_timeout"] = float64(d.cfg.Power.LockTimeoutMin)

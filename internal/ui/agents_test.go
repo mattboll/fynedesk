@@ -85,7 +85,10 @@ func TestAgentQuestionAnsweredFromNotification(t *testing.T) {
 	got := make(chan *wm.Notification, 1)
 	wm.AddNotificationListener(func(n *wm.Notification) {
 		if n.Tag == agentTag("w1:p2") {
-			got <- n
+			select { // listeners stay: one of an earlier run (-count) must not block
+			case got <- n:
+			default:
+			}
 		}
 	})
 	h.notify(agents.Notice{Kind: agents.NeedsInput, Agent: agents.Agent{Pane: agents.Pane{PaneID: "w1:p2", Agent: "claude"}}})
@@ -109,7 +112,10 @@ func TestAgentFinishedHasNoButtons(t *testing.T) {
 	got := make(chan *wm.Notification, 1)
 	wm.AddNotificationListener(func(n *wm.Notification) {
 		if n.Tag == agentTag("w1:p9") {
-			got <- n
+			select { // listeners stay: one of an earlier run (-count) must not block
+			case got <- n:
+			default:
+			}
 		}
 	})
 	h := &agentHub{client: &agents.Client{Path: "/nonexistent"}}
@@ -138,4 +144,24 @@ func TestNextWaiting(t *testing.T) {
 
 	tr = agents.NewTracker([]agents.Pane{p("b", agents.StatusWorking, false)}, now)
 	assert.Equal(t, "", nextWaiting(tr.Agents()), "nobody waits")
+}
+
+func TestAgentHubOutlivesModuleReload(t *testing.T) {
+	t.Setenv("HERDR_SOCKET_PATH", filepath.Join(t.TempDir(), "none.sock"))
+	first := acquireAgentHub()
+	first.release() // settings applied: the modules are made again...
+	second := acquireAgentHub()
+	assert.Same(t, first, second, "a new instance takes the running hub back")
+
+	time.Sleep(hubGrace + 200*time.Millisecond)
+	assert.Same(t, second, agentHubInstance(), "still in use: kept")
+
+	second.release()
+	assert.Eventually(t, func() bool { return agentHubInstance() == nil },
+		hubGrace+2*time.Second, 50*time.Millisecond, "the module is off: the hub stops")
+	select {
+	case <-second.done:
+	default:
+		t.Error("the stopped hub still runs")
+	}
 }
