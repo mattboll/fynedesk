@@ -1,10 +1,7 @@
 package ui
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -13,6 +10,7 @@ import (
 
 	"fyshos.com/tyde"
 	"fyshos.com/tyde/locale"
+	"fyshos.com/tyde/wlipc"
 	"fyshos.com/tyde/wm"
 )
 
@@ -194,17 +192,8 @@ func (d *settingsUI) loadAppearanceScreen() fyne.CanvasObject {
 // readOutputNames reads compositor state to get available output names.
 // Returns nil if compositor state is unavailable or has only 1 output.
 func readOutputNames() []string {
-	configDir, err := os.UserConfigDir()
+	state, err := wlipc.ReadCompositorState()
 	if err != nil {
-		return nil
-	}
-	statePath := filepath.Join(configDir, "tyde", "compositor-state.json")
-	data, err := os.ReadFile(statePath)
-	if err != nil {
-		return nil
-	}
-	var state CompositorState
-	if err := json.Unmarshal(data, &state); err != nil {
 		return nil
 	}
 	var names []string

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"fyshos.com/tyde/internal/wayland/wlr"
+	"fyshos.com/tyde/wlipc"
 )
 
 func (s *server) writeCompositorState() {
@@ -94,8 +95,8 @@ func (s *server) writeCompositorState() {
 		})
 	}
 
-	configDir := s.getConfigDir()
-	statePath := filepath.Join(configDir, "compositor-state.json")
+	s.getConfigDir() // creates it
+	statePath := wlipc.CompositorStatePath()
 
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {

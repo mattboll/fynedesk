@@ -1,11 +1,9 @@
 package ui
 
 import (
-	"encoding/json"
 	"image/color"
 	"log"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -15,6 +13,7 @@ import (
 
 	"fyshos.com/tyde"
 	wmtheme "fyshos.com/tyde/theme"
+	"fyshos.com/tyde/wlipc"
 )
 
 // secondaryBar holds state for a bar window on a non-primary output.
@@ -43,24 +42,17 @@ func StartSecondaryBars(desk tyde.Desktop) {
 }
 
 func (m *secondaryBarManager) watch() {
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		return
-	}
-	statePath := filepath.Join(configDir, "tyde", "compositor-state.json")
+	statePath := wlipc.CompositorStatePath()
 
 	var lastMod time.Time
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
 	// Run reconcile immediately on startup (don't wait 500ms for first tick)
-	if data, err := os.ReadFile(statePath); err == nil && len(data) > 0 {
-		var state CompositorState
-		if json.Unmarshal(data, &state) == nil {
-			fyne.Do(func() { m.reconcile(state.Outputs) })
-			if info, err := os.Stat(statePath); err == nil {
-				lastMod = info.ModTime()
-			}
+	if state, err := wlipc.ReadCompositorState(); err == nil {
+		fyne.Do(func() { m.reconcile(state.Outputs) })
+		if info, err := os.Stat(statePath); err == nil {
+			lastMod = info.ModTime()
 		}
 	}
 
@@ -71,13 +63,8 @@ func (m *secondaryBarManager) watch() {
 		}
 		lastMod = info.ModTime()
 
-		data, err := os.ReadFile(statePath)
-		if err != nil || len(data) == 0 {
-			continue
-		}
-
-		var state CompositorState
-		if json.Unmarshal(data, &state) != nil {
+		state, err := wlipc.ReadCompositorState()
+		if err != nil {
 			continue
 		}
 

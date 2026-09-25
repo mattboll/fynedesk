@@ -1,10 +1,7 @@
 package ui
 
 import (
-	"encoding/json"
 	"image/color"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -32,21 +29,13 @@ const (
 
 var appExec *picker
 
-// readCompositorState reads the current compositor state from the config file.
+// readCompositorState reads the current compositor state, or nil.
 func readCompositorState() *CompositorState {
-	configDir, err := os.UserConfigDir()
+	state, err := wlipc.ReadCompositorState()
 	if err != nil {
 		return nil
 	}
-	data, err := os.ReadFile(filepath.Join(configDir, "tyde", "compositor-state.json"))
-	if err != nil {
-		return nil
-	}
-	var state CompositorState
-	if json.Unmarshal(data, &state) != nil {
-		return nil
-	}
-	return &state
+	return state
 }
 
 // positionLauncherAtCursor positions the launcher overlay centered on the output

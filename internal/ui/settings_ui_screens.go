@@ -1,10 +1,7 @@
 package ui
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 
 	"fyne.io/fyne/v2"
@@ -15,47 +12,12 @@ import (
 	"fyshos.com/tyde/wlipc"
 )
 
-// OutputModeInfo matches the compositor's JSON structure
-type OutputModeInfo struct {
-	Index       int    `json:"index"`
-	Width       int    `json:"width"`
-	Height      int    `json:"height"`
-	RefreshRate int    `json:"refresh_rate"`
-	Current     bool   `json:"current"`
-	Custom      bool   `json:"custom,omitempty"`       // true = virtual resolution (scale-based)
-	AspectRatio string `json:"aspect_ratio,omitempty"` // e.g. "16:10", "16:9"
-}
-
-// CompositorOutputState describes a single output in the compositor state
-type CompositorOutputState struct {
-	OutputName            string           `json:"output_name"`
-	Modes                 []OutputModeInfo `json:"modes"`
-	PhysWidth             int              `json:"phys_width"`
-	PhysHeight            int              `json:"phys_height"`
-	Scale                 float32          `json:"scale"`
-	Width                 int              `json:"width"`
-	Height                int              `json:"height"`
-	X                     int              `json:"x"`
-	Y                     int              `json:"y"`
-	Primary               bool             `json:"primary"`
-	AdaptiveSyncEnabled   bool             `json:"adaptive_sync_enabled"`
-	AdaptiveSyncSupported bool             `json:"adaptive_sync_supported"`
-	MirrorOf              string           `json:"mirror_of,omitempty"` // output shown on this one, if any
-}
-
-// CompositorState matches the compositor's JSON structure
-type CompositorState struct {
-	Outputs []CompositorOutputState `json:"outputs"`
-
-	// Legacy single-output fields for backward compat
-	OutputName string           `json:"output_name"`
-	Modes      []OutputModeInfo `json:"modes"`
-	PhysWidth  int              `json:"phys_width"`
-	PhysHeight int              `json:"phys_height"`
-	Scale      float32          `json:"scale"`
-	Width      int              `json:"width"`
-	Height     int              `json:"height"`
-}
+// Types of the compositor state, shared with it (see wlipc).
+type (
+	OutputModeInfo        = wlipc.OutputModeInfo
+	CompositorOutputState = wlipc.CompositorOutputState
+	CompositorState       = wlipc.CompositorState
+)
 
 // loadScreensGroup shows the outputs of a Wayland session, as described by
 // the compositor, with their resolution, scale and arrangement.
@@ -115,38 +77,13 @@ func (d *settingsUI) loadResolutionSelector() fyne.CanvasObject {
 }
 
 // readCompositorOutputs returns the outputs described in the compositor
-// state file, falling back to the single output of older state files.
+// state file.
 func readCompositorOutputs() []CompositorOutputState {
-	configDir, err := os.UserConfigDir()
+	state, err := wlipc.ReadCompositorState()
 	if err != nil {
 		return nil
 	}
-	data, err := os.ReadFile(filepath.Join(configDir, "tyde", "compositor-state.json"))
-	if err != nil {
-		return nil
-	}
-
-	var state CompositorState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return nil
-	}
-
-	if len(state.Outputs) > 0 {
-		return state.Outputs
-	}
-	if len(state.Modes) == 0 {
-		return nil
-	}
-	return []CompositorOutputState{{
-		OutputName: state.OutputName,
-		Modes:      state.Modes,
-		PhysWidth:  state.PhysWidth,
-		PhysHeight: state.PhysHeight,
-		Scale:      state.Scale,
-		Width:      state.Width,
-		Height:     state.Height,
-		Primary:    true,
-	}}
+	return state.AllOutputs()
 }
 
 // settingsRow lays out a bold label before content, with an optional trailing object.

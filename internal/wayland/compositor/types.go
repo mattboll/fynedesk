@@ -116,50 +116,6 @@ const (
 	snapBottomRight
 )
 
-// OutputModeInfo is exported for JSON serialization
-type OutputModeInfo struct {
-	Index       int    `json:"index"`
-	Width       int    `json:"width"`
-	Height      int    `json:"height"`
-	RefreshRate int    `json:"refresh_rate"`
-	Current     bool   `json:"current"`
-	Custom      bool   `json:"custom,omitempty"`       // true = virtual resolution (scale-based)
-	AspectRatio string `json:"aspect_ratio,omitempty"` // e.g. "16:10", "16:9"
-}
-
-// CompositorOutputState describes a single output in the compositor state
-type CompositorOutputState struct {
-	OutputName            string           `json:"output_name"`
-	Modes                 []OutputModeInfo `json:"modes"`
-	PhysWidth             int              `json:"phys_width"`
-	PhysHeight            int              `json:"phys_height"`
-	Scale                 float32          `json:"scale"`
-	Width                 int              `json:"width"`
-	Height                int              `json:"height"`
-	X                     int              `json:"x"`
-	Y                     int              `json:"y"`
-	Primary               bool             `json:"primary"`
-	AdaptiveSyncEnabled   bool             `json:"adaptive_sync_enabled"`
-	AdaptiveSyncSupported bool             `json:"adaptive_sync_supported"`
-	// MirrorOf names the output this one shows the picture of. A mirrored
-	// output is not part of the desktop: no windows, no position.
-	MirrorOf string `json:"mirror_of,omitempty"`
-}
-
-// CompositorState is written to a file for the panel to read
-type CompositorState struct {
-	Outputs []CompositorOutputState `json:"outputs"`
-
-	// Legacy single-output fields for backward compatibility with older panels
-	OutputName string           `json:"output_name"`
-	Modes      []OutputModeInfo `json:"modes"`
-	PhysWidth  int              `json:"phys_width"`
-	PhysHeight int              `json:"phys_height"`
-	Scale      float32          `json:"scale"`
-	Width      int              `json:"width"`
-	Height     int              `json:"height"`
-}
-
 // ModeRequest is read from a file when panel requests an EDID mode change.
 type ModeRequest struct {
 	ModeIndex  int    `json:"mode_index"`
@@ -170,14 +126,6 @@ type ModeRequest struct {
 type ScaleRequest struct {
 	Scale      float32 `json:"scale"`
 	OutputName string  `json:"output_name,omitempty"` // empty = primary
-}
-
-// LayoutRequest is read from a file when panel requests output positioning/mirroring/primary changes
-type LayoutRequest struct {
-	OutputName string `json:"output_name"` // Output to reposition
-	Position   string `json:"position"`    // "left","right","above","below","mirror" (empty = primary-only)
-	RelativeTo string `json:"relative_to"` // Reference output name
-	Primary    bool   `json:"primary"`     // Set as primary output
 }
 
 // OutputLayoutConfig persists output layout to disk
@@ -197,19 +145,6 @@ type OutputLayoutEntry struct {
 type VRRRequest struct {
 	OutputName string `json:"output_name"` // empty = primary
 	Enabled    bool   `json:"enabled"`
-}
-
-// DesktopRequest is read from a file when panel requests a desktop change
-type DesktopRequest struct {
-	Desktop int `json:"desktop"`
-}
-
-// DesktopState is written to a file for the panel to read current desktop
-type DesktopState struct {
-	Version  int      `json:"version,omitempty"` // IPC schema version (0 == legacy/unset)
-	Current  int      `json:"current"`
-	NumDesks int      `json:"num_desks"`
-	Names    []string `json:"names,omitempty"`
 }
 
 type server struct {
@@ -750,3 +685,13 @@ type overviewEntry struct {
 	gridX, gridY int            // Target grid position
 	gridW, gridH int            // Target grid cell size for thumbnail
 }
+
+// Types shared with the panel over IPC, defined once in wlipc.
+type (
+	OutputModeInfo        = wlipc.OutputModeInfo
+	CompositorOutputState = wlipc.CompositorOutputState
+	CompositorState       = wlipc.CompositorState
+	LayoutRequest         = wlipc.LayoutRequest
+	DesktopRequest        = wlipc.DesktopRequest
+	DesktopState          = wlipc.DesktopState
+)
