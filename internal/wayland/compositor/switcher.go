@@ -1067,49 +1067,9 @@ func (s *server) openOverview() {
 		realX, realY, realW, realH := s.getViewScreenRect(ent.view)
 
 		// Capture high-res thumbnail
-		var thumbImg *image.NRGBA
-		if eglOK {
-			switch v := ent.view.(type) {
-			case *xdgView:
-				thumbImg = s.captureXDGThumbDirect(v, pix, captMaxW, captMaxH)
-				if thumbImg == nil {
-					thumbImg = v.cachedThumb
-				}
-			case *xwayView:
-				thumbImg = s.captureWlrThumbDirect(v, pix, captMaxW, captMaxH)
-				if thumbImg == nil {
-					thumbImg = v.cachedThumb
-				}
-			}
-		} else {
-			// Fallback to cached thumbnails
-			switch v := ent.view.(type) {
-			case *xdgView:
-				thumbImg = v.cachedThumb
-			case *xwayView:
-				thumbImg = v.cachedThumb
-			}
-		}
+		thumbImg := s.overviewThumbnail(ent.view, eglOK, pix, captMaxW, captMaxH)
 
-		var sceneBuf unsafe.Pointer
-		var pixBuf unsafe.Pointer
-
-		if thumbImg != nil {
-			tw := thumbImg.Bounds().Dx()
-			th := thumbImg.Bounds().Dy()
-			pb := C.pixel_buffer_create(C.int(tw), C.int(th))
-			if pb != nil {
-				C.pixel_buffer_update(pb, unsafe.Pointer(&thumbImg.Pix[0]), C.int(tw), C.int(th))
-				sb := C.scene_buffer_create(swTree, &pb.base)
-				if sb != nil {
-					// Start at window's real position and size
-					C.scene_node_set_position(&sb.node, C.int(realX), C.int(realY))
-					C.scene_buffer_set_dest_size(sb, C.int(realW), C.int(realH))
-					sceneBuf = unsafe.Pointer(sb)
-				}
-				pixBuf = unsafe.Pointer(pb)
-			}
-		}
+		sceneBuf, pixBuf := overviewThumbBuffer(swTree, thumbImg, realX, realY, realW, realH)
 
 		// Get and hide original window's scene tree
 		var origTree unsafe.Pointer
@@ -1123,22 +1083,7 @@ func (s *server) openOverview() {
 			setViewSceneEnabled(origTree, false)
 		}
 
-		// Fit window into cell while preserving aspect ratio
-		fitW, fitH := layout.cellW, layout.thumbH
-		if realW > 0 && realH > 0 {
-			winAspect := float64(realW) / float64(realH)
-			cellAspect := float64(layout.cellW) / float64(layout.thumbH)
-			if winAspect > cellAspect {
-				// Window is wider than cell — fit by width
-				fitH = int(float64(layout.cellW) / winAspect)
-			} else {
-				// Window is taller than cell — fit by height
-				fitW = int(float64(layout.thumbH) * winAspect)
-			}
-		}
-		// Center within cell
-		fitX := gridX + (layout.cellW-fitW)/2
-		fitY := gridY + (layout.thumbH-fitH)/2
+		fitX, fitY, fitW, fitH := overviewFitRect(layout, gridX, gridY, realW, realH)
 
 		s.overviewEntries[i] = overviewEntry{
 			view: ent.view, sceneBuf: sceneBuf, pixBuf: pixBuf,
@@ -1165,6 +1110,82 @@ func (s *server) openOverview() {
 		// Render first frame at progress=0 (windows at real positions)
 		s.applyOverviewPositions(0.0)
 	}
+}
+
+// overviewThumbnail captures the thumbnail of an overview window, falling back
+// to its cached thumbnail.
+func (s *server) overviewThumbnail(view interface{}, eglOK bool, pix []byte, captMaxW, captMaxH int) *image.NRGBA {
+	var thumbImg *image.NRGBA
+	if eglOK {
+		switch v := view.(type) {
+		case *xdgView:
+			thumbImg = s.captureXDGThumbDirect(v, pix, captMaxW, captMaxH)
+			if thumbImg == nil {
+				thumbImg = v.cachedThumb
+			}
+		case *xwayView:
+			thumbImg = s.captureWlrThumbDirect(v, pix, captMaxW, captMaxH)
+			if thumbImg == nil {
+				thumbImg = v.cachedThumb
+			}
+		}
+	} else {
+		// Fallback to cached thumbnails
+		switch v := view.(type) {
+		case *xdgView:
+			thumbImg = v.cachedThumb
+		case *xwayView:
+			thumbImg = v.cachedThumb
+		}
+	}
+	return thumbImg
+}
+
+// overviewThumbBuffer creates the scene buffer showing a thumbnail at the
+// window's real position and size.
+func overviewThumbBuffer(swTree *C.struct_wlr_scene_tree, thumbImg *image.NRGBA, realX, realY, realW, realH int) (unsafe.Pointer, unsafe.Pointer) {
+	var sceneBuf unsafe.Pointer
+	var pixBuf unsafe.Pointer
+
+	if thumbImg != nil {
+		tw := thumbImg.Bounds().Dx()
+		th := thumbImg.Bounds().Dy()
+		pb := C.pixel_buffer_create(C.int(tw), C.int(th))
+		if pb != nil {
+			C.pixel_buffer_update(pb, unsafe.Pointer(&thumbImg.Pix[0]), C.int(tw), C.int(th))
+			sb := C.scene_buffer_create(swTree, &pb.base)
+			if sb != nil {
+				// Start at window's real position and size
+				C.scene_node_set_position(&sb.node, C.int(realX), C.int(realY))
+				C.scene_buffer_set_dest_size(sb, C.int(realW), C.int(realH))
+				sceneBuf = unsafe.Pointer(sb)
+			}
+			pixBuf = unsafe.Pointer(pb)
+		}
+	}
+	return sceneBuf, pixBuf
+}
+
+// overviewFitRect fits a window into its overview cell, preserving its aspect
+// ratio.
+func overviewFitRect(layout overviewLayoutData, gridX, gridY, realW, realH int) (int, int, int, int) {
+	// Fit window into cell while preserving aspect ratio
+	fitW, fitH := layout.cellW, layout.thumbH
+	if realW > 0 && realH > 0 {
+		winAspect := float64(realW) / float64(realH)
+		cellAspect := float64(layout.cellW) / float64(layout.thumbH)
+		if winAspect > cellAspect {
+			// Window is wider than cell — fit by width
+			fitH = int(float64(layout.cellW) / winAspect)
+		} else {
+			// Window is taller than cell — fit by height
+			fitW = int(float64(layout.thumbH) * winAspect)
+		}
+	}
+	// Center within cell
+	fitX := gridX + (layout.cellW-fitW)/2
+	fitY := gridY + (layout.thumbH-fitH)/2
+	return fitX, fitY, fitW, fitH
 }
 
 // applyOverviewPositions updates per-window scene buffer positions and sizes

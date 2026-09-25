@@ -115,6 +115,22 @@ func (s *server) initHotCorners() {
 // toggleShowDesktop minimizes all windows or restores them.
 func (s *server) toggleShowDesktop() {
 	// Check if any window is visible (not minimized)
+	anyVisible := s.anyDeskWindowVisible()
+
+	if anyVisible {
+		// Minimize all
+		s.minimizeDeskWindows()
+		s.showDesktopActive = true
+	} else if s.showDesktopActive {
+		// Restore previously minimized windows
+		s.restoreDeskWindows()
+		s.showDesktopActive = false
+	}
+}
+
+// anyDeskWindowVisible reports whether a top-level window of the current
+// desktop is mapped and not minimized.
+func (s *server) anyDeskWindowVisible() bool {
 	anyVisible := false
 	for _, v := range s.xdgViews {
 		if v.mapped && !v.minimized && v.parent == nil && v.onDesk(s.currentDesk) {
@@ -130,32 +146,35 @@ func (s *server) toggleShowDesktop() {
 			}
 		}
 	}
+	return anyVisible
+}
 
-	if anyVisible {
-		// Minimize all
-		for _, v := range s.xdgViews {
-			if v.mapped && !v.minimized && v.parent == nil && v.onDesk(s.currentDesk) {
-				s.minimizeXdgWindow(v)
-			}
+// minimizeDeskWindows minimizes the visible top-level windows of the current
+// desktop.
+func (s *server) minimizeDeskWindows() {
+	for _, v := range s.xdgViews {
+		if v.mapped && !v.minimized && v.parent == nil && v.onDesk(s.currentDesk) {
+			s.minimizeXdgWindow(v)
 		}
-		for _, v := range s.xwayViews {
-			if v.mapped && !v.minimized && !v.isPanel && !v.isOverlay && v.parent == nil && v.onDesk(s.currentDesk) {
-				s.minimizeXwayWindow(v)
-			}
+	}
+	for _, v := range s.xwayViews {
+		if v.mapped && !v.minimized && !v.isPanel && !v.isOverlay && v.parent == nil && v.onDesk(s.currentDesk) {
+			s.minimizeXwayWindow(v)
 		}
-		s.showDesktopActive = true
-	} else if s.showDesktopActive {
-		// Restore previously minimized windows
-		for _, v := range s.xdgViews {
-			if v.minimized && v.parent == nil && v.onDesk(s.currentDesk) {
-				s.restoreXdgWindow(v)
-			}
+	}
+}
+
+// restoreDeskWindows restores the minimized top-level windows of the current
+// desktop.
+func (s *server) restoreDeskWindows() {
+	for _, v := range s.xdgViews {
+		if v.minimized && v.parent == nil && v.onDesk(s.currentDesk) {
+			s.restoreXdgWindow(v)
 		}
-		for _, v := range s.xwayViews {
-			if v.minimized && !v.isPanel && !v.isOverlay && v.parent == nil && v.onDesk(s.currentDesk) {
-				s.restoreXwayWindow(v)
-			}
+	}
+	for _, v := range s.xwayViews {
+		if v.minimized && !v.isPanel && !v.isOverlay && v.parent == nil && v.onDesk(s.currentDesk) {
+			s.restoreXwayWindow(v)
 		}
-		s.showDesktopActive = false
 	}
 }

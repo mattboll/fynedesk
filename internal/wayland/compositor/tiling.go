@@ -155,67 +155,81 @@ func (s *server) retile() {
 	i := s.innerGap // gap between adjacent windows
 
 	for idx, tv := range views {
-		var x, y float64
-		var w, h int
 		var topMargin int
 
 		if (tv.xdg != nil && tv.xdg.decorated) || (tv.xway != nil && tv.xway.decorated) {
 			topMargin = titlebarHeight
 		}
 
-		if n == 1 {
-			// Single window: fill entire content area with outer gaps
-			x = float64(cx + o)
-			y = float64(cy + topMargin + o)
-			w = cw - o*2
-			h = ch - topMargin - o*2
-		} else if idx == 0 {
-			// Master: left portion with outer gap on left, inner gap on right
-			masterW := int(float64(cw) * ratio)
-			x = float64(cx + o)
-			y = float64(cy + topMargin + o)
-			w = masterW - o - i/2
-			h = ch - topMargin - o*2
-		} else {
-			// Stack: right portion, divided vertically
-			stackCount := n - 1
-			stackIdx := idx - 1
-
-			masterW := int(float64(cw) * ratio)
-			stackX := cx + masterW + i/2
-			stackW := cw - masterW - i/2 - o
-
-			stackTotalH := ch - topMargin - o*2
-			perH := (stackTotalH - i*(stackCount-1)) / stackCount
-			stackY := cy + topMargin + o + stackIdx*(perH+i)
-
-			x = float64(stackX)
-			y = float64(stackY)
-			w = stackW
-			h = perH
-		}
+		x, y, w, h := tileGeometry(n, idx, topMargin, cx, cy, cw, ch, o, i, ratio)
 
 		// Apply layout
-		if tv.xdg != nil {
-			v := tv.xdg
-			oldX, oldY := v.x, v.y
-			v.snapped = snapNone
-			v.maximized = false
-			v.configuredW = w
-			v.configuredH = h
-			v.xdgToplevel.SetSize(int32(w), int32(h))
-			s.animateXdgPos(v, oldX, oldY, x, y)
-		} else if tv.xway != nil {
-			v := tv.xway
-			oldX, oldY := v.x, v.y
-			v.snapped = snapNone
-			v.maximized = false
-			v.surface.Configure(int16(x), int16(y), uint16(w), uint16(h))
-			s.animateXwayPos(v, oldX, oldY, x, y)
-		}
+		s.applyTileGeometry(tv.xdg, tv.xway, x, y, w, h)
 	}
 
 	s.writeWindowsState()
+}
+
+// tileGeometry returns the position and size of the idx-th of n tiled windows
+// in the content area.
+func tileGeometry(n, idx, topMargin, cx, cy, cw, ch, o, i int, ratio float64) (float64, float64, int, int) {
+	var x, y float64
+	var w, h int
+
+	if n == 1 {
+		// Single window: fill entire content area with outer gaps
+		x = float64(cx + o)
+		y = float64(cy + topMargin + o)
+		w = cw - o*2
+		h = ch - topMargin - o*2
+	} else if idx == 0 {
+		// Master: left portion with outer gap on left, inner gap on right
+		masterW := int(float64(cw) * ratio)
+		x = float64(cx + o)
+		y = float64(cy + topMargin + o)
+		w = masterW - o - i/2
+		h = ch - topMargin - o*2
+	} else {
+		// Stack: right portion, divided vertically
+		stackCount := n - 1
+		stackIdx := idx - 1
+
+		masterW := int(float64(cw) * ratio)
+		stackX := cx + masterW + i/2
+		stackW := cw - masterW - i/2 - o
+
+		stackTotalH := ch - topMargin - o*2
+		perH := (stackTotalH - i*(stackCount-1)) / stackCount
+		stackY := cy + topMargin + o + stackIdx*(perH+i)
+
+		x = float64(stackX)
+		y = float64(stackY)
+		w = stackW
+		h = perH
+	}
+	return x, y, w, h
+}
+
+// applyTileGeometry moves and resizes a tiled window, leaving any snap or
+// maximized state.
+func (s *server) applyTileGeometry(xdg *xdgView, xway *xwayView, x, y float64, w, h int) {
+	if xdg != nil {
+		v := xdg
+		oldX, oldY := v.x, v.y
+		v.snapped = snapNone
+		v.maximized = false
+		v.configuredW = w
+		v.configuredH = h
+		v.xdgToplevel.SetSize(int32(w), int32(h))
+		s.animateXdgPos(v, oldX, oldY, x, y)
+	} else if xway != nil {
+		v := xway
+		oldX, oldY := v.x, v.y
+		v.snapped = snapNone
+		v.maximized = false
+		v.surface.Configure(int16(x), int16(y), uint16(w), uint16(h))
+		s.animateXwayPos(v, oldX, oldY, x, y)
+	}
 }
 
 // swapMaster promotes the focused stack window to master position.

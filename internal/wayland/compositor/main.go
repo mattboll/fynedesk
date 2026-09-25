@@ -400,179 +400,11 @@ func Run() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	srv := &server{
-		currentDesk:       0,
-		numDesks:          4, // Default to 4 virtual desktops
-		lastInputTime:     time.Now(),
-		wmModifier:        wlr.KeyboardModifierLogo, // Default: Super key
-		nestedMode:        os.Getenv("WAYLAND_DISPLAY") != "" || os.Getenv("DISPLAY") != "",
-		mainThreadActions: make(chan func(), 64),
-		shutdown:          make(chan struct{}),
-		mirrors:           map[string]*mirrorState{},
-		disabledOutputs:   map[string]*outputState{},
-		attentionTitles:   map[string]bool{},
-		glows:             map[any]*glow{},
-		wobblyWindows:     true,
-	}
-	clipServer = srv
-	srv.initPowerDefaults()
-
-	// Create Wayland display
-	srv.display = wlr.CreateDisplay()
-
-	// Create backend (auto-detects: nested wayland/x11 or DRM)
-	srv.backend, srv.session = wlr.AutocreateBackend(srv.display.EventLoop())
-	if !srv.backend.Valid() {
-		log.Println("Failed to create backend")
-		os.Exit(1)
-	}
-
-	// Create renderer
-	srv.renderer = wlr.AutocreateRenderer(srv.backend)
-	if !srv.renderer.Valid() {
-		log.Println("Failed to create renderer")
-		os.Exit(1)
-	}
-	if !srv.renderer.InitWLDisplay(srv.display) {
-		log.Println("Failed to initialize renderer buffer protocols")
-		os.Exit(1)
-	}
-	C.set_egl_from_renderer((*C.struct_wlr_renderer)(srv.renderer.Ptr()))
-
-	// Create allocator
-	srv.allocator = wlr.AutocreateAllocator(srv.backend, srv.renderer)
-	if !srv.allocator.Valid() {
-		log.Println("Failed to create allocator")
-		os.Exit(1)
-	}
-
-	// Create compositor
-	srv.compositor = wlr.CreateCompositor(srv.display, 6, srv.renderer)
-
-	// GPU reset: the renderer is unusable and must be replaced.
-	srv.rendererLost = srv.renderer.OnLost(srv.handleRendererLost)
-
-	// Create subcompositor for subsurfaces
-	wlr.CreateSubcompositor(srv.display)
-
-	// Create data device manager (required for clipboard/GTK apps)
-	srv.dataDeviceMgr = wlr.CreateDataDeviceManager(srv.display)
-
-	// Create primary selection manager (required for middle-click paste and XWayland clipboard bridge)
-	wlr.CreatePrimarySelectionV1DeviceManager(srv.display)
-
-	// Create output layout
-	srv.outLayout = wlr.CreateOutputLayout(srv.display)
-
-	// Create scene graph (wlr_scene handles damage tracking + rendering)
-	srv.scene = unsafe.Pointer(C.create_scene())
-	scene := (*C.struct_wlr_scene)(srv.scene)
-	sceneTree := &scene.tree
-
-	// wp_presentation_time: required for clients (mpv, browsers) to sync to
-	// vblank. The scene wires per-surface feedback via wlr_scene_set_presentation.
-	C.create_presentation(displayPtr(srv.display), backendPtr(srv.backend))
-
-	// Create layer trees (render order: background < panel < windows < override < fullscreen < overlay < switcher)
-	srv.backgroundTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
-	srv.panelTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
-	srv.windowsTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
-	srv.overrideTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
-	srv.fullscreenTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
-	srv.overlayTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
-	srv.switcherTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
-	srv.penTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
-	srv.lockTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
-	// Switcher is hidden by default
-	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(srv.switcherTree).node, 0)
-	// Felt-tip pen annotation layer hidden by default (enabled while ink exists)
-	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(srv.penTree).node, 0)
-	// Fullscreen layer hidden by default
-	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(srv.fullscreenTree).node, 0)
-	// Lock layer hidden by default (enabled when lock client connects)
-	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(srv.lockTree).node, 0)
-
-	// Create XDG output manager (required by grim for output geometry)
-	wlr.CreateXDGOutputManagerV1(srv.display, srv.outLayout)
-
-	// Create screencopy manager (allows grim to capture screenshots)
-	srv.screencopyMgr = wlr.CreateScreencopyManagerV1(srv.display)
-	setupCapture(srv)
-
-	// Enable fractional scaling (wp_fractional_scale_v1 + wp_viewporter)
-	srv.setupFractionalScaling()
-
-	// Create session lock manager (ext-session-lock-v1 for swaylock, etc.)
-	setupSessionLock(srv)
-
-	// Create XDG activation manager (xdg-activation-v1 for focus stealing / urgency)
-	setupXDGActivation(srv)
-
-	// Create text input / input method managers (text-input-v3 + input-method-v2 for IME)
-	setupTextInput(srv)
-
-	// Create virtual keyboard manager (zwp_virtual_keyboard_v1) so on-screen
-	// keyboards, accessibility tools, IME helpers, and QA automation (wtype,
-	// dotool) can inject synthetic key events.
-	setupVirtualKeyboard(srv)
-
-	// Create security context manager (wp_security_context_v1 for Flatpak sandboxing)
-	setupSecurityContext(srv)
-
-	// Handle new outputs (monitors)
-	srv.listeners.Add(srv.backend.OnNewOutput(srv.handleNewOutput))
-
-	// Create XDG shell for native Wayland windows
-	srv.xdgShell = wlr.CreateXDGShell(srv.display, 3)
-	srv.listeners.Add(srv.xdgShell.OnNewToplevel(srv.handleNewXDGToplevel))
-	srv.listeners.Add(srv.xdgShell.OnNewPopup(srv.handleNewXDGPopup))
-
-	// Create XDG decoration manager (mode negotiation lives in xdg.go)
-	srv.xdgDecoMgr = wlr.CreateXDGDecorationManagerV1(srv.display)
-	srv.listeners.Add(srv.xdgDecoMgr.OnNewToplevelDecoration(srv.handleNewToplevelDecoration))
-
-	// Create seat for input BEFORE XWayland (XWayland needs the seat)
-	srv.seat = wlr.CreateSeat(srv.display, "seat0")
-	srv.listeners.Add(srv.seat.OnRequestSetCursor(srv.handleSetCursorRequest))
-
-	// Enable drag and drop (auto-accept client drag requests, render drag
-	// icons) and clipboard (approve selection requests). Without this,
-	// XWayland apps (Firefox, Chrome) silently fail all DnD operations.
-	C.setup_seat_handlers(seatPtr(srv.seat), (*C.struct_wlr_scene_tree)(srv.overlayTree))
-
-	// Create XWayland for X11 apps (including Fyne)
-	srv.xwayland = wlr.CreateXwayland(srv.display, srv.compositor, false)
-	if srv.xwayland.Valid() {
-		srv.listeners.Add(srv.xwayland.OnNewSurface(srv.handleNewXwaylandSurface))
-		// Set the seat on XWayland - critical for input to work!
-		srv.xwayland.SetSeat(srv.seat)
-		log.Println("XWayland initialized with seat")
-	} else {
-		log.Println("Warning: XWayland not available")
-	}
-
-	// Create cursor — set XCURSOR_SIZE + XCURSOR_THEME so XWayland clients
-	// (via libXcursor) use the same cursor size as the compositor. Without this,
-	// libXcursor computes a default from the X screen height (16*H/480) which
-	// can be very different in multi-output layouts.
-	os.Setenv("XCURSOR_SIZE", "24")
-	os.Setenv("XCURSOR_THEME", "Adwaita")
-	srv.cursor = wlr.CreateCursor()
-	srv.cursor.AttachOutputLayout(srv.outLayout)
-	srv.cursorMgr = wlr.CreateXCursorManager("Adwaita", 24)
-
-	// Handle input devices
-	srv.listeners.Add(srv.backend.OnNewInput(srv.handleNewInput))
-
-	// Cursor events
-	srv.listeners.Add(srv.cursor.OnMotion(srv.handleCursorMotion))
-	srv.listeners.Add(srv.cursor.OnMotionAbsolute(srv.handleCursorMotionAbsolute))
-	srv.listeners.Add(srv.cursor.OnButton(srv.handleCursorButton))
-	srv.listeners.Add(srv.cursor.OnAxis(srv.handleCursorAxis))
-	srv.listeners.Add(srv.cursor.OnFrame(srv.handleCursorFrame))
-
-	// Trackpad gesture support (swipe for desktop switching, overview, etc.)
-	srv.setupGestures()
+	srv := newServer()
+	srv.initBackend()
+	srv.initScene()
+	srv.initProtocols()
+	srv.initInput()
 
 	// Load user settings BEFORE starting the backend so that s.backgroundType,
 	// keybindings, and other fields are ready when the first output arrives
@@ -583,37 +415,7 @@ func Run() {
 	srv.initHotCorners()
 	srv.loadClipboardHistory()
 
-	// Start backend
-	if err := srv.backend.Start(); err != nil {
-		log.Println("Failed to start backend:", err)
-		os.Exit(1)
-	}
-
-	// Get socket name and print it
-	socket, err := srv.display.AddSocketAuto()
-	if err != nil {
-		log.Println("Failed to create Wayland socket:", err)
-		os.Exit(1)
-	}
-	log.Printf("Tyde Wayland compositor running on WAYLAND_DISPLAY=%s\n", socket)
-
-	// Set XWayland cursor
-	if srv.xwayland.Valid() {
-		xdisplay := srv.xwayland.DisplayName()
-		log.Printf("XWayland display: %s\n", xdisplay)
-		os.Setenv("DISPLAY", xdisplay)
-
-		// Set cursor for XWayland
-		srv.cursorMgr.Load(1.0)
-		xcursor := srv.cursorMgr.GetXCursor("default", 1.0)
-		if xcursor.ImageCount() > 0 {
-			img := xcursor.Image(0)
-			hx, hy := img.Hotspot()
-			log.Printf("[CURSOR] XCursor 'default' at scale=1.0: actual image=%dx%d, hotspot=(%d,%d)\n",
-				img.Width(), img.Height(), hx, hy)
-			srv.xwayland.SetCursor(img)
-		}
-	}
+	socket := srv.startBackend()
 
 	log.Println("Keybindings: Alt+Escape=quit, Alt+Tab=cycle, F11=fullscreen, Alt+F4=close")
 	log.Println("             Ctrl+Alt+Left/Right=switch desktop, Super+1-4=goto desktop")
@@ -640,115 +442,14 @@ func Run() {
 
 	// Start gnome-keyring-daemon so apps (Slack, Chrome, etc.) can persist credentials.
 	// Only in real session mode — in nested mode the parent session provides it.
-	if !srv.nestedMode {
-		if _, err := exec.LookPath("gnome-keyring-daemon"); err == nil {
-			keyringCmd := exec.Command("gnome-keyring-daemon", "--start", "--components=secrets,pkcs11")
-			keyringCmd.Env = safeEnv()
-			if out, err := keyringCmd.Output(); err == nil {
-				// Parse output lines like "GNOME_KEYRING_CONTROL=/run/user/1000/keyring"
-				for _, line := range strings.Split(string(out), "\n") {
-					if parts := strings.SplitN(line, "=", 2); len(parts) == 2 {
-						os.Setenv(parts[0], parts[1])
-					}
-				}
-				log.Println("gnome-keyring-daemon started")
-			} else {
-				log.Printf("Warning: gnome-keyring-daemon failed: %v\n", err)
-			}
-		}
-	}
+	srv.startKeyring()
 
 	// Push our environment to D-Bus so portals (used by Snap/Flatpak apps) and
 	// D-Bus-activated services use our DISPLAY/WAYLAND_DISPLAY when opening URLs etc.
-	go func() {
-		args := []string{"WAYLAND_DISPLAY", "DISPLAY", "XDG_CURRENT_DESKTOP", "MOZ_ENABLE_WAYLAND"}
-		// Only add --systemd flag if systemd is present (not on FreeBSD, non-systemd Linux)
-		if _, err := os.Stat("/run/systemd/system"); err == nil {
-			args = append([]string{"--systemd"}, args...)
-		}
-		dbusCmd := exec.Command("dbus-update-activation-environment", args...)
-		dbusCmd.Env = safeEnv()
-		if err := dbusCmd.Run(); err != nil {
-			log.Printf("Warning: dbus-update-activation-environment failed: %v\n", err)
-		}
-		log.Println("D-Bus activation environment updated (DISPLAY, WAYLAND_DISPLAY, XDG_CURRENT_DESKTOP, MOZ_ENABLE_WAYLAND)")
-
-		// Restart portal daemons so they pick up the new WAYLAND_DISPLAY and
-		// XDG_CURRENT_DESKTOP. This is needed in both nested and real session
-		// modes: in nested mode xdpw would otherwise stay connected to the
-		// host compositor and screen sharing would fail.
-		//
-		// Skip silently when the unit is not installed (some distros ship
-		// xdg-desktop-portal-gtk only). Capture stderr on real failures so
-		// the audit log shows *why* — the previous code just logged the
-		// exit code, which was useless for debugging.
-		for _, svc := range []string{"xdg-desktop-portal-wlr", "xdg-desktop-portal"} {
-			// Pre-check unit presence — `systemctl is-enabled` returns 0 for
-			// enabled, 1 for disabled, but exit 4 ("unit not found") clearly
-			// signals the unit doesn't exist on this system.
-			checkCmd := exec.Command("systemctl", "--user", "show", "-p", "LoadState", "--value", svc)
-			if out, err := checkCmd.Output(); err == nil {
-				state := strings.TrimSpace(string(out))
-				if state == "not-found" || state == "" {
-					log.Printf("[PORTAL] skipping %s restart: unit not installed", svc)
-					continue
-				}
-			}
-
-			restartCmd := exec.Command("systemctl", "--user", "restart", svc)
-			var stderr strings.Builder
-			restartCmd.Stderr = &stderr
-			if err := restartCmd.Run(); err != nil {
-				msg := strings.TrimSpace(stderr.String())
-				if msg == "" {
-					msg = err.Error()
-				}
-				log.Printf("[PORTAL] could not restart %s: %s", svc, msg)
-			} else {
-				log.Printf("[PORTAL] %s restarted with new environment", svc)
-			}
-		}
-	}()
+	go srv.updateActivationEnvironment()
 
 	// Start the panel process after XWayland is ready
-	go func() {
-		// Helper: sleep but bail out early on shutdown.
-		wait := func(d time.Duration) bool {
-			select {
-			case <-srv.shutdown:
-				return false
-			case <-time.After(d):
-				return true
-			}
-		}
-		if !wait(2 * time.Second) { // Give XWayland more time to initialize
-			return
-		}
-		// startPanel reads compositor state: run it on the main thread.
-		if err := srv.enqueueAction(srv.startPanel); err != nil {
-			log.Printf("[PANEL] failed to schedule the initial panel start: %v", err)
-		}
-
-		// Restore previous session after panel is ready
-		if !wait(3 * time.Second) {
-			return
-		}
-		select {
-		case srv.mainThreadActions <- func() { srv.restoreSession() }:
-			srv.triggerWakeup()
-		case <-srv.shutdown:
-			return
-		}
-
-		// Fallback: if panel doesn't appear after 10s, launch a terminal
-		if !wait(7 * time.Second) {
-			return
-		}
-		if srv.panelXway == nil || !srv.panelXway.mapped {
-			log.Println("WARNING: Panel not detected after 10s, launching fallback terminal")
-			srv.launchTerminal()
-		}
-	}()
+	go srv.startPanelAndRestoreSession()
 
 	// Write initial keyboard layout state for the panel
 	if len(srv.keyboardLayouts) > 0 {
@@ -796,28 +497,379 @@ func Run() {
 	srv.startSocketIPC()
 
 	// Handle clean shutdown
-	go func() {
-		<-sigChan
-		log.Println("\nShutting down...")
-		srv.shuttingDown.Store(true)
-		select {
-		case <-srv.shutdown:
-		default:
-			close(srv.shutdown)
-		}
-		srv.saveSessionState() // Save before terminating (reads are safe from goroutine)
-		if srv.panelCmd != nil && srv.panelCmd.Process != nil {
-			srv.panelCmd.Process.Kill()
-		}
-		srv.display.Terminate()
-	}()
+	go srv.shutdownOnSignal(sigChan)
 
 	// Run event loop
 	srv.display.Run()
 
+	srv.finishRun()
+}
+
+// newServer creates the server with its default state.
+func newServer() *server {
+	srv := &server{
+		currentDesk:       0,
+		numDesks:          4, // Default to 4 virtual desktops
+		lastInputTime:     time.Now(),
+		wmModifier:        wlr.KeyboardModifierLogo, // Default: Super key
+		nestedMode:        os.Getenv("WAYLAND_DISPLAY") != "" || os.Getenv("DISPLAY") != "",
+		mainThreadActions: make(chan func(), 64),
+		shutdown:          make(chan struct{}),
+		mirrors:           map[string]*mirrorState{},
+		disabledOutputs:   map[string]*outputState{},
+		attentionTitles:   map[string]bool{},
+		glows:             map[any]*glow{},
+		wobblyWindows:     true,
+	}
+	clipServer = srv
+	srv.initPowerDefaults()
+	return srv
+}
+
+// initBackend creates the display, backend, renderer, allocator and the
+// core Wayland globals.
+func (s *server) initBackend() {
+	// Create Wayland display
+	s.display = wlr.CreateDisplay()
+
+	// Create backend (auto-detects: nested wayland/x11 or DRM)
+	s.backend, s.session = wlr.AutocreateBackend(s.display.EventLoop())
+	if !s.backend.Valid() {
+		log.Println("Failed to create backend")
+		os.Exit(1)
+	}
+
+	// Create renderer
+	s.renderer = wlr.AutocreateRenderer(s.backend)
+	if !s.renderer.Valid() {
+		log.Println("Failed to create renderer")
+		os.Exit(1)
+	}
+	if !s.renderer.InitWLDisplay(s.display) {
+		log.Println("Failed to initialize renderer buffer protocols")
+		os.Exit(1)
+	}
+	C.set_egl_from_renderer((*C.struct_wlr_renderer)(s.renderer.Ptr()))
+
+	// Create allocator
+	s.allocator = wlr.AutocreateAllocator(s.backend, s.renderer)
+	if !s.allocator.Valid() {
+		log.Println("Failed to create allocator")
+		os.Exit(1)
+	}
+
+	// Create compositor
+	s.compositor = wlr.CreateCompositor(s.display, 6, s.renderer)
+
+	// GPU reset: the renderer is unusable and must be replaced.
+	s.rendererLost = s.renderer.OnLost(s.handleRendererLost)
+
+	// Create subcompositor for subsurfaces
+	wlr.CreateSubcompositor(s.display)
+
+	// Create data device manager (required for clipboard/GTK apps)
+	s.dataDeviceMgr = wlr.CreateDataDeviceManager(s.display)
+
+	// Create primary selection manager (required for middle-click paste and XWayland clipboard bridge)
+	wlr.CreatePrimarySelectionV1DeviceManager(s.display)
+
+	// Create output layout
+	s.outLayout = wlr.CreateOutputLayout(s.display)
+}
+
+// initScene creates the scene graph and its layer trees.
+func (s *server) initScene() {
+	// Create scene graph (wlr_scene handles damage tracking + rendering)
+	s.scene = unsafe.Pointer(C.create_scene())
+	scene := (*C.struct_wlr_scene)(s.scene)
+	sceneTree := &scene.tree
+
+	// wp_presentation_time: required for clients (mpv, browsers) to sync to
+	// vblank. The scene wires per-surface feedback via wlr_scene_set_presentation.
+	C.create_presentation(displayPtr(s.display), backendPtr(s.backend))
+
+	// Create layer trees (render order: background < panel < windows < override < fullscreen < overlay < switcher)
+	s.backgroundTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
+	s.panelTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
+	s.windowsTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
+	s.overrideTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
+	s.fullscreenTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
+	s.overlayTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
+	s.switcherTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
+	s.penTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
+	s.lockTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
+	// Switcher is hidden by default
+	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.switcherTree).node, 0)
+	// Felt-tip pen annotation layer hidden by default (enabled while ink exists)
+	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.penTree).node, 0)
+	// Fullscreen layer hidden by default
+	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.fullscreenTree).node, 0)
+	// Lock layer hidden by default (enabled when lock client connects)
+	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.lockTree).node, 0)
+}
+
+// initProtocols creates the protocol globals and the shell handlers.
+func (s *server) initProtocols() {
+	// Create XDG output manager (required by grim for output geometry)
+	wlr.CreateXDGOutputManagerV1(s.display, s.outLayout)
+
+	// Create screencopy manager (allows grim to capture screenshots)
+	s.screencopyMgr = wlr.CreateScreencopyManagerV1(s.display)
+	setupCapture(s)
+
+	// Enable fractional scaling (wp_fractional_scale_v1 + wp_viewporter)
+	s.setupFractionalScaling()
+
+	// Create session lock manager (ext-session-lock-v1 for swaylock, etc.)
+	setupSessionLock(s)
+
+	// Create XDG activation manager (xdg-activation-v1 for focus stealing / urgency)
+	setupXDGActivation(s)
+
+	// Create text input / input method managers (text-input-v3 + input-method-v2 for IME)
+	setupTextInput(s)
+
+	// Create virtual keyboard manager (zwp_virtual_keyboard_v1) so on-screen
+	// keyboards, accessibility tools, IME helpers, and QA automation (wtype,
+	// dotool) can inject synthetic key events.
+	setupVirtualKeyboard(s)
+
+	// Create security context manager (wp_security_context_v1 for Flatpak sandboxing)
+	setupSecurityContext(s)
+
+	// Handle new outputs (monitors)
+	s.listeners.Add(s.backend.OnNewOutput(s.handleNewOutput))
+
+	// Create XDG shell for native Wayland windows
+	s.xdgShell = wlr.CreateXDGShell(s.display, 3)
+	s.listeners.Add(s.xdgShell.OnNewToplevel(s.handleNewXDGToplevel))
+	s.listeners.Add(s.xdgShell.OnNewPopup(s.handleNewXDGPopup))
+
+	// Create XDG decoration manager (mode negotiation lives in xdg.go)
+	s.xdgDecoMgr = wlr.CreateXDGDecorationManagerV1(s.display)
+	s.listeners.Add(s.xdgDecoMgr.OnNewToplevelDecoration(s.handleNewToplevelDecoration))
+}
+
+// initInput creates the seat, XWayland, the cursor and the input handlers.
+func (s *server) initInput() {
+	// Create seat for input BEFORE XWayland (XWayland needs the seat)
+	s.seat = wlr.CreateSeat(s.display, "seat0")
+	s.listeners.Add(s.seat.OnRequestSetCursor(s.handleSetCursorRequest))
+
+	// Enable drag and drop (auto-accept client drag requests, render drag
+	// icons) and clipboard (approve selection requests). Without this,
+	// XWayland apps (Firefox, Chrome) silently fail all DnD operations.
+	C.setup_seat_handlers(seatPtr(s.seat), (*C.struct_wlr_scene_tree)(s.overlayTree))
+
+	// Create XWayland for X11 apps (including Fyne)
+	s.xwayland = wlr.CreateXwayland(s.display, s.compositor, false)
+	if s.xwayland.Valid() {
+		s.listeners.Add(s.xwayland.OnNewSurface(s.handleNewXwaylandSurface))
+		// Set the seat on XWayland - critical for input to work!
+		s.xwayland.SetSeat(s.seat)
+		log.Println("XWayland initialized with seat")
+	} else {
+		log.Println("Warning: XWayland not available")
+	}
+
+	// Create cursor — set XCURSOR_SIZE + XCURSOR_THEME so XWayland clients
+	// (via libXcursor) use the same cursor size as the compositor. Without this,
+	// libXcursor computes a default from the X screen height (16*H/480) which
+	// can be very different in multi-output layouts.
+	os.Setenv("XCURSOR_SIZE", "24")
+	os.Setenv("XCURSOR_THEME", "Adwaita")
+	s.cursor = wlr.CreateCursor()
+	s.cursor.AttachOutputLayout(s.outLayout)
+	s.cursorMgr = wlr.CreateXCursorManager("Adwaita", 24)
+
+	// Handle input devices
+	s.listeners.Add(s.backend.OnNewInput(s.handleNewInput))
+
+	// Cursor events
+	s.listeners.Add(s.cursor.OnMotion(s.handleCursorMotion))
+	s.listeners.Add(s.cursor.OnMotionAbsolute(s.handleCursorMotionAbsolute))
+	s.listeners.Add(s.cursor.OnButton(s.handleCursorButton))
+	s.listeners.Add(s.cursor.OnAxis(s.handleCursorAxis))
+	s.listeners.Add(s.cursor.OnFrame(s.handleCursorFrame))
+
+	// Trackpad gesture support (swipe for desktop switching, overview, etc.)
+	s.setupGestures()
+}
+
+// startBackend starts the backend and returns the Wayland socket name.
+func (s *server) startBackend() string {
+	// Start backend
+	if err := s.backend.Start(); err != nil {
+		log.Println("Failed to start backend:", err)
+		os.Exit(1)
+	}
+
+	// Get socket name and print it
+	socket, err := s.display.AddSocketAuto()
+	if err != nil {
+		log.Println("Failed to create Wayland socket:", err)
+		os.Exit(1)
+	}
+	log.Printf("Tyde Wayland compositor running on WAYLAND_DISPLAY=%s\n", socket)
+
+	// Set XWayland cursor
+	if s.xwayland.Valid() {
+		xdisplay := s.xwayland.DisplayName()
+		log.Printf("XWayland display: %s\n", xdisplay)
+		os.Setenv("DISPLAY", xdisplay)
+
+		// Set cursor for XWayland
+		s.cursorMgr.Load(1.0)
+		xcursor := s.cursorMgr.GetXCursor("default", 1.0)
+		if xcursor.ImageCount() > 0 {
+			img := xcursor.Image(0)
+			hx, hy := img.Hotspot()
+			log.Printf("[CURSOR] XCursor 'default' at scale=1.0: actual image=%dx%d, hotspot=(%d,%d)\n",
+				img.Width(), img.Height(), hx, hy)
+			s.xwayland.SetCursor(img)
+		}
+	}
+
+	return socket
+}
+
+// startKeyring starts gnome-keyring-daemon outside nested mode.
+func (s *server) startKeyring() {
+	if !s.nestedMode {
+		if _, err := exec.LookPath("gnome-keyring-daemon"); err == nil {
+			keyringCmd := exec.Command("gnome-keyring-daemon", "--start", "--components=secrets,pkcs11")
+			keyringCmd.Env = safeEnv()
+			if out, err := keyringCmd.Output(); err == nil {
+				// Parse output lines like "GNOME_KEYRING_CONTROL=/run/user/1000/keyring"
+				for _, line := range strings.Split(string(out), "\n") {
+					if parts := strings.SplitN(line, "=", 2); len(parts) == 2 {
+						os.Setenv(parts[0], parts[1])
+					}
+				}
+				log.Println("gnome-keyring-daemon started")
+			} else {
+				log.Printf("Warning: gnome-keyring-daemon failed: %v\n", err)
+			}
+		}
+	}
+}
+
+// updateActivationEnvironment pushes the session environment to D-Bus and
+// restarts the portal daemons.
+func (s *server) updateActivationEnvironment() {
+	args := []string{"WAYLAND_DISPLAY", "DISPLAY", "XDG_CURRENT_DESKTOP", "MOZ_ENABLE_WAYLAND"}
+	// Only add --systemd flag if systemd is present (not on FreeBSD, non-systemd Linux)
+	if _, err := os.Stat("/run/systemd/system"); err == nil {
+		args = append([]string{"--systemd"}, args...)
+	}
+	dbusCmd := exec.Command("dbus-update-activation-environment", args...)
+	dbusCmd.Env = safeEnv()
+	if err := dbusCmd.Run(); err != nil {
+		log.Printf("Warning: dbus-update-activation-environment failed: %v\n", err)
+	}
+	log.Println("D-Bus activation environment updated (DISPLAY, WAYLAND_DISPLAY, XDG_CURRENT_DESKTOP, MOZ_ENABLE_WAYLAND)")
+
+	// Restart portal daemons so they pick up the new WAYLAND_DISPLAY and
+	// XDG_CURRENT_DESKTOP. This is needed in both nested and real session
+	// modes: in nested mode xdpw would otherwise stay connected to the
+	// host compositor and screen sharing would fail.
+	//
+	// Skip silently when the unit is not installed (some distros ship
+	// xdg-desktop-portal-gtk only). Capture stderr on real failures so
+	// the audit log shows *why* — the previous code just logged the
+	// exit code, which was useless for debugging.
+	for _, svc := range []string{"xdg-desktop-portal-wlr", "xdg-desktop-portal"} {
+		// Pre-check unit presence — `systemctl is-enabled` returns 0 for
+		// enabled, 1 for disabled, but exit 4 ("unit not found") clearly
+		// signals the unit doesn't exist on this system.
+		checkCmd := exec.Command("systemctl", "--user", "show", "-p", "LoadState", "--value", svc)
+		if out, err := checkCmd.Output(); err == nil {
+			state := strings.TrimSpace(string(out))
+			if state == "not-found" || state == "" {
+				log.Printf("[PORTAL] skipping %s restart: unit not installed", svc)
+				continue
+			}
+		}
+
+		restartCmd := exec.Command("systemctl", "--user", "restart", svc)
+		var stderr strings.Builder
+		restartCmd.Stderr = &stderr
+		if err := restartCmd.Run(); err != nil {
+			msg := strings.TrimSpace(stderr.String())
+			if msg == "" {
+				msg = err.Error()
+			}
+			log.Printf("[PORTAL] could not restart %s: %s", svc, msg)
+		} else {
+			log.Printf("[PORTAL] %s restarted with new environment", svc)
+		}
+	}
+}
+
+// startPanelAndRestoreSession starts the panel, restores the previous
+// session and falls back to a terminal if the panel never shows up.
+func (s *server) startPanelAndRestoreSession() {
+	// Helper: sleep but bail out early on shutdown.
+	wait := func(d time.Duration) bool {
+		select {
+		case <-s.shutdown:
+			return false
+		case <-time.After(d):
+			return true
+		}
+	}
+	if !wait(2 * time.Second) { // Give XWayland more time to initialize
+		return
+	}
+	// startPanel reads compositor state: run it on the main thread.
+	if err := s.enqueueAction(s.startPanel); err != nil {
+		log.Printf("[PANEL] failed to schedule the initial panel start: %v", err)
+	}
+
+	// Restore previous session after panel is ready
+	if !wait(3 * time.Second) {
+		return
+	}
+	select {
+	case s.mainThreadActions <- func() { s.restoreSession() }:
+		s.triggerWakeup()
+	case <-s.shutdown:
+		return
+	}
+
+	// Fallback: if panel doesn't appear after 10s, launch a terminal
+	if !wait(7 * time.Second) {
+		return
+	}
+	if s.panelXway == nil || !s.panelXway.mapped {
+		log.Println("WARNING: Panel not detected after 10s, launching fallback terminal")
+		s.launchTerminal()
+	}
+}
+
+// shutdownOnSignal stops the event loop when a signal arrives.
+func (s *server) shutdownOnSignal(sigChan chan os.Signal) {
+	<-sigChan
+	log.Println("\nShutting down...")
+	s.shuttingDown.Store(true)
+	select {
+	case <-s.shutdown:
+	default:
+		close(s.shutdown)
+	}
+	s.saveSessionState() // Save before terminating (reads are safe from goroutine)
+	if s.panelCmd != nil && s.panelCmd.Process != nil {
+		s.panelCmd.Process.Kill()
+	}
+	s.display.Terminate()
+}
+
+// finishRun writes the shutdown marker and releases resources once the
+// event loop has returned.
+func (s *server) finishRun() {
 	// Write shutdown marker so the runner knows this is an intentional exit.
 	// If cleanup code crashes (segfault in wlroots), the runner won't restart.
-	if srv.shuttingDown.Load() {
+	if s.shuttingDown.Load() {
 		homeDir, _ := os.UserHomeDir()
 		markerPath := filepath.Join(homeDir, ".cache", "fyne", "com.fyshos.tyde", "shutdown-marker")
 		_ = os.MkdirAll(filepath.Dir(markerPath), 0700)
@@ -827,20 +879,20 @@ func Run() {
 	}
 
 	// Cleanup
-	if srv.ipcServer != nil {
-		srv.ipcServer.Close()
+	if s.ipcServer != nil {
+		s.ipcServer.Close()
 	}
-	if srv.panelCmd != nil && srv.panelCmd.Process != nil {
-		srv.panelCmd.Process.Kill()
+	if s.panelCmd != nil && s.panelCmd.Process != nil {
+		s.panelCmd.Process.Kill()
 	}
-	srv.stopPrivateDBus()
-	srv.teardown()
+	s.stopPrivateDBus()
+	s.teardown()
 
 	// If we reached this point through a clean shutdown (logout/restart), the
 	// user-initiated path: the lock-state marker is no longer relevant and
 	// would otherwise re-lock the next session unnecessarily after gdm auth.
 	// Crashes never reach here, so the marker survives those.
-	srv.markUnlocked()
+	s.markUnlocked()
 
 	log.Println("Compositor terminated")
 
@@ -848,7 +900,7 @@ func Run() {
 	// runner's restart sentinel so tyde_runner relaunches us. Doing this
 	// after Destroy() — instead of os.Exit(5) from the IPC handler — means
 	// wlroots/X resources are released cleanly.
-	if srv.wantRestart.Load() {
+	if s.wantRestart.Load() {
 		os.Exit(5)
 	}
 }

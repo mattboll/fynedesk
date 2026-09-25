@@ -358,6 +358,24 @@ func (s *server) refitWindowsToOutputs() {
 	}
 
 	// 1. Fullscreen windows whose output went away: re-fit onto the primary.
+	s.refitOrphanedFullscreen(pointInAnyOutput)
+
+	// 2 & 3. Re-fit maximized and snapped windows to per-output content bounds.
+	s.refreshMaximizedWindows()
+	s.reSnapAllWindows()
+
+	// 4. Clamp free-floating windows so their full extent stays inside the
+	//    usable content area (clear of the bar and widget panel).
+	s.clampFloatingWindows()
+
+	// 5. Reconcile decorations for every mapped window (idempotent; repairs a
+	//    window left fullscreen-undecorated on a removed output, etc.).
+	s.reconcileAllDecorations()
+}
+
+// refitOrphanedFullscreen moves fullscreen windows that are on no output
+// onto the primary output.
+func (s *server) refitOrphanedFullscreen(pointInAnyOutput func(px, py float64) bool) {
 	if p := s.primaryOutput(); p != nil {
 		pGeo := s.getOutputGeometry(p)
 		for _, v := range s.xdgViews {
@@ -379,13 +397,10 @@ func (s *server) refitWindowsToOutputs() {
 			}
 		}
 	}
+}
 
-	// 2 & 3. Re-fit maximized and snapped windows to per-output content bounds.
-	s.refreshMaximizedWindows()
-	s.reSnapAllWindows()
-
-	// 4. Clamp free-floating windows so their full extent stays inside the
-	//    usable content area (clear of the bar and widget panel).
+// clampFloatingWindows clamps free-floating windows to the content area.
+func (s *server) clampFloatingWindows() {
 	for _, v := range s.xdgViews {
 		if !v.mapped || v.minimized || v.maximized || v.fullscreen || v.snapped != snapNone {
 			continue
@@ -410,9 +425,10 @@ func (s *server) refitWindowsToOutputs() {
 		v.surface.Configure(int16(nx), int16(ny), uint16(nw), uint16(nh))
 		setXwayScenePos(v)
 	}
+}
 
-	// 5. Reconcile decorations for every mapped window (idempotent; repairs a
-	//    window left fullscreen-undecorated on a removed output, etc.).
+// reconcileAllDecorations reconciles the decorations of every mapped window.
+func (s *server) reconcileAllDecorations() {
 	for _, v := range s.xdgViews {
 		if v.mapped {
 			s.reconcileXdgDecorations(v)

@@ -55,11 +55,7 @@ func (s *server) handleCursorButton(p wlr.Pointer, t time.Time, button wlr.Curso
 	// Track button count for Wayland implicit pointer grab.
 	// The protocol requires that a surface retains pointer focus from button
 	// press until all buttons are released (e.g. CSD window resize/drag).
-	if state == wlr.ButtonPressed {
-		s.pointerButtonCount++
-	} else if state == wlr.ButtonReleased && s.pointerButtonCount > 0 {
-		s.pointerButtonCount--
-	}
+	s.countPointerButton(state)
 
 	// When locked, forward button events to the lock surface (if it exists)
 	if s.locked.Load() {
@@ -101,13 +97,7 @@ func (s *server) handleCursorButton(p wlr.Pointer, t time.Time, button wlr.Curso
 	// This is critical for overlay/skip windows (sidebar, calendar) that
 	// don't update s.activeXway — without this, processImplicitGrabMotion
 	// would compute surface-local coordinates from the wrong window.
-	if state == wlr.ButtonPressed && s.pointerButtonCount == 1 {
-		s.implicitGrabXway = xwayV
-		s.implicitGrabXdg = xdgV
-	} else if state == wlr.ButtonReleased && s.pointerButtonCount == 0 {
-		s.implicitGrabXway = nil
-		s.implicitGrabXdg = nil
-	}
+	s.trackImplicitGrab(state, xdgV, xwayV)
 
 	// Get current keyboard modifiers (may be nil if no keyboard attached yet)
 	kb := s.seat.Keyboard()
@@ -156,6 +146,27 @@ func (s *server) handleCursorButton(p wlr.Pointer, t time.Time, button wlr.Curso
 
 	s.seat.PointerNotifyButton(t, button, state)
 	s.seat.PointerNotifyFrame()
+}
+
+// countPointerButton updates the number of pointer buttons held down.
+func (s *server) countPointerButton(state wlr.ButtonState) {
+	if state == wlr.ButtonPressed {
+		s.pointerButtonCount++
+	} else if state == wlr.ButtonReleased && s.pointerButtonCount > 0 {
+		s.pointerButtonCount--
+	}
+}
+
+// trackImplicitGrab records the view that receives the first button press and
+// forgets it once every button is released.
+func (s *server) trackImplicitGrab(state wlr.ButtonState, xdgV *xdgView, xwayV *xwayView) {
+	if state == wlr.ButtonPressed && s.pointerButtonCount == 1 {
+		s.implicitGrabXway = xwayV
+		s.implicitGrabXdg = xdgV
+	} else if state == wlr.ButtonReleased && s.pointerButtonCount == 0 {
+		s.implicitGrabXway = nil
+		s.implicitGrabXdg = nil
+	}
 }
 
 // handleRegionClick handles clicks during region screenshot selection mode.

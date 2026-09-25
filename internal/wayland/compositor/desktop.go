@@ -662,18 +662,7 @@ func (s *server) renderOutput(output wlr.Output) {
 
 	// Tick all animations (snap, transitions, close effects, etc.)
 	// Each returns true if still running, used to decide frame scheduling.
-	animActive := s.tickViewAnims()
-	animActive = s.tickTransition() || animActive
-	animActive = s.tickBootSequence() || animActive
-	animActive = s.tickCloseAnims() || animActive
-	animActive = s.tickOverviewAnim() || animActive
-	animActive = s.tickSwitcherFade() || animActive
-	animActive = s.tickOpenAnim() || animActive
-	animActive = s.tickPenFade() || animActive
-	animActive = s.tickAttention() || animActive
-	animActive = s.tickWobble() || animActive
-	animActive = s.tickFocusDim() || animActive
-	animActive = s.tickDeskSwipe() || animActive
+	animActive := s.tickAnimations()
 
 	// Resolve this output's state once — used by the animated wallpaper tick
 	// and the page-flip stall tracking around the scene commit below.
@@ -756,4 +745,22 @@ func (s *server) renderOutput(output wlr.Output) {
 		log.Printf("[STALL] frame took %v — drain=%v ipc=%v commit=%v thumb=%v\n",
 			totalDur, drainDur, ipcDur, commitDur, thumbDur)
 	}
+}
+
+// tickAnimations advances every animation and reports whether one is still
+// running.
+func (s *server) tickAnimations() bool {
+	animActive := s.tickViewAnims()
+	animActive = s.tickTransition() || animActive
+	animActive = s.tickBootSequence() || animActive
+	animActive = s.tickCloseAnims() || animActive
+	animActive = s.tickOverviewAnim() || animActive
+	animActive = s.tickSwitcherFade() || animActive
+	animActive = s.tickOpenAnim() || animActive
+	animActive = s.tickPenFade() || animActive
+	animActive = s.tickAttention() || animActive
+	animActive = s.tickWobble() || animActive
+	animActive = s.tickFocusDim() || animActive
+	animActive = s.tickDeskSwipe() || animActive
+	return animActive
 }
