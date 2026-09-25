@@ -29,8 +29,18 @@ var batteryMeta = tyde.ModuleMetadata{
 
 const criticalBatteryThreshold = 0.05 // 5%
 
+// powerSource tells the battery level and whether the charger is plugged
+// in (dryvers.Battery, or a stand-in for tests).
+type powerSource interface {
+	Get() (float64, error)
+	PluggedIn() (bool, error)
+}
+
 type battery struct {
-	battery *dryvers.Battery
+	battery powerSource
+	// hibernate is called when the battery is about to run out; it must not
+	// block.
+	hibernate func(val float64)
 
 	bar  *statusBar
 	done chan struct{}
@@ -42,11 +52,12 @@ type battery struct {
 
 func (b *battery) batteryTick() {
 	tick := time.NewTicker(time.Second * 10)
+	done := b.done // Destroy clears the field; the goroutine keeps its channel
 	go func() {
 		defer tick.Stop()
 		for {
 			select {
-			case <-b.done:
+			case <-done:
 				return
 			case <-tick.C:
 				val, _ := b.battery.Get()
@@ -86,7 +97,7 @@ func (b *battery) StatusAreaWidget() fyne.CanvasObject {
 	val, _ := b.battery.Get()
 	b.setValue(val)
 	b.done = make(chan struct{})
-	go b.batteryTick()
+	b.batteryTick() // it starts its own goroutine
 	return container.New(&handleNarrow{}, icon, b.bar)
 }
 
@@ -113,7 +124,7 @@ func (b *battery) setValue(val float64) {
 		// Critical battery: hibernate to prevent data loss
 		if val > 0 && val < criticalBatteryThreshold && !b.hibernateTriggered {
 			b.hibernateTriggered = true
-			go b.triggerHibernate(val)
+			b.hibernate(val)
 		}
 	} else {
 		b.icon.SetResource(wmtheme.BatteryIcon)
@@ -152,7 +163,9 @@ func (b *battery) triggerHibernate(val float64) {
 
 // newBattery creates a new module that will show battery level in the status area
 func newBattery() tyde.Module {
-	return &battery{battery: dryvers.NewBattery()}
+	b := &battery{battery: dryvers.NewBattery()}
+	b.hibernate = func(val float64) { go b.triggerHibernate(val) }
+	return b
 }
 
 type handleNarrow struct{}
