@@ -312,6 +312,7 @@ func (s *server) handleXdgDestroy(v *xdgView, xdgSurf *C.struct_wlr_xdg_surface)
 		v.surfaceTree = nil
 	}
 	v.forgetDecorationNodes()
+	delete(s.shadows, v) // it went with the tree
 	wasActive := s.activeXdg == v
 	for i, view := range s.xdgViews {
 		if view == v {

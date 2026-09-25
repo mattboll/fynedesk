@@ -814,6 +814,7 @@ func (s *server) startWobble(view any) {
 		}
 	}
 	s.wobble = w
+	s.setShadowVisible(view, false) // the jelly has no shadow: it would not bend
 	if !s.drawWobble() {
 		s.stopWobble()
 	}
@@ -851,6 +852,7 @@ func (s *server) stopWobble() {
 		return
 	}
 	s.wobble = nil
+	s.setShadowVisible(w.view, true)
 	// The picture is a sibling of the view tree: it is still there even if
 	// the view went away (the nodes it stood in for are then gone).
 	C.wobble_destroy(w.c)

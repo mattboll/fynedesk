@@ -173,6 +173,8 @@ type server struct {
 	attentionTitles    map[string]bool         // windows with these titles call for attention (attention.go)
 	glows              map[any]*glow           // attention halos, by view
 	glowParts          *glowParts
+	shadows            map[any]*glow // soft shadows under the decorated windows, by view (shadow.go)
+	shadowParts        *glowParts
 	wobblyWindows      bool         // dragged windows bend (wobble.go)
 	wobble             *wobbleState // the window wobbling, if any
 	grabNoWobble       bool         // the grabbed window was restored from maximized: it keeps still
@@ -572,8 +574,6 @@ type xdgView struct {
 	decoCornerPR     unsafe.Pointer // *C.struct_pixel_buffer — bottom-right pixel data
 	decoIconBuf      unsafe.Pointer // *C.struct_wlr_scene_buffer — app icon overlay
 	decoIconPix      unsafe.Pointer // *C.struct_pixel_buffer — icon pixel data
-	// Shadow layers (3 semi-transparent rects for soft drop shadow)
-	shadowRects [shadowLayers]unsafe.Pointer // *C.struct_wlr_scene_rect
 	// Modal scrim: semi-transparent overlay behind dialog windows
 	scrimRect unsafe.Pointer // *C.struct_wlr_scene_rect (nil = no scrim)
 
@@ -635,8 +635,6 @@ type xwayView struct {
 	decoCornerPR  unsafe.Pointer // *C.struct_pixel_buffer — bottom-right pixel data
 	decoIconBuf   unsafe.Pointer // *C.struct_wlr_scene_buffer — app icon overlay
 	decoIconPix   unsafe.Pointer // *C.struct_pixel_buffer — icon pixel data
-	// Shadow layers (3 semi-transparent rects for soft drop shadow)
-	shadowRects [shadowLayers]unsafe.Pointer // *C.struct_wlr_scene_rect
 	// Modal scrim: semi-transparent overlay behind dialog windows
 	scrimRect unsafe.Pointer // *C.struct_wlr_scene_rect (nil = no scrim)
 

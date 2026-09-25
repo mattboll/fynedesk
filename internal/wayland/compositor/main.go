@@ -519,6 +519,7 @@ func newServer() *server {
 		disabledOutputs:   map[string]*outputState{},
 		attentionTitles:   map[string]bool{},
 		glows:             map[any]*glow{},
+		shadows:           map[any]*glow{},
 		wobblyWindows:     true,
 	}
 	clipServer = srv

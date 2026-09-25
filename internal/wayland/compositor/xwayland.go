@@ -270,7 +270,7 @@ func (s *server) stripXwayDecorations(v *xwayView) {
 	v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
 	v.decoTitlebar = nil
 	releasePixelBuffer(&v.decoTitlePix)
-	s.removeShadowsXway(v)
+	s.removeShadow(v)
 }
 
 // stripXwayDecorationsAndOffset removes the decorations and shadows of an
@@ -669,6 +669,7 @@ func (s *server) handleXwayDestroy(v *xwayView, detachSurface func()) {
 		v.sceneTree = nil
 	}
 	v.forgetDecorationNodes()
+	delete(s.shadows, v) // it went with the tree
 	wasActive := s.activeXway == v && !v.isPanel && !v.overrideRedirect && !v.isOverlay
 	wasPanel := v.isPanel
 	s.removeXwayView(v)

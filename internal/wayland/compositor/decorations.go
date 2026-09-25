@@ -63,20 +63,8 @@ import (
 	"golang.org/x/image/draw"
 )
 
-// Shadow configuration: disabled.
-// wlr_scene_rect can only render flat-color rectangles, which look like harsh
-// stepped bands rather than smooth gaussian blurs. Window borders provide
-// sufficient visual separation without shadows (similar to Sway).
-const shadowLayers = 3
-
 // scrimOpacity is the opacity of the modal scrim overlay (0.0-1.0).
 const scrimOpacity = 0.35
-
-// createOrUpdateShadowsXdg is a no-op: shadows are disabled.
-func (s *server) createOrUpdateShadowsXdg(v *xdgView, width, height int) {}
-
-// createOrUpdateShadowsXway is a no-op: shadows are disabled.
-func (s *server) createOrUpdateShadowsXway(v *xwayView, width, height int) {}
 
 // createModalScrimXdg creates a semi-transparent overlay behind a dialog XDG window.
 // The scrim covers the entire output and renders behind the dialog in the windows tree.
@@ -211,16 +199,6 @@ func removeCornerNodes(cornerBL, cornerBR, cornerPL, cornerPR *unsafe.Pointer) {
 	}
 	releasePixelBuffer(cornerPL)
 	releasePixelBuffer(cornerPR)
-}
-
-// removeShadowsXway destroys all shadow rects for an XWayland view.
-func (s *server) removeShadowsXway(v *xwayView) {
-	for i, p := range v.shadowRects {
-		if p != nil {
-			C.scene_node_destroy(&(*C.struct_wlr_scene_rect)(p).node)
-			v.shadowRects[i] = nil
-		}
-	}
 }
 
 // updateDecoBorders updates the border sizes and colors for a decorated view.
@@ -363,7 +341,7 @@ func (s *server) updateXdgViewDecorations(v *xdgView) {
 	s.updateDecoIcon(v, appID, active, width)
 
 	// Update drop shadow
-	s.createOrUpdateShadowsXdg(v, width, height)
+	s.updateShadow(v, v.sceneTree, width, height, active)
 }
 
 // updateXwayViewDecorations updates or creates decoration nodes for an XWayland view.
@@ -406,7 +384,7 @@ func (s *server) updateXwayViewDecorations(v *xwayView) {
 	s.updateDecoIcon(v, xwayClass, active, width)
 
 	// Update drop shadow
-	s.createOrUpdateShadowsXway(v, width, height)
+	s.updateShadow(v, v.sceneTree, width, height, active)
 }
 
 // xdgDecoSize returns the width/height to use for XDG decoration geometry,
@@ -446,6 +424,7 @@ func (s *server) tearDownXdgDecorations(v *xdgView) {
 		v.decoIconBuf = nil
 		releasePixelBuffer(&v.decoIconPix)
 	}
+	s.removeShadow(v)
 	if v.surfaceTree != nil {
 		C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, 0)
 	}
@@ -464,7 +443,7 @@ func (s *server) tearDownXwayDecorations(v *xwayView) {
 		v.decoIconBuf = nil
 		releasePixelBuffer(&v.decoIconPix)
 	}
-	s.removeShadowsXway(v)
+	s.removeShadow(v)
 	if v.surfaceTree != nil {
 		C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, 0)
 	}

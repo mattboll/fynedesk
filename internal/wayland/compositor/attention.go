@@ -31,6 +31,9 @@ static void attention_part_place(struct wlr_scene_buffer *part, int x, int y, in
 static void attention_tree_destroy(struct wlr_scene_tree *tree) {
     wlr_scene_node_destroy(&tree->node);
 }
+static void attention_tree_set_enabled(struct wlr_scene_tree *tree, bool on) {
+    wlr_scene_node_set_enabled(&tree->node, on);
+}
 */
 import "C"
 
@@ -51,11 +54,29 @@ const (
 	glowPeriod = 1600 * time.Millisecond // one breath
 )
 
-var glowColor = color.NRGBA{R: 0xF5, G: 0xB0, B: 0x3A, A: 0xFF}
+// A halo is a soft band of colour around a window, fading outwards: the
+// attention glow, and the shadows (shadow.go).
+type haloStyle struct {
+	color    color.NRGBA
+	radius   int     // how far it reaches, in pixels
+	strength float64 // opacity next to the window
+}
 
-// glowParts are the pieces of the halo, shared by all windows: four corners
+var glowStyle = haloStyle{color: color.NRGBA{R: 0xF5, G: 0xB0, B: 0x3A, A: 0xFF}, radius: glowRadius, strength: 0.85}
+
+// alpha is the opacity of the halo at distance d outside the window.
+func (st haloStyle) alpha(d float64) float64 {
+	if d < 0 {
+		return 0
+	}
+	x := d / float64(st.radius)
+	return st.strength * math.Exp(-3.2*x*x)
+}
+
+// glowParts are the pieces of a halo, shared by all windows: four corners
 // and four edges, one pixel long, stretched along the sides.
 type glowParts struct {
+	radius       int
 	cornerRadius int
 	buffers      [8]*C.struct_pixel_buffer // TL, TR, BL, BR, top, bottom, left, right
 }
@@ -67,20 +88,11 @@ type glow struct {
 	parts  [8]*C.struct_wlr_scene_buffer
 }
 
-// glowAlpha is the opacity of the halo at distance d outside the window.
-func glowAlpha(d float64) float64 {
-	if d < 0 {
-		return 0
-	}
-	x := d / glowRadius
-	return 0.85 * math.Exp(-3.2*x*x)
-}
-
-// newGlowParts draws the pieces of the halo for windows with rounded
-// corners of radius cr.
-func newGlowParts(cr int) *glowParts {
-	g := &glowParts{cornerRadius: cr}
-	size := glowRadius + cr
+// newGlowParts draws the pieces of a halo for windows with rounded corners
+// of radius cr.
+func newGlowParts(st haloStyle, cr int) *glowParts {
+	g := &glowParts{radius: st.radius, cornerRadius: cr}
+	size := st.radius + cr
 
 	// Top-left corner; the others are its mirror images.
 	corner := image.NewNRGBA(image.Rect(0, 0, size, size))
@@ -88,15 +100,15 @@ func newGlowParts(cr int) *glowParts {
 		for x := 0; x < size; x++ {
 			dx, dy := float64(size)-float64(x)-0.5, float64(size)-float64(y)-0.5
 			d := math.Hypot(dx, dy) - float64(cr) // distance to the rounded edge
-			c := glowColor
-			c.A = uint8(255 * glowAlpha(d))
+			c := st.color
+			c.A = uint8(255 * st.alpha(d))
 			corner.SetNRGBA(x, y, c)
 		}
 	}
-	edge := image.NewNRGBA(image.Rect(0, 0, 1, glowRadius)) // top edge, outward up
-	for y := 0; y < glowRadius; y++ {
-		c := glowColor
-		c.A = uint8(255 * glowAlpha(float64(glowRadius)-float64(y)-0.5))
+	edge := image.NewNRGBA(image.Rect(0, 0, 1, st.radius)) // top edge, outward up
+	for y := 0; y < st.radius; y++ {
+		c := st.color
+		c.A = uint8(255 * st.alpha(float64(st.radius)-float64(y)-0.5))
 		edge.SetNRGBA(0, y, c)
 	}
 
@@ -147,7 +159,7 @@ func transpose(src *image.NRGBA) *image.NRGBA {
 
 // place lays the halo around the rectangle (x, y, w, h) of the view tree.
 func (g *glow) place(p *glowParts, x, y, w, h int, opacity float32) {
-	s, r, cr := glowRadius+p.cornerRadius, glowRadius, p.cornerRadius
+	s, r, cr := p.radius+p.cornerRadius, p.radius, p.cornerRadius
 	inner := func(n int) int { return max(n-2*cr, 0) }
 	boxes := [8][4]int{
 		{x - r, y - r, s, s},
@@ -162,6 +174,30 @@ func (g *glow) place(p *glowParts, x, y, w, h int, opacity float32) {
 	for i, b := range boxes {
 		C.attention_part_place(g.parts[i], C.int(b[0]), C.int(b[1]), C.int(max(b[2], 1)), C.int(max(b[3], 1)), C.float(opacity))
 	}
+}
+
+// newGlow puts a halo made of parts at the bottom of a view tree, below the
+// window; it goes with the tree.
+func newGlow(tree unsafe.Pointer, parts *glowParts) *glow {
+	g := &glow{parent: tree}
+	g.tree = C.attention_tree_create((*C.struct_wlr_scene_tree)(tree))
+	if g.tree == nil {
+		return nil
+	}
+	for i, buf := range parts.buffers {
+		g.parts[i] = C.attention_part_create(g.tree, &buf.base)
+	}
+	return g
+}
+
+// destroy removes the halo from its view tree.
+func (g *glow) destroy() {
+	C.attention_tree_destroy(g.tree)
+}
+
+// setVisible shows or hides the halo.
+func (g *glow) setVisible(on bool) {
+	C.attention_tree_set_enabled(g.tree, C.bool(on))
 }
 
 // setWindowAttention makes the windows with a title call for attention.
@@ -243,7 +279,7 @@ func (s *server) tickAttention() bool {
 		t, ok := targets[view]
 		if !ok || t.tree != g.parent {
 			if s.viewAlive(view, g.parent) {
-				C.attention_tree_destroy(g.tree) // else it went with its view
+				g.destroy() // else it went with its view
 			}
 			delete(s.glows, view)
 		}
@@ -252,7 +288,7 @@ func (s *server) tickAttention() bool {
 		return false
 	}
 	if s.glowParts == nil {
-		s.glowParts = newGlowParts(cornerRadius + borderWidth)
+		s.glowParts = newGlowParts(glowStyle, cornerRadius+borderWidth)
 	}
 
 	breathing := false
@@ -260,13 +296,8 @@ func (s *server) tickAttention() bool {
 	for view, t := range targets {
 		g := s.glows[view]
 		if g == nil {
-			g = &glow{parent: t.tree}
-			g.tree = C.attention_tree_create((*C.struct_wlr_scene_tree)(t.tree))
-			if g.tree == nil {
+			if g = newGlow(t.tree, s.glowParts); g == nil {
 				continue
-			}
-			for i, buf := range s.glowParts.buffers {
-				g.parts[i] = C.attention_part_create(g.tree, &buf.base)
 			}
 			s.glows[view] = g
 		}
