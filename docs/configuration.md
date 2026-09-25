@@ -61,6 +61,16 @@ through. It needs the GLES2 renderer: with another one (pixman) they stay
 opaque. Turn it off with `blur = false` under `[windows]`, or in Settings >
 Advanced.
 
+## Applications started with the session
+
+In a Wayland session, Tyde starts the applications of
+`~/.config/autostart` and `/etc/xdg/autostart` a few seconds after the panel,
+as the XDG Autostart specification says: a file of yours hides the system
+file of the same name, `Hidden=true` or `X-GNOME-Autostart-enabled=false`
+turns an application off, and `OnlyShowIn`/`NotShowIn` (Tyde's name is
+`Tyde`), `TryExec`, `AutostartCondition` and `X-GNOME-Autostart-Delay` are
+followed. An application the restored session reopened is not started again.
+
 ## Window places
 
 Tyde remembers where each application's windows are for each set of screens

@@ -153,6 +153,9 @@ func (s *server) restoreSession() {
 			continue
 		}
 		log.Printf("[SESSION] Launched %q (pid=%d)\n", appID, cmd.Process.Pid)
+		s.sessionMu.Lock()
+		s.sessionLaunched = append(s.sessionLaunched, appID)
+		s.sessionMu.Unlock()
 	}
 
 	// Clear pending session after timeout (windows that didn't map)

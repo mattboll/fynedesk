@@ -842,8 +842,16 @@ func (s *server) startPanelAndRestoreSession() {
 		return
 	}
 
+	// Then the applications of the session, knowing what it restored.
+	if !wait(time.Second) {
+		return
+	}
+	if !s.nestedMode {
+		s.startAutostart()
+	}
+
 	// Fallback: if panel doesn't appear after 10s, launch a terminal
-	if !wait(7 * time.Second) {
+	if !wait(6 * time.Second) {
 		return
 	}
 	if s.panelXway == nil || !s.panelXway.mapped {
