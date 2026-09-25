@@ -253,30 +253,8 @@ func (s *server) maximizeXwayWindow(v *xwayView) {
 		v.snapped = snapNone
 		s.animateXwayPos(v, oldX, oldY, v.savedX, v.savedY)
 	} else {
-		// Save current geometry only from normal state (preserve across snap→maximize)
-		if v.snapped == snapNone {
-			v.savedX = v.x
-			v.savedY = v.y
-			v.savedWidth = v.surface.Width()
-			v.savedHeight = v.surface.Height()
-		}
-		v.snapped = snapNone
-
 		// Maximize to the output the window is on
-		outGeo := s.getOutputGeoForView(v.x, v.y)
-		cx, cy, cw, ch := s.contentBounds(outGeo)
-		topMargin := 0
-		if v.decorated {
-			topMargin = titlebarHeight
-		}
-		targetX := float64(cx)
-		targetY := float64(cy + topMargin)
-		log.Printf("[MAXIMIZE] XWay: title=%q surfW=%d surfH=%d → Configure(%d,%d, %dx%d) topMargin=%d",
-			v.surface.Title(), v.surface.Width(), v.surface.Height(),
-			int16(targetX), int16(targetY), cw, ch-topMargin, topMargin)
-		v.surface.Configure(int16(targetX), int16(targetY), uint16(cw), uint16(ch-topMargin))
-		v.maximized = true
-		s.animateXwayPos(v, oldX, oldY, targetX, targetY)
+		s.setXwayZone(v, s.getOutputGeoForView(v.x, v.y), snapTop)
 	}
 }
 

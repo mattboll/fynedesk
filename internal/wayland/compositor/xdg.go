@@ -719,33 +719,8 @@ func (s *server) maximizeXdgWindow(v *xdgView) {
 		v.configuredH = restH
 		s.animateXdgPos(v, oldX, oldY, restX, restY)
 	} else {
-		// Save current geometry only from normal state (preserve across snap→maximize)
-		if v.snapped == snapNone {
-			geo := v.xdgToplevel.Base().Geometry()
-			v.savedX = v.x
-			v.savedY = v.y
-			v.savedWidth = geo.Dx()
-			v.savedHeight = geo.Dy()
-		}
-		v.snapped = snapNone
-
 		// Maximize to the output the window is on
-		outGeo := s.getOutputGeoForView(v.x, v.y)
-		cx, cy, cw, ch := s.contentBounds(outGeo)
-
-		topMargin := 0
-		if v.decorated {
-			topMargin = titlebarHeight
-		}
-		targetX := float64(cx)
-		targetY := float64(cy + topMargin)
-		targetW, targetH := cw, ch-topMargin
-		v.xdgToplevel.SetSize(int32(targetW), int32(targetH))
-		v.xdgToplevel.SetMaximized(true)
-		v.maximized = true
-		v.configuredW = targetW
-		v.configuredH = targetH
-		s.animateXdgPos(v, oldX, oldY, targetX, targetY)
+		s.setXdgZone(v, s.getOutputGeoForView(v.x, v.y), snapTop)
 	}
 }
 

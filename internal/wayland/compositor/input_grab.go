@@ -21,11 +21,11 @@ func (s *server) beginGrabMove(xdgV *xdgView, xwayV *xwayView) {
 	if xdgV != nil {
 		s.grabViewX = xdgV.x
 		s.grabViewY = xdgV.y
-		s.grabRestorePending = xdgV.fullscreen || xdgV.maximized
+		s.grabRestorePending = xdgV.fullscreen || xdgV.maximized || xdgV.snapped != snapNone
 	} else if xwayV != nil {
 		s.grabViewX = xwayV.x
 		s.grabViewY = xwayV.y
-		s.grabRestorePending = xwayV.fullscreen || xwayV.maximized
+		s.grabRestorePending = xwayV.fullscreen || xwayV.maximized || xwayV.snapped != snapNone
 	}
 	s.cursor.SetXCursor(s.cursorMgr, "grabbing")
 }
@@ -46,6 +46,8 @@ func (s *server) restoreForDrag() {
 		if v.maximized {
 			s.maximizeXdgWindow(v) // toggle: maximized -> restored
 			v.anim.active = false  // cancel restore animation; we'll position under cursor
+		} else if v.snapped != snapNone {
+			s.unsnapXdg(v) // its size of before, under the cursor
 		}
 		savedW = v.savedWidth
 		if v.decorated {
@@ -61,6 +63,8 @@ func (s *server) restoreForDrag() {
 		if v.maximized {
 			s.maximizeXwayWindow(v) // toggle: maximized -> restored
 			v.anim.active = false
+		} else if v.snapped != snapNone {
+			s.unsnapXway(v, v.x, v.y) // its size of before, under the cursor
 		}
 		savedW = v.savedWidth
 		if v.decorated {

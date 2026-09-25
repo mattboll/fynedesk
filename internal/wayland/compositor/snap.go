@@ -152,70 +152,100 @@ func (s *server) updateSnapPreview() {
 
 // applySnap applies the current snap zone to the grabbed window
 func (s *server) applySnap() {
-	if s.snapZone == snapNone {
+	zone := s.snapZone
+	if zone == snapNone {
 		return
 	}
+	s.snapZone = snapNone
 
 	// Snap to the output the cursor is on
 	outGeo := s.getActiveOutputGeo()
+	if s.grabXdg != nil {
+		s.setXdgZone(s.grabXdg, outGeo, zone)
+	} else if s.grabXway != nil {
+		s.setXwayZone(s.grabXway, outGeo, zone)
+	}
+}
 
-	// Content area (primary output reserves bar/widget space, secondary uses full area)
+// zoneRect returns where a window goes in a zone of the content area (cx,
+// cy, cw, ch): the position and size of its client area, below its titlebar
+// (topMargin), with outer gaps along the edges and inner gaps between the
+// zones. snapTop is the whole area, without gaps: the window is maximized.
+func zoneRect(cx, cy, cw, ch int, zone snapZone, topMargin, outer, inner int) (x, y float64, w, h int) {
+	if zone == snapTop {
+		return float64(cx), float64(cy + topMargin), cw, ch - topMargin
+	}
+	o, i := outer, inner
+	top := cy + topMargin
+	contentH := ch - topMargin
+	halfW, halfH := cw/2, contentH/2
+	left, right := cx+o, cx+halfW+i/2
+	leftW, rightW := halfW-o-i/2, cw-halfW-o-i/2
+	upperH, lowerY, lowerH := halfH-o-i/2, top+halfH+i/2, contentH-halfH-o-i/2
+	switch zone {
+	case snapLeft:
+		return float64(left), float64(top + o), leftW, contentH - o*2
+	case snapRight:
+		return float64(right), float64(top + o), rightW, contentH - o*2
+	case snapTopLeft:
+		return float64(left), float64(top + o), leftW, upperH
+	case snapTopRight:
+		return float64(right), float64(top + o), rightW, upperH
+	case snapBottomLeft:
+		return float64(left), float64(lowerY), leftW, lowerH
+	case snapBottomRight:
+		return float64(right), float64(lowerY), rightW, lowerH
+	}
+	return float64(cx), float64(top), cw, contentH
+}
+
+// zoneTarget returns where a window goes in a zone of an output.
+func (s *server) zoneTarget(outGeo outputGeometry, zone snapZone, decorated bool) (float64, float64, int, int) {
 	cx, cy, cw, ch := s.contentBounds(outGeo)
 	topMargin := 0
-	if (s.grabXdg != nil && s.grabXdg.decorated) || (s.grabXway != nil && s.grabXway.decorated) {
+	if decorated {
 		topMargin = titlebarHeight
 	}
-	contentX := cx
-	contentY := cy + topMargin
-	contentW := cw
-	contentH := ch - topMargin
+	return zoneRect(cx, cy, cw, ch, zone, topMargin, s.outerGap, s.innerGap)
+}
 
-	var x, y float64
-	var w, h int
-
-	o := s.outerGap // gap from screen edges
-	i := s.innerGap // gap between adjacent windows
-	halfW := contentW / 2
-	halfH := contentH / 2
-
-	switch s.snapZone {
-	case snapLeft:
-		x, y = float64(contentX+o), float64(contentY+o)
-		w, h = halfW-o-i/2, contentH-o*2
-	case snapRight:
-		x, y = float64(contentX+halfW+i/2), float64(contentY+o)
-		w, h = contentW-halfW-o-i/2, contentH-o*2
-	case snapTop:
-		// Full maximize
-		x, y = float64(contentX+o), float64(contentY+o)
-		w, h = contentW-o*2, contentH-o*2
-	case snapTopLeft:
-		x, y = float64(contentX+o), float64(contentY+o)
-		w, h = halfW-o-i/2, halfH-o-i/2
-	case snapTopRight:
-		x, y = float64(contentX+halfW+i/2), float64(contentY+o)
-		w, h = contentW-halfW-o-i/2, halfH-o-i/2
-	case snapBottomLeft:
-		x, y = float64(contentX+o), float64(contentY+halfH+i/2)
-		w, h = halfW-o-i/2, contentH-halfH-o-i/2
-	case snapBottomRight:
-		x, y = float64(contentX+halfW+i/2), float64(contentY+halfH+i/2)
-		w, h = contentW-halfW-o-i/2, contentH-halfH-o-i/2
+// setXdgZone puts a window in a zone of an output: maximized for snapTop,
+// snapped otherwise. The geometry it had in its normal state is kept for
+// when it is restored.
+func (s *server) setXdgZone(v *xdgView, outGeo outputGeometry, zone snapZone) {
+	oldX, oldY := v.x, v.y
+	if v.snapped == snapNone && !v.maximized {
+		geo := v.xdgToplevel.Base().Geometry()
+		v.savedX, v.savedY = v.x, v.y
+		v.savedWidth, v.savedHeight = geo.Dx(), geo.Dy()
 	}
-
-	if s.grabXdg != nil {
-		oldX, oldY := s.grabXdg.x, s.grabXdg.y
-		s.grabXdg.configuredW = w
-		s.grabXdg.configuredH = h
-		s.grabXdg.xdgToplevel.SetSize(int32(w), int32(h))
-		s.animateXdgPos(s.grabXdg, oldX, oldY, x, y)
-	} else if s.grabXway != nil {
-		oldX, oldY := s.grabXway.x, s.grabXway.y
-		s.grabXway.surface.Configure(int16(x), int16(y), uint16(w), uint16(h))
-		s.animateXwayPos(s.grabXway, oldX, oldY, x, y)
+	x, y, w, h := s.zoneTarget(outGeo, zone, v.decorated)
+	v.maximized = zone == snapTop
+	v.snapped = snapNone
+	if !v.maximized {
+		v.snapped = zone
 	}
+	v.xdgToplevel.SetMaximized(v.maximized)
+	v.configuredW, v.configuredH = w, h
+	v.xdgToplevel.SetSize(int32(w), int32(h))
+	s.animateXdgPos(v, oldX, oldY, x, y)
+}
 
-	s.snapZone = snapNone
+// setXwayZone puts an XWayland window in a zone of an output (see setXdgZone).
+func (s *server) setXwayZone(v *xwayView, outGeo outputGeometry, zone snapZone) {
+	oldX, oldY := v.x, v.y
+	if v.snapped == snapNone && !v.maximized {
+		v.savedX, v.savedY = v.x, v.y
+		v.savedWidth, v.savedHeight = v.surface.Width(), v.surface.Height()
+	}
+	x, y, w, h := s.zoneTarget(outGeo, zone, v.decorated)
+	v.maximized = zone == snapTop
+	v.snapped = snapNone
+	if !v.maximized {
+		v.snapped = zone
+	}
+	v.surface.Configure(int16(x), int16(y), uint16(w), uint16(h))
+	s.animateXwayPos(v, oldX, oldY, x, y)
 }
 
 // snapActiveWindow snaps the active window to the given zone (left/right).
@@ -233,112 +263,43 @@ func (s *server) snapActiveWindow(zone snapZone) {
 }
 
 func (s *server) snapXdgWindow(v *xdgView, zone snapZone) {
-	oldX, oldY := v.x, v.y
-
 	// Toggle: same snap zone → restore
 	if v.snapped == zone {
-		v.xdgToplevel.SetSize(int32(v.savedWidth), int32(v.savedHeight))
-		v.configuredW = v.savedWidth
-		v.configuredH = v.savedHeight
-		v.snapped = snapNone
-		v.maximized = false
+		oldX, oldY := v.x, v.y
+		s.unsnapXdg(v)
 		s.animateXdgPos(v, oldX, oldY, v.savedX, v.savedY)
 		return
 	}
-
-	// Save geometry only from normal state
-	if v.snapped == snapNone && !v.maximized {
-		geo := v.xdgToplevel.Base().Geometry()
-		v.savedX = v.x
-		v.savedY = v.y
-		v.savedWidth = geo.Dx()
-		v.savedHeight = geo.Dy()
-	}
-
-	v.maximized = false
-	v.snapped = zone
-
-	outGeo := s.getOutputGeoForView(v.x, v.y)
-	cx, cy, cw, ch := s.contentBounds(outGeo)
-	topMargin := 0
-	if v.decorated {
-		topMargin = titlebarHeight
-	}
-
-	o := s.outerGap
-	i := s.innerGap
-	halfW := cw / 2
-	contentH := ch - topMargin
-
-	var x, y float64
-	var w, h int
-	switch zone {
-	case snapLeft:
-		x = float64(cx + o)
-		y = float64(cy + topMargin + o)
-		w, h = halfW-o-i/2, contentH-o*2
-	case snapRight:
-		x = float64(cx + halfW + i/2)
-		y = float64(cy + topMargin + o)
-		w, h = cw-halfW-o-i/2, contentH-o*2
-	}
-
-	v.configuredW = w
-	v.configuredH = h
-	v.xdgToplevel.SetSize(int32(w), int32(h))
-	s.animateXdgPos(v, oldX, oldY, x, y)
+	s.setXdgZone(v, s.getOutputGeoForView(v.x, v.y), zone)
 }
 
 func (s *server) snapXwayWindow(v *xwayView, zone snapZone) {
-	oldX, oldY := v.x, v.y
-
 	// Toggle: same snap zone → restore
 	if v.snapped == zone {
-		v.surface.Configure(int16(v.savedX), int16(v.savedY), uint16(v.savedWidth), uint16(v.savedHeight))
-		v.snapped = snapNone
-		v.maximized = false
+		oldX, oldY := v.x, v.y
+		s.unsnapXway(v, v.savedX, v.savedY)
 		s.animateXwayPos(v, oldX, oldY, v.savedX, v.savedY)
 		return
 	}
+	s.setXwayZone(v, s.getOutputGeoForView(v.x, v.y), zone)
+}
 
-	// Save geometry only from normal state
-	if v.snapped == snapNone && !v.maximized {
-		v.savedX = v.x
-		v.savedY = v.y
-		v.savedWidth = v.surface.Width()
-		v.savedHeight = v.surface.Height()
-	}
-
+// unsnapXdg gives a snapped window its size of before back; its position is
+// left to the caller.
+func (s *server) unsnapXdg(v *xdgView) {
+	v.xdgToplevel.SetSize(int32(v.savedWidth), int32(v.savedHeight))
+	v.configuredW = v.savedWidth
+	v.configuredH = v.savedHeight
+	v.snapped = snapNone
 	v.maximized = false
-	v.snapped = zone
+}
 
-	outGeo := s.getOutputGeoForView(v.x, v.y)
-	cx, cy, cw, ch := s.contentBounds(outGeo)
-	topMargin := 0
-	if v.decorated {
-		topMargin = titlebarHeight
-	}
-
-	o := s.outerGap
-	i := s.innerGap
-	halfW := cw / 2
-	contentH := ch - topMargin
-
-	var x, y float64
-	var w, h int
-	switch zone {
-	case snapLeft:
-		x = float64(cx + o)
-		y = float64(cy + topMargin + o)
-		w, h = halfW-o-i/2, contentH-o*2
-	case snapRight:
-		x = float64(cx + halfW + i/2)
-		y = float64(cy + topMargin + o)
-		w, h = cw-halfW-o-i/2, contentH-o*2
-	}
-
-	v.surface.Configure(int16(x), int16(y), uint16(w), uint16(h))
-	s.animateXwayPos(v, oldX, oldY, x, y)
+// unsnapXway gives a snapped XWayland window its size of before back, at
+// (x, y).
+func (s *server) unsnapXway(v *xwayView, x, y float64) {
+	v.surface.Configure(int16(x), int16(y), uint16(v.savedWidth), uint16(v.savedHeight))
+	v.snapped = snapNone
+	v.maximized = false
 }
 
 // reSnapAllWindows re-applies snap geometry for all snapped windows,
