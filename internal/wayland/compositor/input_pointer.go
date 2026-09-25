@@ -650,6 +650,10 @@ func (s *server) handleCursorAxis(e wlr.AxisEvent) {
 	kb := s.seat.Keyboard()
 	if keyboardValid(kb) {
 		mods := kb.GetModifiers()
+		if (mods&s.wmModifier) != 0 && (mods&wlr.KeyboardModifierAlt) != 0 && s.wmModifier != wlr.KeyboardModifierAlt {
+			s.zoomByScroll(e) // WM modifier + Alt + scroll = magnifier
+			return
+		}
 		if (mods & s.wmModifier) != 0 {
 			step := float32(0.05)
 			if delta > 0 {

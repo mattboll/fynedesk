@@ -50,6 +50,9 @@ All shortcuts are configurable via Settings > Keyboard. The **WM modifier** defa
 | Super+W | Window overview (Exposé) |
 | Super+F | Focus mode: dim everything but the focused window |
 | Super+G | Go to the coding agent waiting for you (again: the next one) |
+| Super+= / Super+- | Magnifier: enlarge / shrink the screen around the pointer |
+| Super+Alt+scroll | Magnifier, with the wheel or the touchpad |
+| Super+0 | Magnifier off |
 | Super+A | Toggle sidebar (Raven) |
 | Super+L | Lock screen |
 | PrintScreen | Screenshot (full screen) |

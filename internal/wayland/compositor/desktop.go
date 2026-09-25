@@ -699,7 +699,7 @@ func (s *server) renderOutput(output wlr.Output) {
 	// in progress. Its completion will fire the next frame event, so we skip
 	// this frame to avoid a tight retry loop.
 	commitStart := time.Now()
-	if C.scene_output_commit(sceneOutput) == 0 {
+	if !s.commitScene(output, sceneOutput) {
 		// DRM atomic commit failed (EBUSY): a previous page flip is still
 		// in-flight. Do NOT schedule another frame here — the page flip
 		// completion callback will fire the next frame event naturally.
@@ -751,6 +751,15 @@ func (s *server) renderOutput(output wlr.Output) {
 	}
 }
 
+// commitScene draws output and shows it, enlarged when the magnifier is on.
+// It reports whether the output took the new picture.
+func (s *server) commitScene(output wlr.Output, sceneOutput *C.struct_wlr_scene_output) bool {
+	if s.zoomed() {
+		return s.commitZoomed(output, sceneOutput)
+	}
+	return C.scene_output_commit(sceneOutput) != 0
+}
+
 // tickAnimations advances every animation and reports whether one is still
 // running.
 func (s *server) tickAnimations() bool {
@@ -768,5 +777,6 @@ func (s *server) tickAnimations() bool {
 	animActive = s.tickFocusDim() || animActive
 	animActive = s.tickDeskSwipe() || animActive
 	animActive = s.tickCurtain() || animActive
+	animActive = s.tickZoom() || animActive
 	return animActive
 }

@@ -63,6 +63,9 @@ const (
 	ActionToggleNightLight  = "toggle_night_light"
 	ActionFocusMode         = "focus_mode"
 	ActionNextAgent         = "next_agent"
+	ActionZoomIn            = "zoom_in"
+	ActionZoomOut           = "zoom_out"
+	ActionZoomReset         = "zoom_reset"
 	ActionShowDesktop       = "show_desktop"
 	ActionConfirmSwitcher   = "confirm_switcher"
 	ActionCancelSwitcher    = "cancel_switcher"
@@ -119,6 +122,9 @@ func DefaultBindings() ActionBindings {
 		ActionToggleNightLight:  {{Key: "n", Mods: []string{"WM", "Shift"}}},
 		ActionFocusMode:         {{Key: "f", Mods: []string{"WM"}}},
 		ActionNextAgent:         {{Key: "g", Mods: []string{"WM"}}},
+		ActionZoomIn:            {{Key: "equal", Mods: []string{"WM"}}, {Key: "KP_Add", Mods: []string{"WM"}}},
+		ActionZoomOut:           {{Key: "minus", Mods: []string{"WM"}}, {Key: "KP_Subtract", Mods: []string{"WM"}}},
+		ActionZoomReset:         {{Key: "0", Mods: []string{"WM"}}, {Key: "KP_0", Mods: []string{"WM"}}},
 	}
 }
 
@@ -173,6 +179,9 @@ func ActionDisplayName(action string) string {
 		ActionToggleNightLight:  "Toggle night light",
 		ActionFocusMode:         "Focus mode",
 		ActionNextAgent:         "Go to the agent waiting for you",
+		ActionZoomIn:            "Magnifier: zoom in",
+		ActionZoomOut:           "Magnifier: zoom out",
+		ActionZoomReset:         "Magnifier: off",
 		ActionShowDesktop:       "Show desktop",
 	}
 	if n, ok := names[action]; ok {
@@ -230,6 +239,9 @@ func ActionOrder() []string {
 		ActionToggleNightLight,
 		ActionFocusMode,
 		ActionNextAgent,
+		ActionZoomIn,
+		ActionZoomOut,
+		ActionZoomReset,
 		ActionShowDesktop,
 		ActionEmergencyLogout,
 		ActionCalculator,

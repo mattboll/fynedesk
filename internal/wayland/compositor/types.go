@@ -239,6 +239,7 @@ type server struct {
 	displayBlanked     atomic.Bool  // read by the watchdog goroutine
 	idleSuspended      bool         // true after auto-suspend initiated, cleared on resume
 	curtain            curtainState // the screen darkening before the idle action (curtain.go)
+	zoom               magnifier    // the screen enlarged around the pointer (zoom.go)
 
 	// Configurable power timeouts (minutes, 0 = disabled)
 	powerLockTimeout    int    // default 5

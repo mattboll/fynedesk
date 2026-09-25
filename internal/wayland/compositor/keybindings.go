@@ -17,7 +17,8 @@ const relevantMods = wlr.KeyboardModifierShift | wlr.KeyboardModifierCtrl | wlr.
 func isRepeatableAction(action string) bool {
 	switch action {
 	case wlipc.ActionVolumeUp, wlipc.ActionVolumeDown,
-		wlipc.ActionBrightnessUp, wlipc.ActionBrightnessDown:
+		wlipc.ActionBrightnessUp, wlipc.ActionBrightnessDown,
+		wlipc.ActionZoomIn, wlipc.ActionZoomOut:
 		return true
 	}
 	return false
@@ -296,6 +297,12 @@ func (s *server) dispatchLayoutAction(action string) bool {
 		s.toggleNightLight()
 	case wlipc.ActionFocusMode:
 		s.toggleFocusMode()
+	case wlipc.ActionZoomIn:
+		s.zoomBy(1)
+	case wlipc.ActionZoomOut:
+		s.zoomBy(-1)
+	case wlipc.ActionZoomReset:
+		s.setZoom(1)
 	case wlipc.ActionShowDesktop:
 		s.toggleShowDesktop()
 

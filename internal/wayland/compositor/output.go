@@ -948,6 +948,7 @@ func (s *server) handleOutputDestroy(out *outputState) {
 	wasPrimary := s.primaryOutput() == out
 
 	out.listeners.DestroyAll()
+	s.forgetZoomOutput(unsafe.Pointer(outputPtr(out.output)))
 
 	// Clean up per-output frame listener
 	if out.frameListener != nil {
