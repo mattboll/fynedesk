@@ -343,7 +343,7 @@ func (s *server) endBootSequence() {
 	}
 	if s.bootPixBuf != nil {
 		pixBuf := (*C.struct_pixel_buffer)(s.bootPixBuf)
-		C.pixel_buffer_destroy(&pixBuf.base)
+		C.pixel_buffer_release(pixBuf)
 		s.bootPixBuf = nil
 	}
 	s.bootImg = nil

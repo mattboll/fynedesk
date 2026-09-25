@@ -566,7 +566,7 @@ func (s *server) deactivateBuiltinLock() {
 		sceneBuf := (*C.struct_wlr_scene_buffer)(s.builtinLock.sceneBuf)
 		C.scene_node_destroy(&sceneBuf.node)
 	}
-	// pixBuf is freed by scene_node_destroy (pixel_buffer_destroy callback)
+	releasePixelBuffer(&s.builtinLock.pixBuf)
 
 	// Zero password memory before discarding
 	zeroPassword(s.builtinLock.password)

@@ -4,7 +4,7 @@
 
 #include "pixel_buffer.h"
 
-void pixel_buffer_destroy(struct wlr_buffer *wlr_buf) {
+static void pixel_buffer_destroy(struct wlr_buffer *wlr_buf) {
 	struct pixel_buffer *buf = (struct pixel_buffer *)wlr_buf;
 	free(buf->data);
 	free(buf);
@@ -39,6 +39,12 @@ struct pixel_buffer *pixel_buffer_create(int w, int h) {
 	}
 	wlr_buffer_init(&buf->base, &pixel_buffer_impl, w, h);
 	return buf;
+}
+
+void pixel_buffer_release(struct pixel_buffer *buf) {
+	if (buf) {
+		wlr_buffer_drop(&buf->base);
+	}
 }
 
 void pixel_buffer_update(struct pixel_buffer *buf, const void *pixels, int w, int h) {

@@ -134,7 +134,7 @@ func (s *server) createCloseAnim(thumb *image.NRGBA, x, y float64, displayW, dis
 	if sceneBuf == nil {
 		// scene_buffer_create takes ownership of the buffer on success only;
 		// on failure we still own pixBuf and must release it.
-		C.pixel_buffer_destroy(&pixBuf.base)
+		C.pixel_buffer_release(pixBuf)
 		return
 	}
 	C.scene_buffer_set_dest_size(sceneBuf, C.int(displayW), C.int(displayH))
@@ -213,7 +213,7 @@ func destroyCloseAnim(a *closeAnim) {
 	}
 	if a.pixBuf != nil {
 		pixBuf := (*C.struct_pixel_buffer)(a.pixBuf)
-		C.pixel_buffer_destroy(&pixBuf.base)
+		C.pixel_buffer_release(pixBuf)
 	}
 }
 

@@ -209,9 +209,8 @@ func removeCornerNodes(cornerBL, cornerBR, cornerPL, cornerPR *unsafe.Pointer) {
 		C.scene_node_destroy(&(*C.struct_wlr_scene_buffer)(*cornerBR).node)
 		*cornerBR = nil
 	}
-	// Pixel buffers are owned by the scene buffers and freed automatically
-	*cornerPL = nil
-	*cornerPR = nil
+	releasePixelBuffer(cornerPL)
+	releasePixelBuffer(cornerPR)
 }
 
 // removeShadowsXway destroys all shadow rects for an XWayland view.
@@ -439,11 +438,13 @@ func xwayDecoSize(v *xwayView) (int, int) {
 func (s *server) tearDownXdgDecorations(v *xdgView) {
 	s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
 	v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
-	v.decoTitlebar, v.decoTitlePix = nil, nil
+	v.decoTitlebar = nil
+	releasePixelBuffer(&v.decoTitlePix)
 	removeCornerNodes(&v.decoCornerBL, &v.decoCornerBR, &v.decoCornerPL, &v.decoCornerPR)
 	if v.decoIconBuf != nil {
 		C.scene_node_destroy(&(*C.struct_wlr_scene_buffer)(v.decoIconBuf).node)
-		v.decoIconBuf, v.decoIconPix = nil, nil
+		v.decoIconBuf = nil
+		releasePixelBuffer(&v.decoIconPix)
 	}
 	if v.surfaceTree != nil {
 		C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, 0)
@@ -455,11 +456,13 @@ func (s *server) tearDownXdgDecorations(v *xdgView) {
 func (s *server) tearDownXwayDecorations(v *xwayView) {
 	s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
 	v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
-	v.decoTitlebar, v.decoTitlePix = nil, nil
+	v.decoTitlebar = nil
+	releasePixelBuffer(&v.decoTitlePix)
 	removeCornerNodes(&v.decoCornerBL, &v.decoCornerBR, &v.decoCornerPL, &v.decoCornerPR)
 	if v.decoIconBuf != nil {
 		C.scene_node_destroy(&(*C.struct_wlr_scene_buffer)(v.decoIconBuf).node)
-		v.decoIconBuf, v.decoIconPix = nil, nil
+		v.decoIconBuf = nil
+		releasePixelBuffer(&v.decoIconPix)
 	}
 	s.removeShadowsXway(v)
 	if v.surfaceTree != nil {

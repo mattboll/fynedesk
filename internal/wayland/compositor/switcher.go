@@ -371,11 +371,6 @@ static void sw_scene_buffer_set_opacity(struct wlr_scene_buffer *buf, float opac
 static void sw_scene_node_destroy(struct wlr_scene_node *node) {
     wlr_scene_node_destroy(node);
 }
-static void sw_pixel_buffer_free(struct pixel_buffer *buf) {
-    if (!buf) return;
-    free(buf->data);
-    free(buf);
-}
 static struct wlr_scene_rect *sw_scene_rect_create(struct wlr_scene_tree *parent, int w, int h, const float color[4]) {
     return wlr_scene_rect_create(parent, w, h, color);
 }
@@ -1242,7 +1237,7 @@ func (s *server) createOverviewTitles() {
 
 		sb := C.scene_buffer_create(swTree, &pb.base)
 		if sb == nil {
-			C.sw_pixel_buffer_free(pb)
+			C.pixel_buffer_release(pb)
 			continue
 		}
 
@@ -1270,7 +1265,7 @@ func (s *server) closeOverview() {
 			e.titleBuf = nil
 		}
 		if e.titlePix != nil {
-			C.sw_pixel_buffer_free((*C.struct_pixel_buffer)(e.titlePix))
+			C.pixel_buffer_release((*C.struct_pixel_buffer)(e.titlePix))
 			e.titlePix = nil
 		}
 	}
@@ -1300,13 +1295,13 @@ func (s *server) finishCloseOverview() {
 			C.sw_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(e.sceneBuf).node)
 		}
 		if e.pixBuf != nil {
-			C.sw_pixel_buffer_free((*C.struct_pixel_buffer)(e.pixBuf))
+			C.pixel_buffer_release((*C.struct_pixel_buffer)(e.pixBuf))
 		}
 		if e.titleBuf != nil {
 			C.sw_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(e.titleBuf).node)
 		}
 		if e.titlePix != nil {
-			C.sw_pixel_buffer_free((*C.struct_pixel_buffer)(e.titlePix))
+			C.pixel_buffer_release((*C.struct_pixel_buffer)(e.titlePix))
 		}
 	}
 

@@ -424,7 +424,7 @@ func (s *server) endTransition() {
 	}
 	if s.transitionPixBuf != nil {
 		pixBuf := (*C.struct_pixel_buffer)(s.transitionPixBuf)
-		C.pixel_buffer_destroy(&pixBuf.base)
+		C.pixel_buffer_release(pixBuf)
 		s.transitionPixBuf = nil
 	}
 	s.transitionImg = nil

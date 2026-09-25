@@ -335,7 +335,7 @@ type server struct {
 	penImg        *image.NRGBA   // accumulated ink, full-layout sized (nil = none)
 	penOriginX    int            // layout origin (minX) of penImg
 	penOriginY    int            // layout origin (minY) of penImg
-	penPixBuf     unsafe.Pointer // *C.struct_pen_buffer
+	penPixBuf     unsafe.Pointer // *C.struct_pixel_buffer
 	penSceneBuf   unsafe.Pointer // *C.struct_wlr_scene_buffer
 	penFadeActive bool           // fade-out animation is running
 	penFadeStart  time.Time      // when the fade-out began

@@ -257,6 +257,7 @@ func (s *server) handleNewXDGToplevel(toplevel wlr.XDGToplevel) {
 			v.sceneTree = nil
 			v.surfaceTree = nil
 		}
+		v.forgetDecorationNodes()
 		wasActive := s.activeXdg == v
 		for i, view := range s.xdgViews {
 			if view == v {

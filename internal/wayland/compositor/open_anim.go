@@ -7,51 +7,9 @@ package compositor
 #include <wlr/interfaces/wlr_buffer.h>
 #include <drm_fourcc.h>
 
-struct pixel_buffer {
-	struct wlr_buffer base;
-	void *data;
-	uint32_t format;
-	size_t stride;
-};
-static void pixel_buffer_destroy(struct wlr_buffer *wlr_buf) {
-	struct pixel_buffer *buf = (struct pixel_buffer *)wlr_buf;
-	free(buf->data);
-	free(buf);
-}
-static bool pixel_buffer_begin_data_ptr_access(struct wlr_buffer *wlr_buf,
-		uint32_t flags, void **data, uint32_t *format, size_t *stride) {
-	struct pixel_buffer *buf = (struct pixel_buffer *)wlr_buf;
-	*data = buf->data; *format = buf->format; *stride = buf->stride;
-	return true;
-}
-static void pixel_buffer_end_data_ptr_access(struct wlr_buffer *wlr_buf) {}
-static const struct wlr_buffer_impl pixel_buffer_impl = {
-	.destroy = pixel_buffer_destroy,
-	.begin_data_ptr_access = pixel_buffer_begin_data_ptr_access,
-	.end_data_ptr_access = pixel_buffer_end_data_ptr_access,
-};
-static struct pixel_buffer *oa_pixel_buffer_create(int w, int h) {
-	struct pixel_buffer *buf = calloc(1, sizeof(struct pixel_buffer));
-	if (!buf) return NULL;
-	buf->format = DRM_FORMAT_ABGR8888;
-	buf->stride = (size_t)w * 4;
-	buf->data = calloc((size_t)h, buf->stride);
-	if (!buf->data) { free(buf); return NULL; }
-	wlr_buffer_init(&buf->base, &pixel_buffer_impl, w, h);
-	return buf;
-}
-static void oa_pixel_buffer_update(struct pixel_buffer *buf, const void *pixels, int w, int h) {
-	size_t new_stride = (size_t)w * 4;
-	size_t new_size = new_stride * (size_t)h;
-	if (buf->base.width != w || buf->base.height != h) {
-		free(buf->data);
-		buf->data = malloc(new_size);
-		buf->stride = new_stride;
-		buf->base.width = w;
-		buf->base.height = h;
-	}
-	memcpy(buf->data, pixels, new_size);
-}
+// Images drawn in Go (see pixel_buffer.h).
+#include "pixel_buffer.h"
+
 static struct wlr_scene_buffer *oa_scene_buffer_create(struct wlr_scene_tree *parent, struct wlr_buffer *buffer) {
 	return wlr_scene_buffer_create(parent, buffer);
 }
@@ -136,11 +94,13 @@ func (s *server) startOpenAnimXdg(v *xdgView) {
 	v.hideDecorations = true
 	s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
 	v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
-	v.decoTitlebar, v.decoTitlePix = nil, nil
+	v.decoTitlebar = nil
+	releasePixelBuffer(&v.decoTitlePix)
 	removeCornerNodes(&v.decoCornerBL, &v.decoCornerBR, &v.decoCornerPL, &v.decoCornerPR)
 	if v.decoIconBuf != nil {
 		C.oa_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(v.decoIconBuf).node)
-		v.decoIconBuf, v.decoIconPix = nil, nil
+		v.decoIconBuf = nil
+		releasePixelBuffer(&v.decoIconPix)
 	}
 
 	surf := v.xdgToplevel.Base().Surface()
@@ -182,11 +142,13 @@ func (s *server) startOpenAnimXway(v *xwayView) {
 	v.hideDecorations = true
 	s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
 	v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
-	v.decoTitlebar, v.decoTitlePix = nil, nil
+	v.decoTitlebar = nil
+	releasePixelBuffer(&v.decoTitlePix)
 	removeCornerNodes(&v.decoCornerBL, &v.decoCornerBR, &v.decoCornerPL, &v.decoCornerPR)
 	if v.decoIconBuf != nil {
 		C.oa_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(v.decoIconBuf).node)
-		v.decoIconBuf, v.decoIconPix = nil, nil
+		v.decoIconBuf = nil
+		releasePixelBuffer(&v.decoIconPix)
 	}
 
 	w, h := v.surface.Width(), v.surface.Height()
@@ -221,15 +183,16 @@ func (s *server) createOpenAnim(icon *image.NRGBA, viewID string, winX, winY flo
 
 	sz := icon.Bounds().Dx()
 
-	pixBuf := C.oa_pixel_buffer_create(C.int(sz), C.int(sz))
+	pixBuf := C.pixel_buffer_create(C.int(sz), C.int(sz))
 	if pixBuf == nil {
 		return
 	}
-	C.oa_pixel_buffer_update(pixBuf, unsafe.Pointer(&icon.Pix[0]), C.int(sz), C.int(sz))
+	C.pixel_buffer_update(pixBuf, unsafe.Pointer(&icon.Pix[0]), C.int(sz), C.int(sz))
 
 	overlayTree := (*C.struct_wlr_scene_tree)(s.overlayTree)
 	sceneBuf := C.oa_scene_buffer_create(overlayTree, &pixBuf.base)
 	if sceneBuf == nil {
+		C.pixel_buffer_release(pixBuf)
 		return
 	}
 
@@ -292,7 +255,7 @@ func (s *server) tickOpenAnim() bool {
 		glitchT := (raw - 0.60) / 0.40
 		glitched := applyOpenGlitch(oa.iconImg, glitchT)
 
-		C.oa_pixel_buffer_update(pixBuf,
+		C.pixel_buffer_update(pixBuf,
 			unsafe.Pointer(&glitched.Pix[0]),
 			C.int(sz), C.int(sz))
 		C.oa_scene_buffer_set_buffer(sceneBuf, nil)
@@ -403,6 +366,7 @@ func (s *server) cleanupOpenAnim() {
 		sceneBuf := (*C.struct_wlr_scene_buffer)(oa.sceneBuf)
 		C.oa_scene_node_destroy(&sceneBuf.node)
 	}
+	releasePixelBuffer(&oa.pixBuf)
 	s.openAnim = nil
 }
 

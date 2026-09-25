@@ -7,54 +7,9 @@ package compositor
 #include <wlr/interfaces/wlr_buffer.h>
 #include <drm_fourcc.h>
 
-// pen_buffer is a CPU-backed wlr_buffer holding the felt-tip ink image.
-// It mirrors the pixel_buffer used elsewhere; CGO preambles are per-file
-// translation units, so this duplicate definition is local and conflict-free.
-struct pen_buffer {
-	struct wlr_buffer base;
-	void *data;
-	uint32_t format;
-	size_t stride;
-};
-static void pen_buffer_destroy(struct wlr_buffer *wlr_buf) {
-	struct pen_buffer *buf = (struct pen_buffer *)wlr_buf;
-	free(buf->data);
-	free(buf);
-}
-static bool pen_buffer_begin_data_ptr_access(struct wlr_buffer *wlr_buf,
-		uint32_t flags, void **data, uint32_t *format, size_t *stride) {
-	struct pen_buffer *buf = (struct pen_buffer *)wlr_buf;
-	*data = buf->data; *format = buf->format; *stride = buf->stride;
-	return true;
-}
-static void pen_buffer_end_data_ptr_access(struct wlr_buffer *wlr_buf) {}
-static const struct wlr_buffer_impl pen_buffer_impl = {
-	.destroy = pen_buffer_destroy,
-	.begin_data_ptr_access = pen_buffer_begin_data_ptr_access,
-	.end_data_ptr_access = pen_buffer_end_data_ptr_access,
-};
-static struct pen_buffer *pen_buffer_create(int w, int h) {
-	struct pen_buffer *buf = calloc(1, sizeof(struct pen_buffer));
-	if (!buf) return NULL;
-	buf->format = DRM_FORMAT_ABGR8888;
-	buf->stride = (size_t)w * 4;
-	buf->data = calloc((size_t)h, buf->stride);
-	if (!buf->data) { free(buf); return NULL; }
-	wlr_buffer_init(&buf->base, &pen_buffer_impl, w, h);
-	return buf;
-}
-static void pen_buffer_update(struct pen_buffer *buf, const void *pixels, int w, int h) {
-	size_t new_stride = (size_t)w * 4;
-	size_t new_size = new_stride * (size_t)h;
-	if (buf->base.width != w || buf->base.height != h) {
-		free(buf->data);
-		buf->data = malloc(new_size);
-		buf->stride = new_stride;
-		buf->base.width = w;
-		buf->base.height = h;
-	}
-	memcpy(buf->data, pixels, new_size);
-}
+// The ink image is drawn in Go (see pixel_buffer.h).
+#include "pixel_buffer.h"
+
 static struct wlr_scene_buffer *pen_scene_buffer_create(struct wlr_scene_tree *parent, struct wlr_buffer *buffer) {
 	return wlr_scene_buffer_create(parent, buffer);
 }
@@ -233,8 +188,8 @@ func (s *server) commitPenInk() {
 	pixels := unsafe.Pointer(&s.penImg.Pix[0])
 
 	if s.penPixBuf != nil {
-		pixBuf := (*C.struct_pen_buffer)(s.penPixBuf)
-		C.pen_buffer_update(pixBuf, pixels, C.int(w), C.int(h))
+		pixBuf := (*C.struct_pixel_buffer)(s.penPixBuf)
+		C.pixel_buffer_update(pixBuf, pixels, C.int(w), C.int(h))
 		if s.penSceneBuf != nil {
 			sceneBuf := (*C.struct_wlr_scene_buffer)(s.penSceneBuf)
 			C.pen_scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
@@ -243,15 +198,15 @@ func (s *server) commitPenInk() {
 			C.pen_scene_node_set_position(&sceneBuf.node, C.int(s.penOriginX), C.int(s.penOriginY))
 		}
 	} else {
-		pixBuf := C.pen_buffer_create(C.int(w), C.int(h))
+		pixBuf := C.pixel_buffer_create(C.int(w), C.int(h))
 		if pixBuf == nil {
 			return
 		}
-		C.pen_buffer_update(pixBuf, pixels, C.int(w), C.int(h))
+		C.pixel_buffer_update(pixBuf, pixels, C.int(w), C.int(h))
 		penTreeC := (*C.struct_wlr_scene_tree)(s.penTree)
 		sceneBuf := C.pen_scene_buffer_create(penTreeC, &pixBuf.base)
 		if sceneBuf == nil {
-			C.pen_buffer_destroy(&pixBuf.base)
+			C.pixel_buffer_release(pixBuf)
 			return
 		}
 		C.pen_scene_buffer_set_dest_size(sceneBuf, C.int(w), C.int(h))
@@ -335,13 +290,12 @@ func (s *server) clearPenInk() {
 }
 
 // discardPenScene destroys the scene buffer node and hides the pen layer,
-// leaving s.penImg untouched. The pixel buffer is freed by the scene node's
-// destroy (it drops the last buffer reference).
+// leaving s.penImg untouched.
 func (s *server) discardPenScene() {
 	if s.penSceneBuf != nil {
 		C.pen_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(s.penSceneBuf).node)
 		s.penSceneBuf = nil
-		s.penPixBuf = nil // freed transitively with the scene buffer's last ref
+		releasePixelBuffer(&s.penPixBuf)
 	}
 	if s.penTree != nil {
 		C.pen_scene_node_set_enabled((*C.struct_wlr_scene_tree)(s.penTree), 0)

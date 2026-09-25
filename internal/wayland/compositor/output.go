@@ -947,7 +947,7 @@ func (s *server) handleOutputDestroy(out *outputState) {
 	}
 	if out.wallpaperPixBuf != nil {
 		pixBuf := (*C.struct_pixel_buffer)(out.wallpaperPixBuf)
-		C.pixel_buffer_destroy(&pixBuf.base)
+		C.pixel_buffer_release(pixBuf)
 		out.wallpaperPixBuf = nil
 	}
 

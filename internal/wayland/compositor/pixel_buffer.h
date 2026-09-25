@@ -18,8 +18,10 @@ struct pixel_buffer {
 // R,G,B,A byte order matches Go's image.NRGBA.
 struct pixel_buffer *pixel_buffer_create(int w, int h);
 
-// pixel_buffer_destroy frees a buffer that is no longer used by the scene.
-void pixel_buffer_destroy(struct wlr_buffer *wlr_buf);
+// pixel_buffer_release is called when the compositor forgets a buffer: it is
+// freed once nothing uses it any more (the scene may still show it). Never
+// free a buffer directly: wlroots attaches textures to it.
+void pixel_buffer_release(struct pixel_buffer *buf);
 
 // pixel_buffer_update copies straight-alpha (image.NRGBA) pixels into the
 // buffer, reallocating it if the size changed. wlroots blends buffers as

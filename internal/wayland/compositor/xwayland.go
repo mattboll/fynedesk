@@ -232,7 +232,8 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 				// created before the window was identified as the panel.
 				s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
 				v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
-				v.decoTitlebar, v.decoTitlePix = nil, nil
+				v.decoTitlebar = nil
+				releasePixelBuffer(&v.decoTitlePix)
 				s.removeShadowsXway(v)
 				if v.surfaceTree != nil {
 					C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, 0)
@@ -251,7 +252,8 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 				v.wantsSSD = false
 				s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
 				v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
-				v.decoTitlebar, v.decoTitlePix = nil, nil
+				v.decoTitlebar = nil
+				releasePixelBuffer(&v.decoTitlePix)
 				s.removeShadowsXway(v)
 				if v.surfaceTree != nil {
 					C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, 0)
@@ -272,7 +274,8 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 				// Remove any decorations/shadows that may have been created before identification
 				s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
 				v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
-				v.decoTitlebar, v.decoTitlePix = nil, nil
+				v.decoTitlebar = nil
+				releasePixelBuffer(&v.decoTitlePix)
 				s.removeShadowsXway(v)
 				// Reparent to overlayTree so it appears above normal windows
 				C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.overlayTree))
@@ -298,7 +301,8 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 				// Remove any decorations/shadows that may have been created before identification
 				s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
 				v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
-				v.decoTitlebar, v.decoTitlePix = nil, nil
+				v.decoTitlebar = nil
+				releasePixelBuffer(&v.decoTitlePix)
 				s.removeShadowsXway(v)
 				// Reparent to overlayTree
 				C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.overlayTree))
@@ -450,7 +454,8 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 			// Remove any leftover decorations
 			s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
 			v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
-			v.decoTitlebar, v.decoTitlePix = nil, nil
+			v.decoTitlebar = nil
+			releasePixelBuffer(&v.decoTitlePix)
 			s.removeShadowsXway(v)
 			if v.surfaceTree != nil {
 				C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, 0)
@@ -465,7 +470,8 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 			v.decorated = false
 			s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
 			v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
-			v.decoTitlebar, v.decoTitlePix = nil, nil
+			v.decoTitlebar = nil
+			releasePixelBuffer(&v.decoTitlePix)
 			s.removeShadowsXway(v)
 			if v.surfaceTree != nil {
 				C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, 0)
@@ -484,7 +490,8 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 			// Remove any leftover decorations
 			s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
 			v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
-			v.decoTitlebar, v.decoTitlePix = nil, nil
+			v.decoTitlebar = nil
+			releasePixelBuffer(&v.decoTitlePix)
 			s.removeShadowsXway(v)
 			if v.surfaceTree != nil {
 				C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, 0)
@@ -512,7 +519,8 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 			// Remove any leftover decorations
 			s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
 			v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
-			v.decoTitlebar, v.decoTitlePix = nil, nil
+			v.decoTitlebar = nil
+			releasePixelBuffer(&v.decoTitlePix)
 			s.removeShadowsXway(v)
 			if v.surfaceTree != nil {
 				C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, 0)
@@ -591,6 +599,7 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 			C.scene_node_destroy(&(*C.struct_wlr_scene_tree)(v.sceneTree).node)
 			v.sceneTree = nil
 		}
+		v.forgetDecorationNodes()
 		wasActive := s.activeXway == v && !v.isPanel && !v.overrideRedirect && !v.isOverlay
 		wasPanel := v.isPanel
 		for i, view := range s.xwayViews {
