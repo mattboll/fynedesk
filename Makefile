@@ -167,7 +167,7 @@ lint:
 	@echo "--- go vet ---"
 	go vet -tags ci $(LINT_PACKAGES)
 	@echo "--- gocyclo (max 30) ---"
-	gocyclo -over 30 -ignore "internal/wayland/compositor/|\.local/" .
+	gocyclo -over 30 -ignore "\.local/" .
 	@echo "Lint complete."
 
 fmt:

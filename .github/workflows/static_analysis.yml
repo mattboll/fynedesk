@@ -44,10 +44,8 @@ jobs:
           gofumpt -d -e .
           test -z "$(goimports -e -d . | tee /dev/stderr)"
 
-      # The compositor's wlroots event handlers are still to be split up; until
-      # then they are left out of the complexity check.
       - name: Gocyclo
-        run: gocyclo -over 30 -ignore "internal/wayland/compositor/" .
+        run: gocyclo -over 30 .
 
       - name: Staticcheck
         run: staticcheck $(cat "$RUNNER_TEMP/pkgs")
