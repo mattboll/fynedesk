@@ -202,20 +202,20 @@ func WidgetPanelBackground() color.Color {
 		// Respond on known colours and legacy names too
 		for _, name := range []fyne.ThemeColorName{ColorNamePanelBackground, "fynedeskPanelBackground"} {
 			if col := th.Color(name, variant); col != color.Transparent { // non-transparent means found
-				return col
+				return Glassy(col)
 			}
 		}
 	}
 
 	if variant == theme.VariantLight {
-		return color.RGBA{0xaa, 0xaa, 0xaa, 0xee}
+		return Glassy(color.RGBA{0xaa, 0xaa, 0xaa, 0xee})
 	}
-	return color.RGBA{0x24, 0x24, 0x24, 0xee}
+	return Glassy(color.RGBA{0x24, 0x24, 0x24, 0xee})
 }
 
 // ToastBackground returns the notification toast background color.
 func ToastBackground() color.Color {
-	return deskColor(ColorNameToastBackground, color.NRGBA{R: 10, G: 12, B: 22, A: 235})
+	return Glassy(deskColor(ColorNameToastBackground, color.NRGBA{R: 10, G: 12, B: 22, A: 235}))
 }
 
 // ToastTitle returns the notification toast title text color.
@@ -240,7 +240,7 @@ func AccentGlow() color.Color {
 
 // SidebarBackground returns the sidebar panel background color.
 func SidebarBackground() color.Color {
-	return deskColor(ColorNameSidebarBackground, color.NRGBA{R: 18, G: 20, B: 30, A: 240})
+	return Glassy(deskColor(ColorNameSidebarBackground, color.NRGBA{R: 18, G: 20, B: 30, A: 240}))
 }
 
 // SidebarBorder returns the sidebar border accent color.

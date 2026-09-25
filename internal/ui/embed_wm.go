@@ -103,6 +103,9 @@ func (e *embededWM) ShowOverlay(w fyne.Window, s fyne.Size, p fyne.Position) {
 		}
 	})
 	e.overlay = w
+	if c := w.Content(); c != nil {
+		w.SetContent(glassy(w, c))
+	}
 	w.Show()
 }
 

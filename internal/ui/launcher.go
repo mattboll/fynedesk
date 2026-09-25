@@ -439,7 +439,7 @@ func (l *picker) showWindow() {
 
 	ideal := fyne.NewSize(300,
 		cancel.MinSize().Height*4+theme.Padding()*6+l.entry.MinSize().Height)
-	win.SetContent(container.NewBorder(searchRow, cancel, nil, nil, l.appScroll))
+	win.SetContent(glassy(win, container.NewBorder(searchRow, cancel, nil, nil, l.appScroll)))
 	win.Resize(ideal)
 
 	// Position on the correct output using cursor position from compositor.

@@ -23,6 +23,7 @@
   "advanced.outerGap": "Outer gap:",
   "advanced.windows": "Windows",
   "advanced.wobbly": "Wobbly windows while dragging",
+  "advanced.blur": "Frosted glass behind the panel, menus and notifications",
   "agents.finished": "%s is done",
   "agents.hideIdle": "Hide idle",
   "agents.idle": "%d idle",

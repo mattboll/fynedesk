@@ -206,6 +206,9 @@ func newToast(n *wm.Notification) *toast {
 	} else {
 		fr, fg, fb, _ := wmtheme.ToastBackground().RGBA()
 		windowFill = canvas.NewRectangle(color.NRGBA{R: uint8(fr >> 8), G: uint8(fg >> 8), B: uint8(fb >> 8), A: 160})
+		if glassOn() {
+			windowFill.FillColor = color.Transparent // the round glass is all there is
+		}
 		bg = canvas.NewRectangle(wmtheme.ToastBackground())
 	}
 	bg.CornerRadius = 8
@@ -227,6 +230,7 @@ func newToast(n *wm.Notification) *toast {
 	styled := container.NewStack(windowFill, bg, borderFrame, newGlowAccent(), inner)
 
 	t.win = fyne.CurrentApp().Driver().(deskDriver.Driver).CreateSplashWindow()
+	t.win.SetTransparent(glassOn())
 	t.win.SetTitle(t.title)
 	t.win.SetPadded(false) // the toast draws its own background
 	t.win.SetContent(newTappableBox(styled, func() {

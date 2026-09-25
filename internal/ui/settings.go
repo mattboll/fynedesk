@@ -367,6 +367,14 @@ func (d *deskSettings) setWobblyWindows(on bool) {
 	d.saveAndApply()
 }
 
+// setBlurBehind turns the frosted glass behind the panel, the menus and the
+// notifications on or off. Windows opened from then on follow it.
+func (d *deskSettings) setBlurBehind(on bool) {
+	d.cfg.Windows.Blur = &on
+	wmTheme.SetGlass(frostedGlass(on))
+	d.saveAndApply()
+}
+
 func (d *deskSettings) setWindowGaps(inner, outer int) {
 	d.cfg.Windows.InnerGap = inner
 	d.cfg.Windows.OuterGap = outer
@@ -636,6 +644,7 @@ func (d *deskSettings) load() {
 		d.computerType = tyde.ComputerLaptop
 	}
 	wmTheme.SetTouchScreen(d.computerType == tyde.ComputerTablet)
+	wmTheme.SetGlass(frostedGlass(cfg.Windows.BlurBehind()))
 
 	d.launcherIcons = cfg.Launcher.Icons
 	if len(d.launcherIcons) == 0 {

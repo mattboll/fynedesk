@@ -24,6 +24,16 @@ border_buttons = "right"        # left | right (titlebar button position)
 modifier = "Super"              # Super | Alt (WM modifier key)
 layouts = ["us", "fr:bepo_afnor"]
 
+[windows]
+wobbly = true                   # dragged windows bend like jelly
+blur = true                     # frosted glass behind the panel, menus and notifications (Wayland)
+
+[power]
+lock_timeout_min = 5            # idle minutes before the screen locks (0 = never)
+blank_timeout_min = 6           # before it is turned off
+suspend_timeout_min = 0         # before the machine sleeps
+suspend_action = "suspend"      # suspend | hibernate | hybrid-sleep | nothing
+
 [keybindings]
 quit = "Alt+Escape"
 open_terminal = "Super+t"
@@ -41,7 +51,15 @@ The settings panel provides graphical access to all configuration:
 - **Dock** — Bar position (left/bottom), icons, size and zoom
 - **Desktops**, **Keyboard** (layouts and keybindings), **Window Rules**, **Modules**, **AI**
 - **Account**, **Display** (resolution, scale, arrangement, duplicate or turn off a screen), **Network**, **Time/Date**,
-  **Power**, **Calendar**, **Advanced** (natural scroll, window gaps, wobbly windows, power profile)
+  **Power**, **Calendar**, **Advanced** (natural scroll, window gaps, wobbly windows, frosted glass, power profile)
+
+## Frosted glass
+
+In a Wayland session, what lies behind the dock, the side panel, the menus, the
+launcher and the notifications is blurred, and their backgrounds let it show
+through. It needs the GLES2 renderer: with another one (pixman) they stay
+opaque. Turn it off with `blur = false` under `[windows]`, or in Settings >
+Advanced.
 
 ## Notifications
 

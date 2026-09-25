@@ -23,6 +23,7 @@
   "advanced.outerGap": "Espacement externe :",
   "advanced.windows": "Fenêtres",
   "advanced.wobbly": "Fenêtres molles pendant le déplacement",
+  "advanced.blur": "Verre dépoli derrière le panneau, les menus et les notifications",
   "agents.finished": "%s a terminé",
   "agents.hideIdle": "Masquer les inactifs",
   "agents.idle": "%d inactifs",

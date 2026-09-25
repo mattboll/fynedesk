@@ -48,11 +48,20 @@ type WindowConfig struct {
 	OuterGap int `toml:"outer_gap"` // Pixel gap between windows and screen edges (default 6)
 	// Wobbly makes a dragged window bend like jelly; unset means on.
 	Wobbly *bool `toml:"wobbly,omitempty"`
+	// Blur frosts what lies behind the panel, the menus and the
+	// notifications (Wayland); unset means on.
+	Blur *bool `toml:"blur,omitempty"`
 }
 
 // WobblyWindows reports whether dragged windows wobble (the default).
 func (w WindowConfig) WobblyWindows() bool {
 	return w.Wobbly == nil || *w.Wobbly
+}
+
+// BlurBehind reports whether what lies behind the panel, the menus and the
+// notifications is blurred (the default).
+func (w WindowConfig) BlurBehind() bool {
+	return w.Blur == nil || *w.Blur
 }
 
 // HotCornersConfig holds hot corner activation settings.
@@ -523,6 +532,7 @@ func syncToFynePrefs(cfg *Config) {
 	p.SetInt("windowinnergap", cfg.Windows.InnerGap)
 	p.SetInt("windowoutergap", cfg.Windows.OuterGap)
 	p.SetBool("wobblywindows", cfg.Windows.WobblyWindows())
+	p.SetBool("blurbehind", cfg.Windows.BlurBehind())
 
 	// Hot corners
 	p.SetString("hotcorner_topleft", cfg.HotCorners.TopLeft)
@@ -657,6 +667,7 @@ func LoadConfigForCompositor() (map[string]any, error) {
 	prefs["windowinnergap"] = float64(cfg.Windows.InnerGap)
 	prefs["windowoutergap"] = float64(cfg.Windows.OuterGap)
 	prefs["wobblywindows"] = cfg.Windows.WobblyWindows()
+	prefs["blurbehind"] = cfg.Windows.BlurBehind()
 
 	// Hot corners
 	prefs["hotcorner_topleft"] = cfg.HotCorners.TopLeft
