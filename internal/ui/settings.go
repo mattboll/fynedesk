@@ -873,6 +873,10 @@ func (d *deskSettings) prefsSnapshot() map[string]any {
 		"language":              d.cfg.Display.Language,
 	}
 
+	// Window effects
+	snapshot["wobblywindows"] = d.cfg.Windows.WobblyWindows()
+	snapshot["blurbehind"] = d.cfg.Windows.BlurBehind()
+
 	// Power management
 	snapshot["power_lock_timeout"] = float64(d.cfg.Power.LockTimeoutMin)
 	snapshot["power_blank_timeout"] = float64(d.cfg.Power.BlankTimeoutMin)
