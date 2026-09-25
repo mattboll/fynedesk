@@ -46,5 +46,5 @@ func IsolateUserSession() func() {
 // tests; the modules turned on by migration are marked as offered already.
 const testConfig = `[modules]
   enabled = ["Virtual Desktops"]
-  offered = ["Keyboard Layout", "Power Profile", "Notes", "Next Meeting", "Today's Agenda"]
+  offered = ["Keyboard Layout", "Power Profile", "Notes", "Next Meeting", "Today's Agenda", "Coding Agents", "Phone"]
 `

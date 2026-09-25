@@ -681,6 +681,9 @@ func (d *deskSettings) load() {
 	if herdrInstalled() {
 		d.migrateModules(wlipc.AgentsModule) // offered once herdr is there
 	}
+	if _, err := exec.LookPath("adb"); err == nil {
+		d.migrateModules(status.PhoneModule) // offered once adb is there
+	}
 
 	if cfg.Input.KeyboardModifier == "Alt" {
 		d.modifier = fyne.KeyModifierAlt

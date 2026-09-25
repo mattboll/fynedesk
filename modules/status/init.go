@@ -9,6 +9,7 @@ func init() {
 	tyde.RegisterModule(calendarMeta)
 	tyde.RegisterModule(keyboardMeta)
 	tyde.RegisterModule(networkMeta)
+	tyde.RegisterModule(phoneMeta)
 	tyde.RegisterModule(batteryMeta)
 	tyde.RegisterModule(soundMeta)
 	tyde.RegisterModule(brightnessMeta)

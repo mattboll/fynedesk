@@ -102,6 +102,18 @@ It all comes with the **Coding Agents** module, turned on once when herdr is
 found (Settings > Modules). Turned off, nothing of it is left: no widget, no
 notification, no glow, and Super+G is free.
 
+## Phone
+
+The **Phone** module (turned on once when `adb` is found) connects Android
+phones for debugging over Wi-Fi, without Android Studio. Click the phone in
+the widget panel, then *Connect a phone*: on the phone, in Developer options >
+Wireless debugging, choose *Pair device with QR code* and scan the code. Tyde
+finds the phone on the local network, pairs and connects it with `adb`, so
+`adb`, Gradle, Flutter and the other tools see it. A phone paired once is
+connected again whenever it is on the same network. With
+[scrcpy](https://github.com/Genymobile/scrcpy) installed, *Screen* shows the
+phone's screen in a window, to use it with the mouse and the keyboard.
+
 ## Screen sharing
 
 Screen sharing goes through `xdg-desktop-portal-wlr`. When an application
