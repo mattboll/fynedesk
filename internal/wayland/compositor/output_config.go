@@ -16,7 +16,7 @@ func (s *server) writeCompositorState() {
 		return
 	}
 
-	state := CompositorState{}
+	state := CompositorState{CanBlur: s.canBlur()}
 
 	pOut := s.primaryOutput()
 	for _, out := range s.outputs {

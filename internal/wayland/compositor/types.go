@@ -177,6 +177,8 @@ type server struct {
 	shadowParts        *glowParts
 	wobblyWindows      bool                      // dragged windows bend (wobble.go)
 	wobble             *wobbleState              // the window wobbling, if any
+	blurBehind         bool                      // frosted glass behind the panel, menus and notifications (blur.go)
+	blurs              map[*xwayView]blurRef     // the blur behind each panel and overlay window
 	genie              *genieState               // the window flowing into the dock, if any
 	dockIcons          map[string]wlipc.DockIcon // where the dock shows each window, by view ID (from the panel)
 	grabNoWobble       bool                      // the grabbed window was restored from maximized: it keeps still

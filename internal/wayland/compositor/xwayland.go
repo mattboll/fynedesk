@@ -366,6 +366,7 @@ func (s *server) classifyXwayOnMap(v *xwayView, surface wlr.XwaylandSurface, vie
 		// so alpha blending works natively — no commit listener needed.
 		// Position panel on primary output (both XWayland configure + scene node)
 		s.repositionPanel()
+		s.addBlur(v)
 	} else if strings.HasPrefix(title, "Tyde:Bar:") {
 		// Secondary bar window for a non-primary output
 		outputName := strings.TrimPrefix(title, "Tyde:Bar:")
@@ -380,6 +381,7 @@ func (s *server) classifyXwayOnMap(v *xwayView, surface wlr.XwaylandSurface, vie
 		s.secondaryPanels[outputName] = v
 		log.Printf("[PANEL] Secondary bar detected on map: output=%q title=%q", outputName, title)
 		s.repositionSecondaryPanel(outputName, v)
+		s.addBlur(v)
 	} else if strings.Contains(title, "Tyde:skip") {
 		// Panel utility window (app launcher, etc.) — no decorations
 		v.decorated = false
@@ -395,6 +397,7 @@ func (s *server) classifyXwayOnMap(v *xwayView, surface wlr.XwaylandSurface, vie
 		// when pendingOverlay was set, to avoid flash at wrong position)
 		C.scene_node_set_enabled(&viewTree.node, 1)
 		s.positionOverlay(v, surface)
+		s.addBlur(v)
 		if !strings.Contains(title, "Tyde:nofocus") {
 			s.focusOverlayKeyboard(v)
 		}
@@ -414,6 +417,7 @@ func (s *server) classifyXwayOnMap(v *xwayView, surface wlr.XwaylandSurface, vie
 		// Reparent to overlayTree
 		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.overlayTree))
 		s.positionOverlay(v, surface)
+		s.addBlur(v)
 		restackXwaylandSurfaceAbove(v.surface)
 		s.focusOverlayKeyboard(v)
 		// Set pointer focus so the first click works without mouse movement
@@ -554,6 +558,7 @@ func (s *server) handleXwaySetTitle(v *xwayView, surface wlr.XwaylandSurface, vi
 		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.panelTree))
 		// Position panel on primary output (both XWayland configure + scene node)
 		s.repositionPanel()
+		s.addBlur(v)
 	} else if strings.HasPrefix(title, "Tyde:Bar:") {
 		outputName := strings.TrimPrefix(title, "Tyde:Bar:")
 		v.isPanel = true
@@ -566,6 +571,7 @@ func (s *server) handleXwaySetTitle(v *xwayView, surface wlr.XwaylandSurface, vi
 		s.secondaryPanels[outputName] = v
 		log.Printf("[PANEL] Secondary bar detected on title: output=%q title=%q", outputName, title)
 		s.repositionSecondaryPanel(outputName, v)
+		s.addBlur(v)
 	} else if strings.Contains(title, "Tyde:skip") && v.mapped {
 		// Panel utility window title set after map
 		v.decorated = false
@@ -578,6 +584,7 @@ func (s *server) handleXwaySetTitle(v *xwayView, surface wlr.XwaylandSurface, vi
 		C.scene_node_set_enabled(&viewTree.node, 1)
 		restackXwaylandSurfaceAbove(v.surface)
 		s.positionOverlay(v, surface)
+		s.addBlur(v)
 		if strings.Contains(title, "Tyde:nofocus") {
 			// No focus — e.g. toast notifications
 		} else {
@@ -598,6 +605,7 @@ func (s *server) handleXwaySetTitle(v *xwayView, surface wlr.XwaylandSurface, vi
 		s.overlayXway = v
 		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.overlayTree))
 		s.positionOverlay(v, surface)
+		s.addBlur(v)
 		restackXwaylandSurfaceAbove(v.surface)
 		s.focusOverlayKeyboard(v)
 		// Set pointer focus so the first click works without mouse movement
@@ -670,6 +678,7 @@ func (s *server) handleXwayDestroy(v *xwayView, detachSurface func()) {
 	}
 	v.forgetDecorationNodes()
 	delete(s.shadows, v) // it went with the tree
+	s.removeBlur(v)
 	wasActive := s.activeXway == v && !v.isPanel && !v.overrideRedirect && !v.isOverlay
 	wasPanel := v.isPanel
 	s.removeXwayView(v)

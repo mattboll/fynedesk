@@ -43,6 +43,10 @@ type CompositorOutputState struct {
 // CompositorState is written by the compositor to compositor-state.json.
 type CompositorState struct {
 	Outputs []CompositorOutputState `json:"outputs"`
+	// CanBlur is set when the compositor can blur what lies behind the
+	// translucent windows of the panel (GLES2 renderer): only then are they
+	// frosted glass, see-through otherwise.
+	CanBlur bool `json:"can_blur,omitempty"`
 
 	// Legacy single-output fields for backward compatibility with older panels
 	OutputName string           `json:"output_name"`

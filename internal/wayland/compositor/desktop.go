@@ -663,6 +663,7 @@ func (s *server) renderOutput(output wlr.Output) {
 	// Tick all animations (snap, transitions, close effects, etc.)
 	// Each returns true if still running, used to decide frame scheduling.
 	animActive := s.tickAnimations()
+	s.updateBlurs(output)
 
 	// Resolve this output's state once — used by the animated wallpaper tick
 	// and the page-flip stall tracking around the scene commit below.
