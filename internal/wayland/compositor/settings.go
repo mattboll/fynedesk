@@ -239,6 +239,19 @@ func readTOMLAsPrefs(path string) (map[string]interface{}, error) {
 
 // applyPrefs applies preferences that can be reloaded at runtime
 func (s *server) applyPrefs(prefs map[string]interface{}) {
+	s.applyShellPrefs(prefs)
+	s.applyKeyboardLayoutPrefs(prefs)
+	s.applyNightLightPrefs(prefs)
+	s.applyDesktopPrefs(prefs)
+	s.applyColorSchemePrefs(prefs)
+	s.applyWindowPrefs(prefs)
+	s.applyWallpaperPrefs(prefs)
+	s.applyFontPrefs(prefs)
+	s.applySessionPrefs(prefs)
+}
+
+// applyShellPrefs applies decoration buttons, modifier, scrolling, bar, launcher and theme colours.
+func (s *server) applyShellPrefs(prefs map[string]interface{}) {
 	// Button position
 	if pos, ok := prefs["borderbuttonposition"].(string); ok {
 		s.buttonsOnLeft = (pos == "Left")
@@ -304,7 +317,10 @@ func (s *server) applyPrefs(prefs map[string]interface{}) {
 			s.applyThemeColors(colorsStr)
 		}
 	}
+}
 
+// applyKeyboardLayoutPrefs applies the configured keyboard layouts.
+func (s *server) applyKeyboardLayoutPrefs(prefs map[string]interface{}) {
 	// Keyboard layouts
 	// No configured layout means the system one (see systemKeyboardLayout).
 	kbStr, _ := prefs["keyboardlayouts"].(string)
@@ -327,7 +343,10 @@ func (s *server) applyPrefs(prefs map[string]interface{}) {
 			s.activeLayoutIndex = 0
 		}
 	}
+}
 
+// applyNightLightPrefs applies the night light settings.
+func (s *server) applyNightLightPrefs(prefs map[string]interface{}) {
 	// Night light
 	prevNL := s.nightLight
 	if enabled, ok := prefs["nightlightenabled"].(bool); ok {
@@ -341,7 +360,10 @@ func (s *server) applyPrefs(prefs map[string]interface{}) {
 	if s.nightLight != prevNL {
 		s.applyNightLight()
 	}
+}
 
+// applyDesktopPrefs applies the desktop count and names.
+func (s *server) applyDesktopPrefs(prefs map[string]interface{}) {
 	// Desktop count and names
 	if count, ok := prefs["desktopcount"].(float64); ok && int(count) >= 2 && int(count) <= 8 {
 		s.numDesks = int(count)
@@ -355,7 +377,10 @@ func (s *server) applyPrefs(prefs map[string]interface{}) {
 	} else {
 		s.desktopNames = nil
 	}
+}
 
+// applyColorSchemePrefs applies the portal colour scheme.
+func (s *server) applyColorSchemePrefs(prefs map[string]interface{}) {
 	// Color scheme for portal (auto/dark/light → 0/1/2)
 	prevColorScheme := s.colorScheme
 	if cs, ok := prefs["colorscheme"].(string); ok {
@@ -371,7 +396,10 @@ func (s *server) applyPrefs(prefs map[string]interface{}) {
 	if s.colorScheme != prevColorScheme && s.portal != nil {
 		s.portal.emitColorSchemeChanged(s.colorScheme)
 	}
+}
 
+// applyWindowPrefs applies gaps, hot corners and accessibility settings.
+func (s *server) applyWindowPrefs(prefs map[string]interface{}) {
 	// Window gaps
 	if ig, ok := prefs["windowinnergap"].(float64); ok && ig >= 0 {
 		s.innerGap = int(ig)
@@ -408,7 +436,10 @@ func (s *server) applyPrefs(prefs map[string]interface{}) {
 	if hc, ok := prefs["highcontrast"].(bool); ok {
 		s.highContrast = hc
 	}
+}
 
+// applyWallpaperPrefs applies the background and wallpaper settings.
+func (s *server) applyWallpaperPrefs(prefs map[string]interface{}) {
 	// Global background path
 	if bgPath, ok := prefs["background"].(string); ok {
 		s.backgroundPath = bgPath
@@ -434,7 +465,10 @@ func (s *server) applyPrefs(prefs map[string]interface{}) {
 	if autoAccent, ok := prefs["autoaccentcolor"].(bool); ok {
 		s.autoAccentColor = autoAccent
 	}
+}
 
+// applyFontPrefs applies the font family and size.
+func (s *server) applyFontPrefs(prefs map[string]interface{}) {
 	// Font settings
 	if ff, ok := prefs["fontfamily"].(string); ok && ff != "" {
 		s.fontFamily = ff
@@ -444,7 +478,10 @@ func (s *server) applyPrefs(prefs map[string]interface{}) {
 	} else if s.fontSize == 0 {
 		s.fontSize = 13
 	}
+}
 
+// applySessionPrefs applies the screensaver and power management settings.
+func (s *server) applySessionPrefs(prefs map[string]interface{}) {
 	// Screensaver
 	if st, ok := prefs["savertype"].(string); ok {
 		s.lockScreenType = st

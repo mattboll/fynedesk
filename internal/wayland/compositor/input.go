@@ -269,36 +269,7 @@ func (s *server) isDragActive() bool {
 // Iterates views in actual scene tree z-order (topmost first) so that cross-type
 // occlusion (XDG vs XWayland) is handled correctly.
 func (s *server) cursorNearBorder(x, y float64) (wlr.Edges, *xdgView, *xwayView) {
-	// Helper: check if cursor is in the resize border zone around a rectangle.
-	// Returns matched edges, or EdgeNone. Sets occluded=true if cursor is inside
-	// the window content (not on a border) — meaning views behind are hidden.
-	// outerSize: how far outside the content area to detect edges.
-	// innerSize: how far inside the content area to detect edges (0 for SSD
-	// since borders are rendered outside; >0 for CSD where invisible borders
-	// may be clipped at screen edges).
 	var occluded bool
-	checkBorder := func(left, top, right, bottom, outerSize, innerSize float64) wlr.Edges {
-		if x < left-outerSize || x > right+outerSize || y < top-outerSize || y > bottom+outerSize {
-			return wlr.EdgeNone // Outside border zone entirely
-		}
-		// Content interior — not on any border zone.
-		if x >= left+innerSize && x <= right-innerSize && y >= top+innerSize && y <= bottom-innerSize {
-			occluded = true
-			return wlr.EdgeNone
-		}
-		var edges wlr.Edges
-		if x < left+innerSize {
-			edges |= wlr.EdgeLeft
-		} else if x > right-innerSize {
-			edges |= wlr.EdgeRight
-		}
-		if y < top+innerSize {
-			edges |= wlr.EdgeTop
-		} else if y > bottom-innerSize {
-			edges |= wlr.EdgeBottom
-		}
-		return edges
-	}
 
 	// Get views in actual z-order from the scene tree (topmost first).
 	var dataArr [64]unsafe.Pointer
@@ -310,90 +281,17 @@ func (s *server) cursorNearBorder(x, y float64) (wlr.Edges, *xdgView, *xwayView)
 		xdgV, xwayV := s.viewFromNodeData(dataArr[i])
 
 		if xdgV != nil {
-			v := xdgV
-			if !v.mapped || !v.onDesk(s.currentDesk) {
-				continue
+			edges, occ := s.xdgViewNearBorder(xdgV, x, y)
+			if edges != wlr.EdgeNone {
+				return edges, xdgV, nil
 			}
-
-			geo := v.xdgToplevel.Base().Geometry()
-			w, h := float64(geo.Dx()), float64(geo.Dy())
-			left := v.x
-			right := left + w
-			top := v.y
-			bottom := top + h
-
-			// Maximized/fullscreen windows have no resize handles but still occlude
-			if v.fullscreen || v.maximized {
-				if v.decorated {
-					top -= float64(titlebarHeight)
-				}
-				if x >= left && x < right && y >= top && y < bottom {
-					occluded = true
-				}
-			} else if v.decorated {
-				top = v.y - float64(titlebarHeight)
-				// SSD: borders are outside content, so inner hit zone = 0
-				if edges := checkBorder(left, top, right, bottom, float64(edgeHitSize), 0); edges != wlr.EdgeNone {
-					return edges, v, nil
-				}
-			} else {
-				csdTitlebarSafe := top + 40.0
-				csdCorner := float64(csdEdgeHitSize)
-				if y >= top-csdCorner && y < csdTitlebarSafe && x >= left-csdCorner && x <= right+csdCorner {
-					occluded = true
-				} else {
-					// CSD: resize zone is outside-only (innerSize=0) so clicks in
-					// window content are never consumed by the resize grab.
-					if edges := checkBorder(left, top, right, bottom, float64(csdEdgeHitSize), 0); edges != wlr.EdgeNone {
-						edges &^= wlr.EdgeTop
-						if edges != wlr.EdgeNone {
-							return edges, v, nil
-						}
-					}
-				}
-			}
+			occluded = occ
 		} else if xwayV != nil {
-			v := xwayV
-			if !v.mapped || v.isPanel || v.isOverlay || !v.onDesk(s.currentDesk) {
-				continue
+			edges, occ := s.xwayViewNearBorder(xwayV, x, y)
+			if edges != wlr.EdgeNone {
+				return edges, nil, xwayV
 			}
-
-			w, h := float64(v.surface.Width()), float64(v.surface.Height())
-			left := v.x
-			right := v.x + w
-			bottom := v.y + h
-			top := v.y
-
-			// Maximized/fullscreen windows have no resize handles but still occlude
-			if v.fullscreen || v.maximized {
-				if v.decorated {
-					top -= float64(titlebarHeight)
-				}
-				if x >= left && x < right && y >= top && y < bottom {
-					occluded = true
-				}
-			} else if v.decorated {
-				top -= float64(titlebarHeight)
-				// SSD: borders are outside content, so inner hit zone = 0
-				if edges := checkBorder(left, top, right, bottom, float64(edgeHitSize), 0); edges != wlr.EdgeNone {
-					return edges, nil, v
-				}
-			} else {
-				csdTitlebarSafe := top + 40.0
-				csdCorner := float64(csdEdgeHitSize)
-				if y >= top-csdCorner && y < csdTitlebarSafe && x >= left-csdCorner && x <= right+csdCorner {
-					occluded = true
-				} else {
-					// CSD: resize zone is outside-only (innerSize=0) so clicks in
-					// window content are never consumed by the resize grab.
-					if edges := checkBorder(left, top, right, bottom, float64(csdEdgeHitSize), 0); edges != wlr.EdgeNone {
-						edges &^= wlr.EdgeTop
-						if edges != wlr.EdgeNone {
-							return edges, nil, v
-						}
-					}
-				}
-			}
+			occluded = occ
 		}
 		if occluded {
 			return wlr.EdgeNone, nil, nil
@@ -401,6 +299,138 @@ func (s *server) cursorNearBorder(x, y float64) (wlr.Edges, *xdgView, *xwayView)
 	}
 
 	return wlr.EdgeNone, nil, nil
+}
+
+// cursorBorderEdges checks if the cursor is in the resize border zone around a rectangle.
+// Returns matched edges, or EdgeNone. Returns occluded=true if cursor is inside
+// the window content (not on a border) — meaning views behind are hidden.
+// outerSize: how far outside the content area to detect edges.
+// innerSize: how far inside the content area to detect edges (0 for SSD
+// since borders are rendered outside; >0 for CSD where invisible borders
+// may be clipped at screen edges).
+func cursorBorderEdges(x, y, left, top, right, bottom, outerSize, innerSize float64) (wlr.Edges, bool) {
+	if x < left-outerSize || x > right+outerSize || y < top-outerSize || y > bottom+outerSize {
+		return wlr.EdgeNone, false // Outside border zone entirely
+	}
+	// Content interior — not on any border zone.
+	if x >= left+innerSize && x <= right-innerSize && y >= top+innerSize && y <= bottom-innerSize {
+		return wlr.EdgeNone, true
+	}
+	var edges wlr.Edges
+	if x < left+innerSize {
+		edges |= wlr.EdgeLeft
+	} else if x > right-innerSize {
+		edges |= wlr.EdgeRight
+	}
+	if y < top+innerSize {
+		edges |= wlr.EdgeTop
+	} else if y > bottom-innerSize {
+		edges |= wlr.EdgeBottom
+	}
+	return edges, false
+}
+
+// xdgViewNearBorder returns the resize edges of an XDG view under the cursor,
+// and whether the view occludes the views behind it.
+func (s *server) xdgViewNearBorder(v *xdgView, x, y float64) (wlr.Edges, bool) {
+	var occluded bool
+	if !v.mapped || !v.onDesk(s.currentDesk) {
+		return wlr.EdgeNone, false
+	}
+
+	geo := v.xdgToplevel.Base().Geometry()
+	w, h := float64(geo.Dx()), float64(geo.Dy())
+	left := v.x
+	right := left + w
+	top := v.y
+	bottom := top + h
+
+	// Maximized/fullscreen windows have no resize handles but still occlude
+	if v.fullscreen || v.maximized {
+		if v.decorated {
+			top -= float64(titlebarHeight)
+		}
+		if x >= left && x < right && y >= top && y < bottom {
+			occluded = true
+		}
+	} else if v.decorated {
+		top = v.y - float64(titlebarHeight)
+		// SSD: borders are outside content, so inner hit zone = 0
+		edges, occ := cursorBorderEdges(x, y, left, top, right, bottom, float64(edgeHitSize), 0)
+		if edges != wlr.EdgeNone {
+			return edges, false
+		}
+		occluded = occ
+	} else {
+		csdTitlebarSafe := top + 40.0
+		csdCorner := float64(csdEdgeHitSize)
+		if y >= top-csdCorner && y < csdTitlebarSafe && x >= left-csdCorner && x <= right+csdCorner {
+			occluded = true
+		} else {
+			// CSD: resize zone is outside-only (innerSize=0) so clicks in
+			// window content are never consumed by the resize grab.
+			edges, occ := cursorBorderEdges(x, y, left, top, right, bottom, float64(csdEdgeHitSize), 0)
+			occluded = occ
+			if edges != wlr.EdgeNone {
+				edges &^= wlr.EdgeTop
+				if edges != wlr.EdgeNone {
+					return edges, false
+				}
+			}
+		}
+	}
+	return wlr.EdgeNone, occluded
+}
+
+// xwayViewNearBorder returns the resize edges of an XWayland view under the
+// cursor, and whether the view occludes the views behind it.
+func (s *server) xwayViewNearBorder(v *xwayView, x, y float64) (wlr.Edges, bool) {
+	var occluded bool
+	if !v.mapped || v.isPanel || v.isOverlay || !v.onDesk(s.currentDesk) {
+		return wlr.EdgeNone, false
+	}
+
+	w, h := float64(v.surface.Width()), float64(v.surface.Height())
+	left := v.x
+	right := v.x + w
+	bottom := v.y + h
+	top := v.y
+
+	// Maximized/fullscreen windows have no resize handles but still occlude
+	if v.fullscreen || v.maximized {
+		if v.decorated {
+			top -= float64(titlebarHeight)
+		}
+		if x >= left && x < right && y >= top && y < bottom {
+			occluded = true
+		}
+	} else if v.decorated {
+		top -= float64(titlebarHeight)
+		// SSD: borders are outside content, so inner hit zone = 0
+		edges, occ := cursorBorderEdges(x, y, left, top, right, bottom, float64(edgeHitSize), 0)
+		if edges != wlr.EdgeNone {
+			return edges, false
+		}
+		occluded = occ
+	} else {
+		csdTitlebarSafe := top + 40.0
+		csdCorner := float64(csdEdgeHitSize)
+		if y >= top-csdCorner && y < csdTitlebarSafe && x >= left-csdCorner && x <= right+csdCorner {
+			occluded = true
+		} else {
+			// CSD: resize zone is outside-only (innerSize=0) so clicks in
+			// window content are never consumed by the resize grab.
+			edges, occ := cursorBorderEdges(x, y, left, top, right, bottom, float64(csdEdgeHitSize), 0)
+			occluded = occ
+			if edges != wlr.EdgeNone {
+				edges &^= wlr.EdgeTop
+				if edges != wlr.EdgeNone {
+					return edges, false
+				}
+			}
+		}
+	}
+	return wlr.EdgeNone, occluded
 }
 
 // viewAtDecoration finds a view by checking decoration areas (titlebar, buttons).

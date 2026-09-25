@@ -121,161 +121,17 @@ func (s *server) handleNewXDGToplevel(toplevel wlr.XDGToplevel) {
 
 	// Handle surface map/unmap
 	v.listeners.Add(surface.Surface().OnMap(func(Surface wlr.Surface) {
-		if v.sceneTree == nil {
-			log.Printf("[XDG] WARNING: OnMap fired but sceneTree is nil for %s, skipping", v.id)
-			return
-		}
-		v.mapped = true
-		s.captureShowXdg(v)
-
-		// Assign to current desktop by default
-		v.desk = s.currentDesk
-
-		// Read size constraints from toplevel state
-		state := toplevel.Current()
-		v.minWidth = int(state.MinWidth())
-		v.minHeight = int(state.MinHeight())
-		v.maxWidth = int(state.MaxWidth())
-		v.maxHeight = int(state.MaxHeight())
-
-		// Read protocol-level parent (set_parent signal may have fired before map)
-		if parent := toplevel.Parent(); parent.Valid() && v.parent == nil {
-			for _, pv := range s.xdgViews {
-				if pv.xdgToplevel.Ptr() == parent.Ptr() {
-					v.parent = pv
-					v.desk = pv.desk
-					break
-				}
-			}
-		}
-		// Inherit desktop from parent
-		if v.parent != nil {
-			v.desk = v.parent.desk
-		}
-
-		// Apply per-app window rules before positioning
-		appID := getXdgToplevelAppID(toplevel)
-		if rule := s.matchWindowRule(appID); rule != nil {
-			s.applyWindowRuleXdg(v, rule)
-		}
-
-		// Restore session window state (position, desktop, maximize)
-		if sw := s.matchSessionWindow(appID); sw != nil {
-			s.applySessionWindowXdg(v, sw)
-		}
-
-		surfState := Surface.Current()
-		log.Printf("[DECO] XDG map: app_id=%q title=%q size=%dx%d decorated=%v parent=%v\n",
-			appID, toplevel.Title(), surfState.Width(), surfState.Height(), v.decorated, v.parent != nil)
-
-		s.positionNewXdgWindow(v, surfState.Width(), surfState.Height())
-
-		// Apply maximize geometry if set by window rule (rule only sets flag, not geometry)
-		if v.maximized {
-			s.configureXdgMaximized(v)
-		}
-
-		// Determine if open animation will run
-		onCurrentDesk := v.pinned || v.desk == s.currentDesk
-		willAnimate := onCurrentDesk && !s.reduceMotion && v.parent == nil && !v.fullscreen
-
-		// Enable scene node only if on current desktop AND no animation
-		// (animation keeps it hidden until it finishes)
-		if onCurrentDesk && !willAnimate {
-			C.scene_node_set_enabled(&viewTree.node, 1)
-		}
-		// If decorated, offset the surface down by titlebarHeight
-		if v.decorated {
-			surfT := (*C.struct_wlr_scene_tree)(v.surfaceTree)
-			C.scene_node_set_position(&surfT.node, 0, C.int(titlebarHeight))
-			// Create decoration nodes
-			_, _, v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = s.createDecoNodes(viewTree, surfState.Width(), surfState.Height(), false)
-			s.updateXdgViewDecorations(v)
-		}
-		setXdgScenePos(v)
-
-		// Create modal scrim behind dialog windows (parent != nil)
-		if v.parent != nil && onCurrentDesk {
-			s.createModalScrimXdg(v)
-		}
-
-		if onCurrentDesk {
-			s.focusXdgView(v)
-			if willAnimate {
-				s.startOpenAnimXdg(v)
-			}
-		}
-		s.writeWindowsState()
-		s.retile()
+		s.handleXdgMap(v, viewTree, toplevel, Surface)
 	}))
 
 	v.listeners.Add(surface.Surface().OnUnmap(func(Surface wlr.Surface) {
-		s.ensureThumbXdg(v) // capture thumbnail before unmap for close animation
-		v.mapped = false
-		s.captureHideXdg(v)
-		destroyModalScrim(&v.scrimRect)
-		C.scene_node_set_enabled(&viewTree.node, 0)
-		s.writeWindowsState()
-		s.retile()
+		s.handleXdgUnmap(v, viewTree)
 	}))
 
 	// The toplevel role object is destroyed before its xdg_surface and
 	// wl_surface: every listener (including the wl_surface ones) goes here.
 	v.listeners.Add(toplevel.OnDestroy(func(wlr.XDGToplevel) {
-		v.listeners.DestroyAll()
-		v.decoListeners.DestroyAll()
-		v.decoration = wlr.XDGToplevelDecorationV1{}
-		// Popups look their parent tree up through xdg_surface->data, which
-		// is about to point at a destroyed scene node.
-		C.set_xdg_surface_data(xdgSurf, nil)
-
-		// Destroy modal scrim if any
-		destroyModalScrim(&v.scrimRect)
-		// Start close glitch animation before destroying the scene node
-		s.startCloseAnimXdg(v)
-
-		// Restore output mode if window was fullscreen when destroyed
-		if v.fullscreen {
-			out := s.getOutputForPosition(v.x, v.y)
-			if out == nil {
-				out = s.primaryOutput()
-			}
-			if out != nil {
-				s.restoreModeAfterFullscreen(out)
-			}
-		}
-
-		// Clear parent reference on all children before removing
-		for _, cv := range s.xdgViews {
-			if cv.parent == v {
-				cv.parent = nil
-			}
-		}
-		// Scene node cleanup: wlr_scene_node_destroy recursively destroys children
-		if v.sceneTree != nil {
-			C.scene_node_destroy(&(*C.struct_wlr_scene_tree)(v.sceneTree).node)
-			v.sceneTree = nil
-			v.surfaceTree = nil
-		}
-		v.forgetDecorationNodes()
-		wasActive := s.activeXdg == v
-		for i, view := range s.xdgViews {
-			if view == v {
-				s.xdgViews = append(s.xdgViews[:i], s.xdgViews[i+1:]...)
-				if s.activeXdg == v {
-					s.activeXdg = nil
-				}
-				break
-			}
-		}
-		s.forgetXdgView(v)
-		// Focus next window if this was active
-		if wasActive {
-			s.focusTopmostOnDesk(s.currentDesk)
-		}
-		s.writeWindowsState()
-		s.scheduleAllOutputFrames() // ensure IPC flush happens even without scene damage
-		s.retile()
+		s.handleXdgDestroy(v, xdgSurf)
 	}))
 
 	// Handle client-initiated move request (titlebar drag).
@@ -283,23 +139,12 @@ func (s *server) handleNewXDGToplevel(toplevel wlr.XDGToplevel) {
 	// phase: the window stays in its filled state until the cursor crosses
 	// restoreDragThreshold, then restores under the cursor.
 	v.listeners.Add(toplevel.OnRequestMove(func(t wlr.XDGToplevel, client wlr.SeatClient, serial uint32) {
-		if !v.mapped {
-			return
-		}
-		log.Printf("[MOVE] XDG OnRequestMove: app_id=%q maximized=%v fullscreen=%v\n",
-			getXdgToplevelAppID(toplevel), v.maximized, v.fullscreen)
-		s.focusXdgView(v)
-		s.beginGrabMove(v, nil)
+		s.handleXdgRequestMove(v, toplevel)
 	}))
 
 	// Handle client-initiated resize request (window border drag)
 	v.listeners.Add(toplevel.OnRequestResize(func(t wlr.XDGToplevel, client wlr.SeatClient, serial uint32, edges wlr.Edges) {
-		if !v.mapped {
-			return
-		}
-		log.Printf("[RESIZE] XDG OnRequestResize: app_id=%q edges=%d\n", getXdgToplevelAppID(toplevel), edges)
-		s.focusXdgView(v)
-		s.beginGrabResize(v, nil, edges)
+		s.handleXdgRequestResize(v, toplevel, edges)
 	}))
 
 	// Handle client-initiated maximize request (e.g. GTK headerbar maximize button).
@@ -307,62 +152,259 @@ func (s *server) handleNewXDGToplevel(toplevel wlr.XDGToplevel) {
 	// Before the initial commit the request is honoured by the initial
 	// configure instead (handleXdgInitialCommit).
 	v.listeners.Add(toplevel.OnRequestMaximize(func(t wlr.XDGToplevel) {
-		if !t.Base().Initialized() {
-			return
-		}
-		want := t.RequestedMaximized()
-		log.Printf("[MAXIMIZE] XDG OnRequestMaximize: app_id=%q title=%q maximized=%v requested=%v\n",
-			getXdgToplevelAppID(toplevel), toplevel.Title(), v.maximized, want)
-		switch {
-		case want == v.maximized:
-			t.Base().ScheduleConfigure()
-		case !v.mapped:
-			// Not shown yet: record the state, the map handler applies it.
-			v.maximized = want
-			if want {
-				s.configureXdgMaximized(v)
-			} else {
-				t.SetMaximized(false)
-			}
-		default:
-			s.focusXdgView(v)
-			s.maximizeXdgWindow(v)
-		}
+		s.handleXdgRequestMaximize(v, toplevel, t)
 	}))
 
 	// Handle client-initiated fullscreen request (e.g. video player fullscreen button)
 	v.listeners.Add(toplevel.OnRequestFullscreen(func(t wlr.XDGToplevel) {
-		if !t.Base().Initialized() {
-			return
-		}
-		want := t.RequestedFullscreen()
-		log.Printf("[FULLSCREEN] XDG request_fullscreen: app_id=%q fullscreen=%v\n",
-			getXdgToplevelAppID(v.xdgToplevel), want)
-		if want == v.fullscreen {
-			t.Base().ScheduleConfigure()
-			return
-		}
-		// Also fine before the first map: the map handler keeps the
-		// fullscreen placement (see positionNewXdgWindow).
-		s.fullscreenXdgWindow(v, want)
+		s.handleXdgRequestFullscreen(v, t)
 	}))
 
 	// Handle client-initiated minimize request (e.g. GTK headerbar minimize button)
 	v.listeners.Add(toplevel.OnRequestMinimize(func(wlr.XDGToplevel) {
-		if !v.mapped || v.minimized {
-			return
-		}
-		s.minimizeXdgWindow(v)
-		if s.activeXdg == v {
-			s.focusTopmostOnDesk(s.currentDesk)
-		}
-		s.writeWindowsState()
+		s.handleXdgRequestMinimize(v)
 	}))
 
 	// Listen for parent changes (protocol-level transient_for)
 	v.listeners.Add(toplevel.OnSetParent(func(t wlr.XDGToplevel) {
 		s.handleXdgSetParent(v)
 	}))
+}
+
+// handleXdgMap shows a toplevel when its surface is mapped: desktop, parent,
+// window rules, placement, decorations and focus.
+func (s *server) handleXdgMap(v *xdgView, viewTree *C.struct_wlr_scene_tree, toplevel wlr.XDGToplevel, Surface wlr.Surface) {
+	if v.sceneTree == nil {
+		log.Printf("[XDG] WARNING: OnMap fired but sceneTree is nil for %s, skipping", v.id)
+		return
+	}
+	v.mapped = true
+	s.captureShowXdg(v)
+
+	// Assign to current desktop by default
+	v.desk = s.currentDesk
+
+	// Read size constraints from toplevel state
+	state := toplevel.Current()
+	v.minWidth = int(state.MinWidth())
+	v.minHeight = int(state.MinHeight())
+	v.maxWidth = int(state.MaxWidth())
+	v.maxHeight = int(state.MaxHeight())
+
+	// Read protocol-level parent (set_parent signal may have fired before map)
+	if parent := toplevel.Parent(); parent.Valid() && v.parent == nil {
+		for _, pv := range s.xdgViews {
+			if pv.xdgToplevel.Ptr() == parent.Ptr() {
+				v.parent = pv
+				v.desk = pv.desk
+				break
+			}
+		}
+	}
+	// Inherit desktop from parent
+	if v.parent != nil {
+		v.desk = v.parent.desk
+	}
+
+	// Apply per-app window rules before positioning
+	appID := getXdgToplevelAppID(toplevel)
+	if rule := s.matchWindowRule(appID); rule != nil {
+		s.applyWindowRuleXdg(v, rule)
+	}
+
+	// Restore session window state (position, desktop, maximize)
+	if sw := s.matchSessionWindow(appID); sw != nil {
+		s.applySessionWindowXdg(v, sw)
+	}
+
+	surfState := Surface.Current()
+	log.Printf("[DECO] XDG map: app_id=%q title=%q size=%dx%d decorated=%v parent=%v\n",
+		appID, toplevel.Title(), surfState.Width(), surfState.Height(), v.decorated, v.parent != nil)
+
+	s.positionNewXdgWindow(v, surfState.Width(), surfState.Height())
+
+	// Apply maximize geometry if set by window rule (rule only sets flag, not geometry)
+	if v.maximized {
+		s.configureXdgMaximized(v)
+	}
+
+	// Determine if open animation will run
+	onCurrentDesk := v.pinned || v.desk == s.currentDesk
+	willAnimate := onCurrentDesk && !s.reduceMotion && v.parent == nil && !v.fullscreen
+
+	// Enable scene node only if on current desktop AND no animation
+	// (animation keeps it hidden until it finishes)
+	if onCurrentDesk && !willAnimate {
+		C.scene_node_set_enabled(&viewTree.node, 1)
+	}
+	// If decorated, offset the surface down by titlebarHeight
+	if v.decorated {
+		surfT := (*C.struct_wlr_scene_tree)(v.surfaceTree)
+		C.scene_node_set_position(&surfT.node, 0, C.int(titlebarHeight))
+		// Create decoration nodes
+		_, _, v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = s.createDecoNodes(viewTree, surfState.Width(), surfState.Height(), false)
+		s.updateXdgViewDecorations(v)
+	}
+	setXdgScenePos(v)
+
+	// Create modal scrim behind dialog windows (parent != nil)
+	if v.parent != nil && onCurrentDesk {
+		s.createModalScrimXdg(v)
+	}
+
+	if onCurrentDesk {
+		s.focusXdgView(v)
+		if willAnimate {
+			s.startOpenAnimXdg(v)
+		}
+	}
+	s.writeWindowsState()
+	s.retile()
+}
+
+// handleXdgUnmap hides a toplevel when its surface is unmapped.
+func (s *server) handleXdgUnmap(v *xdgView, viewTree *C.struct_wlr_scene_tree) {
+	s.ensureThumbXdg(v) // capture thumbnail before unmap for close animation
+	v.mapped = false
+	s.captureHideXdg(v)
+	destroyModalScrim(&v.scrimRect)
+	C.scene_node_set_enabled(&viewTree.node, 0)
+	s.writeWindowsState()
+	s.retile()
+}
+
+// handleXdgDestroy releases the listeners, scene nodes and server references
+// of a destroyed toplevel.
+func (s *server) handleXdgDestroy(v *xdgView, xdgSurf *C.struct_wlr_xdg_surface) {
+	v.listeners.DestroyAll()
+	v.decoListeners.DestroyAll()
+	v.decoration = wlr.XDGToplevelDecorationV1{}
+	// Popups look their parent tree up through xdg_surface->data, which
+	// is about to point at a destroyed scene node.
+	C.set_xdg_surface_data(xdgSurf, nil)
+
+	// Destroy modal scrim if any
+	destroyModalScrim(&v.scrimRect)
+	// Start close glitch animation before destroying the scene node
+	s.startCloseAnimXdg(v)
+
+	// Restore output mode if window was fullscreen when destroyed
+	if v.fullscreen {
+		out := s.getOutputForPosition(v.x, v.y)
+		if out == nil {
+			out = s.primaryOutput()
+		}
+		if out != nil {
+			s.restoreModeAfterFullscreen(out)
+		}
+	}
+
+	// Clear parent reference on all children before removing
+	for _, cv := range s.xdgViews {
+		if cv.parent == v {
+			cv.parent = nil
+		}
+	}
+	// Scene node cleanup: wlr_scene_node_destroy recursively destroys children
+	if v.sceneTree != nil {
+		C.scene_node_destroy(&(*C.struct_wlr_scene_tree)(v.sceneTree).node)
+		v.sceneTree = nil
+		v.surfaceTree = nil
+	}
+	v.forgetDecorationNodes()
+	wasActive := s.activeXdg == v
+	for i, view := range s.xdgViews {
+		if view == v {
+			s.xdgViews = append(s.xdgViews[:i], s.xdgViews[i+1:]...)
+			if s.activeXdg == v {
+				s.activeXdg = nil
+			}
+			break
+		}
+	}
+	s.forgetXdgView(v)
+	// Focus next window if this was active
+	if wasActive {
+		s.focusTopmostOnDesk(s.currentDesk)
+	}
+	s.writeWindowsState()
+	s.scheduleAllOutputFrames() // ensure IPC flush happens even without scene damage
+	s.retile()
+}
+
+// handleXdgRequestMove starts a client-initiated move.
+func (s *server) handleXdgRequestMove(v *xdgView, toplevel wlr.XDGToplevel) {
+	if !v.mapped {
+		return
+	}
+	log.Printf("[MOVE] XDG OnRequestMove: app_id=%q maximized=%v fullscreen=%v\n",
+		getXdgToplevelAppID(toplevel), v.maximized, v.fullscreen)
+	s.focusXdgView(v)
+	s.beginGrabMove(v, nil)
+}
+
+// handleXdgRequestResize starts a client-initiated resize.
+func (s *server) handleXdgRequestResize(v *xdgView, toplevel wlr.XDGToplevel, edges wlr.Edges) {
+	if !v.mapped {
+		return
+	}
+	log.Printf("[RESIZE] XDG OnRequestResize: app_id=%q edges=%d\n", getXdgToplevelAppID(toplevel), edges)
+	s.focusXdgView(v)
+	s.beginGrabResize(v, nil, edges)
+}
+
+// handleXdgRequestMaximize handles a client-initiated maximize request.
+func (s *server) handleXdgRequestMaximize(v *xdgView, toplevel, t wlr.XDGToplevel) {
+	if !t.Base().Initialized() {
+		return
+	}
+	want := t.RequestedMaximized()
+	log.Printf("[MAXIMIZE] XDG OnRequestMaximize: app_id=%q title=%q maximized=%v requested=%v\n",
+		getXdgToplevelAppID(toplevel), toplevel.Title(), v.maximized, want)
+	switch {
+	case want == v.maximized:
+		t.Base().ScheduleConfigure()
+	case !v.mapped:
+		// Not shown yet: record the state, the map handler applies it.
+		v.maximized = want
+		if want {
+			s.configureXdgMaximized(v)
+		} else {
+			t.SetMaximized(false)
+		}
+	default:
+		s.focusXdgView(v)
+		s.maximizeXdgWindow(v)
+	}
+}
+
+// handleXdgRequestFullscreen handles a client-initiated fullscreen request.
+func (s *server) handleXdgRequestFullscreen(v *xdgView, t wlr.XDGToplevel) {
+	if !t.Base().Initialized() {
+		return
+	}
+	want := t.RequestedFullscreen()
+	log.Printf("[FULLSCREEN] XDG request_fullscreen: app_id=%q fullscreen=%v\n",
+		getXdgToplevelAppID(v.xdgToplevel), want)
+	if want == v.fullscreen {
+		t.Base().ScheduleConfigure()
+		return
+	}
+	// Also fine before the first map: the map handler keeps the
+	// fullscreen placement (see positionNewXdgWindow).
+	s.fullscreenXdgWindow(v, want)
+}
+
+// handleXdgRequestMinimize handles a client-initiated minimize request.
+func (s *server) handleXdgRequestMinimize(v *xdgView) {
+	if !v.mapped || v.minimized {
+		return
+	}
+	s.minimizeXdgWindow(v)
+	if s.activeXdg == v {
+		s.focusTopmostOnDesk(s.currentDesk)
+	}
+	s.writeWindowsState()
 }
 
 // handleXdgInitialCommit sends the first configure of a toplevel: decoration

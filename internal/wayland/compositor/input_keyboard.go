@@ -58,172 +58,15 @@ func (s *server) setupKeyboard(device wlr.InputDevice) {
 
 	// Remove keyboard from list when device is destroyed (e.g. XWayland virtual keyboards)
 	perDevice.Add(device.OnDestroy(func(dev wlr.InputDevice) {
-		for i, kb := range s.keyboards {
-			if kb == keyboard {
-				s.keyboards = append(s.keyboards[:i], s.keyboards[i+1:]...)
-				break
-			}
-		}
-		// wlroots asserts that no listener is left on the device (this one
-		// included) once the destroy signal has been emitted.
-		perDevice.DestroyAll()
+		s.handleKeyboardDestroy(keyboard, &perDevice)
 	}))
 
 	perDevice.Add(keyboard.OnKey(func(kb wlr.Keyboard, t time.Time, keyCode uint32, updateState bool, state wlr.KeyState) {
-		s.resetIdleTimer()
-
-		// Stop key repeat on any key release
-		if state == wlr.KeyStateReleased {
-			s.stopKeyRepeat()
-		}
-
-		// When locked, check for emergency logout before forwarding to lock client
-		if s.locked.Load() {
-			if state == wlr.KeyStatePressed {
-				symsLock := kb.XKBState().Syms(xkb.KeyCode(keyCode + 8))
-				mods := kb.GetModifiers()
-				for _, sym := range symsLock {
-					if s.handleKeybinding(mods, sym) {
-						return
-					}
-				}
-			}
-			// Built-in lock screen: handle key input directly
-			if s.builtinLock != nil && s.builtinLock.active {
-				if state == wlr.KeyStatePressed {
-					symsLock := kb.XKBState().Syms(xkb.KeyCode(keyCode + 8))
-					for _, sym := range symsLock {
-						s.handleBuiltinLockKey(sym, uint32(kb.GetModifiers()))
-					}
-				}
-				return
-			}
-			// External lock client: forward to lock surface
-			if s.currentLock != nil && len(s.lockSurfaceStates) > 0 {
-				s.seat.SetKeyboard(keyboard)
-				s.seat.KeyboardNotifyKey(t, keyCode, state)
-			}
-			return
-		}
-
-		syms := kb.XKBState().Syms(xkb.KeyCode(keyCode + 8))
-
-		// Handle switcher key events
-		if s.switcherActive {
-			if state == wlr.KeyStatePressed {
-				for _, sym := range syms {
-					s.handleSwitcherKey(sym, kb.GetModifiers())
-				}
-			} else {
-				// On key release, check if WM modifier is no longer held to confirm.
-				// Also check if the released key IS the modifier key itself, because
-				// wlroots may still report the modifier as held in kb.GetModifiers()
-				// at the moment of the modifier key's own release event.
-				if s.isSwitcherModReleased(kb.GetModifiers()) || s.isSwitcherModKeySym(syms) {
-					s.confirmSwitcher()
-					return
-				}
-			}
-			return // Don't forward keys to clients while switcher is active
-		}
-
-		// Handle overview key events
-		if s.overviewActive {
-			isSuperKey := false
-			for _, sym := range syms {
-				if sym == xkb.SymFromName("Super_L", xkb.KeySymNoFlags) ||
-					sym == xkb.SymFromName("Super_R", xkb.KeySymNoFlags) {
-					isSuperKey = true
-					break
-				}
-			}
-			if state == wlr.KeyStatePressed {
-				if isSuperKey {
-					s.superAlonePressed = true
-					s.superAloneTime = time.Now()
-				} else {
-					s.superAlonePressed = false
-					for _, sym := range syms {
-						s.handleOverviewKey(sym)
-					}
-				}
-			} else if state == wlr.KeyStateReleased && isSuperKey && s.superAlonePressed {
-				s.superAlonePressed = false
-				if time.Since(s.superAloneTime) < superAloneTimeout {
-					s.toggleOverview()
-				}
-			}
-			return // Don't forward keys to clients while overview is active
-		}
-
-		// Cancel region screenshot selection on Escape
-		if s.regionSelectActive && state == wlr.KeyStatePressed {
-			for _, sym := range syms {
-				if sym == xkb.SymFromName("Escape", xkb.KeySymNoFlags) {
-					s.cancelRegionSelect()
-					return
-				}
-			}
-		}
-
-		// Super-alone detection: track bare Super press/release for launcher toggle
-		isSuperSym := false
-		for _, sym := range syms {
-			if sym == xkb.SymFromName("Super_L", xkb.KeySymNoFlags) ||
-				sym == xkb.SymFromName("Super_R", xkb.KeySymNoFlags) {
-				isSuperSym = true
-				break
-			}
-		}
-
-		if state == wlr.KeyStatePressed {
-			if isSuperSym {
-				// Super pressed alone
-				s.superAlonePressed = true
-				s.superAloneTime = time.Now()
-			} else {
-				// Any other key cancels Super-alone
-				s.superAlonePressed = false
-			}
-
-			mods := kb.GetModifiers()
-			for _, sym := range syms {
-				if s.handleKeybinding(mods, sym) {
-					// Start key repeat for repeatable actions (volume, brightness)
-					clean := mods & relevantMods
-					if action, ok := s.keybindingMap[resolvedBinding{sym: sym, mods: clean}]; ok && isRepeatableAction(action) {
-						s.startKeyRepeat(keyCode, action)
-					}
-					return
-				}
-			}
-		} else if state == wlr.KeyStateReleased && isSuperSym {
-			// Releasing Super starts the felt-tip pen hold-then-fade countdown.
-			s.penHandleSuperRelease()
-			if s.superAlonePressed {
-				s.superAlonePressed = false
-				if time.Since(s.superAloneTime) < superAloneTimeout {
-					// Super was pressed and released alone within timeout — toggle overview (exposé)
-					s.toggleOverview()
-					return
-				}
-			}
-		}
-
-		s.seat.SetKeyboard(keyboard)
-		s.seat.KeyboardNotifyKey(t, keyCode, state)
-
+		s.handleKeyboardKey(keyboard, kb, t, keyCode, state)
 	}))
 
 	perDevice.Add(keyboard.OnModifiers(func(kb wlr.Keyboard) {
-		// Check switcher dismiss in the modifiers callback too, as this fires
-		// reliably when modifier state changes and GetModifiers() is accurate here.
-		if s.switcherActive && s.isSwitcherModReleased(kb.GetModifiers()) {
-			s.confirmSwitcher()
-			return
-		}
-		s.seat.SetKeyboard(keyboard)
-		s.seat.KeyboardNotifyModifiers(kb.Modifiers())
+		s.handleKeyboardModifiers(keyboard, kb)
 	}))
 
 	s.seat.SetKeyboard(keyboard)
@@ -231,6 +74,192 @@ func (s *server) setupKeyboard(device wlr.InputDevice) {
 	// on-screen keyboard) must deliver wl_keyboard.enter to that window,
 	// which focusing without any keyboard could not do.
 	s.syncKeyboardFocus()
+}
+
+// handleKeyboardDestroy removes a keyboard from the list and destroys its listeners.
+func (s *server) handleKeyboardDestroy(keyboard wlr.Keyboard, perDevice *wlr.Listeners) {
+	for i, kb := range s.keyboards {
+		if kb == keyboard {
+			s.keyboards = append(s.keyboards[:i], s.keyboards[i+1:]...)
+			break
+		}
+	}
+	// wlroots asserts that no listener is left on the device (this one
+	// included) once the destroy signal has been emitted.
+	perDevice.DestroyAll()
+}
+
+// handleKeyboardKey handles a key event of a keyboard.
+func (s *server) handleKeyboardKey(keyboard, kb wlr.Keyboard, t time.Time, keyCode uint32, state wlr.KeyState) {
+	s.resetIdleTimer()
+
+	// Stop key repeat on any key release
+	if state == wlr.KeyStateReleased {
+		s.stopKeyRepeat()
+	}
+
+	// When locked, check for emergency logout before forwarding to lock client
+	if s.locked.Load() {
+		s.handleLockedKey(keyboard, kb, t, keyCode, state)
+		return
+	}
+
+	syms := kb.XKBState().Syms(xkb.KeyCode(keyCode + 8))
+
+	// Handle switcher key events
+	if s.switcherActive {
+		s.handleSwitcherKeyEvent(kb, syms, state)
+		return // Don't forward keys to clients while switcher is active
+	}
+
+	// Handle overview key events
+	if s.overviewActive {
+		s.handleOverviewKeyEvent(syms, state)
+		return // Don't forward keys to clients while overview is active
+	}
+
+	// Cancel region screenshot selection on Escape
+	if s.regionSelectActive && state == wlr.KeyStatePressed {
+		for _, sym := range syms {
+			if sym == xkb.SymFromName("Escape", xkb.KeySymNoFlags) {
+				s.cancelRegionSelect()
+				return
+			}
+		}
+	}
+
+	// Super-alone detection: track bare Super press/release for launcher toggle
+	isSuperSym := false
+	for _, sym := range syms {
+		if sym == xkb.SymFromName("Super_L", xkb.KeySymNoFlags) ||
+			sym == xkb.SymFromName("Super_R", xkb.KeySymNoFlags) {
+			isSuperSym = true
+			break
+		}
+	}
+
+	if state == wlr.KeyStatePressed {
+		if isSuperSym {
+			// Super pressed alone
+			s.superAlonePressed = true
+			s.superAloneTime = time.Now()
+		} else {
+			// Any other key cancels Super-alone
+			s.superAlonePressed = false
+		}
+
+		mods := kb.GetModifiers()
+		for _, sym := range syms {
+			if s.handleKeybinding(mods, sym) {
+				// Start key repeat for repeatable actions (volume, brightness)
+				clean := mods & relevantMods
+				if action, ok := s.keybindingMap[resolvedBinding{sym: sym, mods: clean}]; ok && isRepeatableAction(action) {
+					s.startKeyRepeat(keyCode, action)
+				}
+				return
+			}
+		}
+	} else if state == wlr.KeyStateReleased && isSuperSym {
+		// Releasing Super starts the felt-tip pen hold-then-fade countdown.
+		s.penHandleSuperRelease()
+		if s.superAlonePressed {
+			s.superAlonePressed = false
+			if time.Since(s.superAloneTime) < superAloneTimeout {
+				// Super was pressed and released alone within timeout — toggle overview (exposé)
+				s.toggleOverview()
+				return
+			}
+		}
+	}
+
+	s.seat.SetKeyboard(keyboard)
+	s.seat.KeyboardNotifyKey(t, keyCode, state)
+}
+
+// handleLockedKey handles a key event while the session is locked.
+func (s *server) handleLockedKey(keyboard, kb wlr.Keyboard, t time.Time, keyCode uint32, state wlr.KeyState) {
+	if state == wlr.KeyStatePressed {
+		symsLock := kb.XKBState().Syms(xkb.KeyCode(keyCode + 8))
+		mods := kb.GetModifiers()
+		for _, sym := range symsLock {
+			if s.handleKeybinding(mods, sym) {
+				return
+			}
+		}
+	}
+	// Built-in lock screen: handle key input directly
+	if s.builtinLock != nil && s.builtinLock.active {
+		if state == wlr.KeyStatePressed {
+			symsLock := kb.XKBState().Syms(xkb.KeyCode(keyCode + 8))
+			for _, sym := range symsLock {
+				s.handleBuiltinLockKey(sym, uint32(kb.GetModifiers()))
+			}
+		}
+		return
+	}
+	// External lock client: forward to lock surface
+	if s.currentLock != nil && len(s.lockSurfaceStates) > 0 {
+		s.seat.SetKeyboard(keyboard)
+		s.seat.KeyboardNotifyKey(t, keyCode, state)
+	}
+}
+
+// handleSwitcherKeyEvent handles a key event while the window switcher is active.
+func (s *server) handleSwitcherKeyEvent(kb wlr.Keyboard, syms []xkb.KeySym, state wlr.KeyState) {
+	if state == wlr.KeyStatePressed {
+		for _, sym := range syms {
+			s.handleSwitcherKey(sym, kb.GetModifiers())
+		}
+	} else {
+		// On key release, check if WM modifier is no longer held to confirm.
+		// Also check if the released key IS the modifier key itself, because
+		// wlroots may still report the modifier as held in kb.GetModifiers()
+		// at the moment of the modifier key's own release event.
+		if s.isSwitcherModReleased(kb.GetModifiers()) || s.isSwitcherModKeySym(syms) {
+			s.confirmSwitcher()
+			return
+		}
+	}
+}
+
+// handleOverviewKeyEvent handles a key event while the overview is active.
+func (s *server) handleOverviewKeyEvent(syms []xkb.KeySym, state wlr.KeyState) {
+	isSuperKey := false
+	for _, sym := range syms {
+		if sym == xkb.SymFromName("Super_L", xkb.KeySymNoFlags) ||
+			sym == xkb.SymFromName("Super_R", xkb.KeySymNoFlags) {
+			isSuperKey = true
+			break
+		}
+	}
+	if state == wlr.KeyStatePressed {
+		if isSuperKey {
+			s.superAlonePressed = true
+			s.superAloneTime = time.Now()
+		} else {
+			s.superAlonePressed = false
+			for _, sym := range syms {
+				s.handleOverviewKey(sym)
+			}
+		}
+	} else if state == wlr.KeyStateReleased && isSuperKey && s.superAlonePressed {
+		s.superAlonePressed = false
+		if time.Since(s.superAloneTime) < superAloneTimeout {
+			s.toggleOverview()
+		}
+	}
+}
+
+// handleKeyboardModifiers handles a modifiers change of a keyboard.
+func (s *server) handleKeyboardModifiers(keyboard, kb wlr.Keyboard) {
+	// Check switcher dismiss in the modifiers callback too, as this fires
+	// reliably when modifier state changes and GetModifiers() is accurate here.
+	if s.switcherActive && s.isSwitcherModReleased(kb.GetModifiers()) {
+		s.confirmSwitcher()
+		return
+	}
+	s.seat.SetKeyboard(keyboard)
+	s.seat.KeyboardNotifyModifiers(kb.Modifiers())
 }
 
 // startKeyRepeat begins auto-repeating a keybinding action after keyRepeatDelay,
