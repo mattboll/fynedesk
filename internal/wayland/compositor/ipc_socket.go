@@ -23,6 +23,42 @@ func (s *server) startSocketIPC() {
 	wlipc.SetDefaultServer(srv) // enables broadcasts from wlipc.Notify* functions
 }
 
+// socketHandler answers one socket request.
+type socketHandler func(s *server, msg *wlipc.Message) (json.RawMessage, error)
+
+// socketHandlers maps each socket request name to its handler.
+var socketHandlers = map[string]socketHandler{
+	wlipc.ReqListWindows:        (*server).socketListWindows,
+	wlipc.ReqGetDesktop:         (*server).socketGetDesktop,
+	wlipc.ReqWindowAction:       (*server).socketWindowAction,
+	wlipc.ReqDesktopSwitch:      (*server).socketDesktopSwitch,
+	wlipc.ReqSettingsChanged:    (*server).socketSettingsChanged,
+	wlipc.ReqKeyboardLayout:     (*server).socketKeyboardLayout,
+	wlipc.ReqEmojiPaste:         (*server).socketEmojiPaste,
+	wlipc.ReqClipboardPaste:     (*server).socketClipboardPaste,
+	wlipc.ReqClipboardClear:     (*server).socketClipboardClear,
+	wlipc.ReqCompositorAction:   (*server).socketCompositorAction,
+	wlipc.ReqWindowPreview:      (*server).socketWindowPreview,
+	wlipc.ReqOverlay:            (*server).socketOverlay,
+	wlipc.ReqLock:               (*server).socketLock,
+	wlipc.ReqLogout:             (*server).socketLogout,
+	wlipc.ReqRestart:            (*server).socketRestart,
+	wlipc.ReqShutdown:           (*server).socketShutdown,
+	wlipc.ReqHibernate:          (*server).socketHibernate,
+	wlipc.ReqSuspend:            (*server).socketSuspend,
+	"run-action":                (*server).socketRunAction,
+	wlipc.ReqLayoutRequest:      (*server).socketLayoutRequest,
+	wlipc.ReqRaiseByTitle:       (*server).socketRaiseByTitle,
+	wlipc.ReqRaiseByClass:       (*server).socketRaiseByClass,
+	wlipc.ReqNotificationAction: (*server).socketNotificationAction,
+	wlipc.ReqWindowAttention:    (*server).socketWindowAttention,
+	"dump-scene":                (*server).socketDumpScene,
+	"simulate-click":            (*server).socketSimulateClick,
+	"simulate-move":             (*server).socketSimulateMove,
+	"simulate-swipe":            (*server).socketSimulateSwipe,
+	"simulate-button":           (*server).socketSimulateButton,
+}
+
 // handleSocketRequest dispatches socket requests to the appropriate handler.
 // Requests are queued to the main thread via mainThreadActions.
 func (s *server) handleSocketRequest(msg *wlipc.Message) (json.RawMessage, error) {
@@ -37,372 +73,430 @@ func (s *server) handleSocketRequest(msg *wlipc.Message) (json.RawMessage, error
 		}
 	}
 
-	switch msg.Name {
-	case wlipc.ReqListWindows:
-		// Synchronous: build and return current window state.
-		// Runs on the main thread to avoid racing with view list mutations.
-		state, err := runOnMainThread(s, func() wlipc.WindowsState {
-			return s.buildWindowsState()
-		})
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(state)
+	if handler, ok := socketHandlers[msg.Name]; ok {
+		return handler(s, msg)
+	}
+	return nil, fmt.Errorf("unknown request: %s", msg.Name)
+}
 
-	case wlipc.ReqGetDesktop:
-		// Read currentDesk/numDesks/desktopNames on the main thread to
-		// avoid racing with switchDesk and desktop-name updates.
-		state, err := runOnMainThread(s, func() DesktopState {
-			names := append([]string(nil), s.desktopNames...)
-			return DesktopState{Current: s.currentDesk, NumDesks: s.numDesks, Names: names}
-		})
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(state)
+// socketListWindows returns the current window state.
+func (s *server) socketListWindows(msg *wlipc.Message) (json.RawMessage, error) {
+	// Synchronous: build and return current window state.
+	// Runs on the main thread to avoid racing with view list mutations.
+	state, err := runOnMainThread(s, func() wlipc.WindowsState {
+		return s.buildWindowsState()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(state)
+}
 
-	case wlipc.ReqWindowAction:
-		var req wlipc.WindowActionRequest
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid window action: %w", err)
-		}
-		r := req
-		if err := s.enqueueAction(func() { s.handleWindowAction(r) }); err != nil {
-			return nil, err
-		}
-		return nil, nil
+// socketGetDesktop returns the current desktop, their count and names.
+func (s *server) socketGetDesktop(msg *wlipc.Message) (json.RawMessage, error) {
+	// Read currentDesk/numDesks/desktopNames on the main thread to
+	// avoid racing with switchDesk and desktop-name updates.
+	state, err := runOnMainThread(s, func() DesktopState {
+		names := append([]string(nil), s.desktopNames...)
+		return DesktopState{Current: s.currentDesk, NumDesks: s.numDesks, Names: names}
+	})
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(state)
+}
 
-	case wlipc.ReqDesktopSwitch:
-		var req wlipc.DesktopSwitchRequest
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid desktop switch: %w", err)
-		}
-		desk := req.Desktop
-		if err := s.enqueueAction(func() { s.switchDesk(desk) }); err != nil {
-			return nil, err
-		}
-		return nil, nil
+// socketWindowAction queues a window action from the panel.
+func (s *server) socketWindowAction(msg *wlipc.Message) (json.RawMessage, error) {
+	var req wlipc.WindowActionRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid window action: %w", err)
+	}
+	r := req
+	if err := s.enqueueAction(func() { s.handleWindowAction(r) }); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
 
-	case wlipc.ReqSettingsChanged:
-		var sc wlipc.SettingsChanged
-		if err := json.Unmarshal(msg.Data, &sc); err != nil {
-			return nil, fmt.Errorf("invalid settings: %w", err)
-		}
-		if sc.Prefs != nil {
-			prefs := sc.Prefs
-			s.mainThreadActions <- func() { s.reloadSettingsFrom(prefs) }
-		} else {
-			s.mainThreadActions <- func() { s.reloadSettings() }
-		}
-		s.triggerWakeup()
-		return nil, nil
+// socketDesktopSwitch queues a switch to another desktop.
+func (s *server) socketDesktopSwitch(msg *wlipc.Message) (json.RawMessage, error) {
+	var req wlipc.DesktopSwitchRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid desktop switch: %w", err)
+	}
+	desk := req.Desktop
+	if err := s.enqueueAction(func() { s.switchDesk(desk) }); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
 
-	case wlipc.ReqKeyboardLayout:
-		var req wlipc.KeyboardLayoutRequest
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid keyboard layout: %w", err)
-		}
-		idx := req.Index
-		s.mainThreadActions <- func() {
-			if idx >= 0 && idx < len(s.keyboardLayouts) {
-				s.activeLayoutIndex = idx
-				s.applyKeyboardLayout()
-			}
-		}
-		s.triggerWakeup()
-		return nil, nil
+// socketSettingsChanged queues a reload of the settings.
+func (s *server) socketSettingsChanged(msg *wlipc.Message) (json.RawMessage, error) {
+	var sc wlipc.SettingsChanged
+	if err := json.Unmarshal(msg.Data, &sc); err != nil {
+		return nil, fmt.Errorf("invalid settings: %w", err)
+	}
+	if sc.Prefs != nil {
+		prefs := sc.Prefs
+		s.mainThreadActions <- func() { s.reloadSettingsFrom(prefs) }
+	} else {
+		s.mainThreadActions <- func() { s.reloadSettings() }
+	}
+	s.triggerWakeup()
+	return nil, nil
+}
 
-	case wlipc.ReqEmojiPaste:
-		var req wlipc.EmojiPasteRequest
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid emoji paste: %w", err)
+// socketKeyboardLayout queues a switch to another keyboard layout.
+func (s *server) socketKeyboardLayout(msg *wlipc.Message) (json.RawMessage, error) {
+	var req wlipc.KeyboardLayoutRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid keyboard layout: %w", err)
+	}
+	idx := req.Index
+	s.mainThreadActions <- func() {
+		if idx >= 0 && idx < len(s.keyboardLayouts) {
+			s.activeLayoutIndex = idx
+			s.applyKeyboardLayout()
 		}
-		emoji := req.Emoji
-		s.mainThreadActions <- func() {
-			s.setClipboard(emoji)
-			log.Printf("[emoji] clipboard set via socket to %q\n", emoji)
-		}
-		s.triggerWakeup()
-		return nil, nil
+	}
+	s.triggerWakeup()
+	return nil, nil
+}
 
-	case wlipc.ReqClipboardPaste:
-		var req wlipc.ClipboardPasteRequest
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid clipboard paste: %w", err)
-		}
-		text := req.Text
-		s.mainThreadActions <- func() {
-			s.setClipboard(text)
-		}
-		s.triggerWakeup()
-		return nil, nil
+// socketEmojiPaste puts the picked emoji in the clipboard.
+func (s *server) socketEmojiPaste(msg *wlipc.Message) (json.RawMessage, error) {
+	var req wlipc.EmojiPasteRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid emoji paste: %w", err)
+	}
+	emoji := req.Emoji
+	s.mainThreadActions <- func() {
+		s.setClipboard(emoji)
+		log.Printf("[emoji] clipboard set via socket to %q\n", emoji)
+	}
+	s.triggerWakeup()
+	return nil, nil
+}
 
-	case wlipc.ReqClipboardClear:
-		s.mainThreadActions <- func() {
-			s.clearClipboardHistory()
-		}
-		s.triggerWakeup()
-		return nil, nil
+// socketClipboardPaste puts the given text in the clipboard.
+func (s *server) socketClipboardPaste(msg *wlipc.Message) (json.RawMessage, error) {
+	var req wlipc.ClipboardPasteRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid clipboard paste: %w", err)
+	}
+	text := req.Text
+	s.mainThreadActions <- func() {
+		s.setClipboard(text)
+	}
+	s.triggerWakeup()
+	return nil, nil
+}
 
-	case wlipc.ReqCompositorAction:
-		var req struct {
-			Action string `json:"action"`
-		}
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid compositor action: %w", err)
-		}
-		action := req.Action
-		// For switcher actions via IPC: auto-confirm since there's no modifier
-		// key to release. Open → cycle → confirm in one shot.
-		if action == wlipc.ActionSwitchAppNext || action == wlipc.ActionSwitchAppPrev {
-			if err := s.enqueueAction(func() {
-				if !s.switcherActive {
-					s.openSwitcher()
-					if action == wlipc.ActionSwitchAppPrev {
-						s.switcherCyclePrev()
-					}
-					// openSwitcher already cycles to next
-				} else {
-					if action == wlipc.ActionSwitchAppNext {
-						s.switcherCycleNext()
-					} else {
-						s.switcherCyclePrev()
-					}
-				}
-				s.confirmSwitcher()
-			}); err != nil {
-				return nil, err
-			}
-		} else {
-			if err := s.enqueueAction(func() { s.dispatchAction(action) }); err != nil {
-				return nil, err
-			}
-		}
-		return nil, nil
+// socketClipboardClear clears the clipboard history.
+func (s *server) socketClipboardClear(msg *wlipc.Message) (json.RawMessage, error) {
+	s.mainThreadActions <- func() {
+		s.clearClipboardHistory()
+	}
+	s.triggerWakeup()
+	return nil, nil
+}
 
-	case wlipc.ReqWindowPreview:
-		var req struct {
-			WindowID string `json:"window_id"`
-		}
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid window preview: %w", err)
-		}
-		// handleWindowPreview iterates xdgViews/xwayViews — must run on
-		// main thread to avoid racing with view destruction.
-		type previewResult struct {
-			data json.RawMessage
-			err  error
-		}
-		res, err := runOnMainThread(s, func() previewResult {
-			data, err := s.handleWindowPreview(req.WindowID)
-			return previewResult{data, err}
-		})
-		if err != nil {
-			return nil, err
-		}
-		if res.err != nil {
-			log.Printf("[PREVIEW] request for %s failed: %v", req.WindowID, res.err)
-		} else {
-			log.Printf("[PREVIEW] request for %s succeeded (%d bytes)", req.WindowID, len(res.data))
-		}
-		return res.data, res.err
-
-	case wlipc.ReqOverlay:
-		var req wlipc.OverlayRequest
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid overlay request: %w", err)
-		}
-		oReq := &overlayRequest{
-			Title:  req.Title,
-			X:      req.X,
-			Y:      req.Y,
-			Width:  req.Width,
-			Height: req.Height,
-		}
-		// Set pendingOverlay AND reposition any already-mapped overlay together
-		// on the main thread — writing pendingOverlay from the IPC goroutine
-		// races with map handlers that read it.
+// socketCompositorAction queues a compositor action, such as a keybinding one.
+func (s *server) socketCompositorAction(msg *wlipc.Message) (json.RawMessage, error) {
+	var req struct {
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid compositor action: %w", err)
+	}
+	action := req.Action
+	// For switcher actions via IPC: auto-confirm since there's no modifier
+	// key to release. Open → cycle → confirm in one shot.
+	if action == wlipc.ActionSwitchAppNext || action == wlipc.ActionSwitchAppPrev {
 		if err := s.enqueueAction(func() {
-			s.pendingOverlay = oReq
-			s.repositionMappedOverlay(oReq)
+			if !s.switcherActive {
+				s.openSwitcher()
+				if action == wlipc.ActionSwitchAppPrev {
+					s.switcherCyclePrev()
+				}
+				// openSwitcher already cycles to next
+			} else {
+				if action == wlipc.ActionSwitchAppNext {
+					s.switcherCycleNext()
+				} else {
+					s.switcherCyclePrev()
+				}
+			}
+			s.confirmSwitcher()
 		}); err != nil {
 			return nil, err
 		}
-		return nil, nil
-
-	case wlipc.ReqLock:
-		go s.lockScreen()
-		return nil, nil
-
-	case wlipc.ReqLogout:
-		s.shuttingDown.Store(true)
-		s.display.Terminate()
-		return nil, nil
-
-	case wlipc.ReqRestart:
-		log.Println("Restart requested via socket IPC, terminating event loop")
-		s.wantRestart.Store(true)
-		s.shuttingDown.Store(true)
-		s.saveSessionState()
-		s.display.Terminate()
-		return nil, nil
-
-	case wlipc.ReqShutdown:
-		log.Println("Shutdown requested via socket IPC")
-		s.saveSessionState()
-		go exec.Command("systemctl", "poweroff").Run()
-		return nil, nil
-
-	case wlipc.ReqHibernate:
-		log.Println("Hibernate requested via socket IPC")
-		go func() {
-			s.lockScreen()
-			exec.Command("systemctl", "hibernate").Run()
-		}()
-		return nil, nil
-
-	case wlipc.ReqSuspend:
-		log.Println("Suspend requested via socket IPC")
-		go func() {
-			s.lockScreen()
-			exec.Command("systemctl", "suspend").Run()
-		}()
-		return nil, nil
-
-	case "run-action":
-		var req struct {
-			Action string `json:"action"`
+	} else {
+		if err := s.enqueueAction(func() { s.dispatchAction(action) }); err != nil {
+			return nil, err
 		}
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid run-action: %w", err)
-		}
-		action := req.Action
-		s.mainThreadActions <- func() { s.dispatchAction(action) }
-		s.triggerWakeup()
-		return nil, nil
-
-	case wlipc.ReqLayoutRequest:
-		var req LayoutRequest
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid layout request: %w", err)
-		}
-		log.Printf("[IPC] layout-request (socket): output=%q pos=%q ref=%q primary=%v\n",
-			req.OutputName, req.Position, req.RelativeTo, req.Primary)
-		r := req
-		s.mainThreadActions <- func() { s.setOutputLayout(r) }
-		s.triggerWakeup()
-		return nil, nil
-
-	case wlipc.ReqRaiseByTitle:
-		var req wlipc.RaiseByTitleRequest
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid raise-by-title: %w", err)
-		}
-		title := req.Title
-		s.mainThreadActions <- func() { s.raiseByTitle(title) }
-		s.triggerWakeup()
-		return nil, nil
-
-	case wlipc.ReqRaiseByClass:
-		var req wlipc.RaiseByClassRequest
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid raise-by-class: %w", err)
-		}
-		class := req.Class
-		s.mainThreadActions <- func() { s.raiseByClass(class) }
-		s.triggerWakeup()
-		return nil, nil
-
-	case wlipc.ReqNotificationAction:
-		var req wlipc.NotificationActionRequest
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid notification action: %w", err)
-		}
-		// Emitting a D-Bus signal is thread-safe and independent of the render
-		// loop, so do it directly rather than hopping to the main thread.
-		s.notifDBus.emitAction(req.ID, req.ActionKey)
-		return nil, nil
-
-	case wlipc.ReqWindowAttention:
-		var req wlipc.WindowAttentionRequest
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid window attention: %w", err)
-		}
-		_ = s.enqueueAction(func() { s.setWindowAttention(req.Title, req.On) })
-		return nil, nil
-
-	case "dump-scene":
-		s.mainThreadActions <- func() {
-			s.dumpSceneOrder("ipc-dump")
-			s.dumpSceneLayers()
-			s.debugViewAt(640, 360)
-			s.debugViewAt(100, 100)
-			s.debugViewAt(500, 300)
-		}
-		s.triggerWakeup()
-		return nil, nil
-
-	case "simulate-click":
-		var req struct {
-			X float64 `json:"x"`
-			Y float64 `json:"y"`
-		}
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid simulate-click: %w", err)
-		}
-		s.mainThreadActions <- func() {
-			s.simulateClick(req.X, req.Y)
-		}
-		s.triggerWakeup()
-		return nil, nil
-
-	case "simulate-move":
-		var req struct {
-			X float64 `json:"x"`
-			Y float64 `json:"y"`
-		}
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid simulate-move: %w", err)
-		}
-		s.mainThreadActions <- func() {
-			s.simulateMove(req.X, req.Y)
-		}
-		s.triggerWakeup()
-		return nil, nil
-
-	case "simulate-swipe":
-		// A touchpad swipe for QA: begin (unless it continues one), move by
-		// (dx, dy) in steps, then end unless hold is set.
-		var req struct {
-			Fingers  uint32  `json:"fingers"`
-			DX       float64 `json:"dx"`
-			DY       float64 `json:"dy"`
-			Steps    int     `json:"steps"`
-			Hold     bool    `json:"hold"`
-			Continue bool    `json:"continue"`
-		}
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid simulate-swipe: %w", err)
-		}
-		go s.simulateSwipe(req.Fingers, req.DX, req.DY, max(req.Steps, 1), req.Hold, req.Continue)
-		return nil, nil
-
-	case "simulate-button":
-		var req struct {
-			Pressed bool `json:"pressed"`
-		}
-		if err := json.Unmarshal(msg.Data, &req); err != nil {
-			return nil, fmt.Errorf("invalid simulate-button: %w", err)
-		}
-		s.mainThreadActions <- func() {
-			s.simulateButton(req.Pressed)
-		}
-		s.triggerWakeup()
-		return nil, nil
-
-	default:
-		return nil, fmt.Errorf("unknown request: %s", msg.Name)
 	}
+	return nil, nil
+}
+
+// socketWindowPreview returns a preview image of a window.
+func (s *server) socketWindowPreview(msg *wlipc.Message) (json.RawMessage, error) {
+	var req struct {
+		WindowID string `json:"window_id"`
+	}
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid window preview: %w", err)
+	}
+	// handleWindowPreview iterates xdgViews/xwayViews — must run on
+	// main thread to avoid racing with view destruction.
+	type previewResult struct {
+		data json.RawMessage
+		err  error
+	}
+	res, err := runOnMainThread(s, func() previewResult {
+		data, err := s.handleWindowPreview(req.WindowID)
+		return previewResult{data, err}
+	})
+	if err != nil {
+		return nil, err
+	}
+	if res.err != nil {
+		log.Printf("[PREVIEW] request for %s failed: %v", req.WindowID, res.err)
+	} else {
+		log.Printf("[PREVIEW] request for %s succeeded (%d bytes)", req.WindowID, len(res.data))
+	}
+	return res.data, res.err
+}
+
+// socketOverlay places the next or current panel overlay window.
+func (s *server) socketOverlay(msg *wlipc.Message) (json.RawMessage, error) {
+	var req wlipc.OverlayRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid overlay request: %w", err)
+	}
+	oReq := &overlayRequest{
+		Title:  req.Title,
+		X:      req.X,
+		Y:      req.Y,
+		Width:  req.Width,
+		Height: req.Height,
+	}
+	// Set pendingOverlay AND reposition any already-mapped overlay together
+	// on the main thread — writing pendingOverlay from the IPC goroutine
+	// races with map handlers that read it.
+	if err := s.enqueueAction(func() {
+		s.pendingOverlay = oReq
+		s.repositionMappedOverlay(oReq)
+	}); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
+// socketLock locks the screen.
+func (s *server) socketLock(msg *wlipc.Message) (json.RawMessage, error) {
+	go s.lockScreen()
+	return nil, nil
+}
+
+// socketLogout ends the session.
+func (s *server) socketLogout(msg *wlipc.Message) (json.RawMessage, error) {
+	s.shuttingDown.Store(true)
+	s.display.Terminate()
+	return nil, nil
+}
+
+// socketRestart ends the event loop so that the compositor restarts.
+func (s *server) socketRestart(msg *wlipc.Message) (json.RawMessage, error) {
+	log.Println("Restart requested via socket IPC, terminating event loop")
+	s.wantRestart.Store(true)
+	s.shuttingDown.Store(true)
+	s.saveSessionState()
+	s.display.Terminate()
+	return nil, nil
+}
+
+// socketShutdown powers the machine off.
+func (s *server) socketShutdown(msg *wlipc.Message) (json.RawMessage, error) {
+	log.Println("Shutdown requested via socket IPC")
+	s.saveSessionState()
+	go exec.Command("systemctl", "poweroff").Run()
+	return nil, nil
+}
+
+// socketHibernate locks the screen then hibernates the machine.
+func (s *server) socketHibernate(msg *wlipc.Message) (json.RawMessage, error) {
+	log.Println("Hibernate requested via socket IPC")
+	go func() {
+		s.lockScreen()
+		exec.Command("systemctl", "hibernate").Run()
+	}()
+	return nil, nil
+}
+
+// socketSuspend locks the screen then suspends the machine.
+func (s *server) socketSuspend(msg *wlipc.Message) (json.RawMessage, error) {
+	log.Println("Suspend requested via socket IPC")
+	go func() {
+		s.lockScreen()
+		exec.Command("systemctl", "suspend").Run()
+	}()
+	return nil, nil
+}
+
+// socketRunAction queues a compositor action.
+func (s *server) socketRunAction(msg *wlipc.Message) (json.RawMessage, error) {
+	var req struct {
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid run-action: %w", err)
+	}
+	action := req.Action
+	s.mainThreadActions <- func() { s.dispatchAction(action) }
+	s.triggerWakeup()
+	return nil, nil
+}
+
+// socketLayoutRequest queues a change of the output layout.
+func (s *server) socketLayoutRequest(msg *wlipc.Message) (json.RawMessage, error) {
+	var req LayoutRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid layout request: %w", err)
+	}
+	log.Printf("[IPC] layout-request (socket): output=%q pos=%q ref=%q primary=%v\n",
+		req.OutputName, req.Position, req.RelativeTo, req.Primary)
+	r := req
+	s.mainThreadActions <- func() { s.setOutputLayout(r) }
+	s.triggerWakeup()
+	return nil, nil
+}
+
+// socketRaiseByTitle queues raising the window with the given title.
+func (s *server) socketRaiseByTitle(msg *wlipc.Message) (json.RawMessage, error) {
+	var req wlipc.RaiseByTitleRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid raise-by-title: %w", err)
+	}
+	title := req.Title
+	s.mainThreadActions <- func() { s.raiseByTitle(title) }
+	s.triggerWakeup()
+	return nil, nil
+}
+
+// socketRaiseByClass queues raising the window with the given class.
+func (s *server) socketRaiseByClass(msg *wlipc.Message) (json.RawMessage, error) {
+	var req wlipc.RaiseByClassRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid raise-by-class: %w", err)
+	}
+	class := req.Class
+	s.mainThreadActions <- func() { s.raiseByClass(class) }
+	s.triggerWakeup()
+	return nil, nil
+}
+
+// socketNotificationAction emits the action chosen on a notification.
+func (s *server) socketNotificationAction(msg *wlipc.Message) (json.RawMessage, error) {
+	var req wlipc.NotificationActionRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid notification action: %w", err)
+	}
+	// Emitting a D-Bus signal is thread-safe and independent of the render
+	// loop, so do it directly rather than hopping to the main thread.
+	s.notifDBus.emitAction(req.ID, req.ActionKey)
+	return nil, nil
+}
+
+// socketWindowAttention queues setting or clearing the attention of a window.
+func (s *server) socketWindowAttention(msg *wlipc.Message) (json.RawMessage, error) {
+	var req wlipc.WindowAttentionRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid window attention: %w", err)
+	}
+	_ = s.enqueueAction(func() { s.setWindowAttention(req.Title, req.On) })
+	return nil, nil
+}
+
+// socketDumpScene logs the scene graph for debugging.
+func (s *server) socketDumpScene(msg *wlipc.Message) (json.RawMessage, error) {
+	s.mainThreadActions <- func() {
+		s.dumpSceneOrder("ipc-dump")
+		s.dumpSceneLayers()
+		s.debugViewAt(640, 360)
+		s.debugViewAt(100, 100)
+		s.debugViewAt(500, 300)
+	}
+	s.triggerWakeup()
+	return nil, nil
+}
+
+// socketSimulateClick queues a simulated pointer click.
+func (s *server) socketSimulateClick(msg *wlipc.Message) (json.RawMessage, error) {
+	var req struct {
+		X float64 `json:"x"`
+		Y float64 `json:"y"`
+	}
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid simulate-click: %w", err)
+	}
+	s.mainThreadActions <- func() {
+		s.simulateClick(req.X, req.Y)
+	}
+	s.triggerWakeup()
+	return nil, nil
+}
+
+// socketSimulateMove queues a simulated pointer motion.
+func (s *server) socketSimulateMove(msg *wlipc.Message) (json.RawMessage, error) {
+	var req struct {
+		X float64 `json:"x"`
+		Y float64 `json:"y"`
+	}
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid simulate-move: %w", err)
+	}
+	s.mainThreadActions <- func() {
+		s.simulateMove(req.X, req.Y)
+	}
+	s.triggerWakeup()
+	return nil, nil
+}
+
+// socketSimulateSwipe runs a simulated touchpad swipe.
+func (s *server) socketSimulateSwipe(msg *wlipc.Message) (json.RawMessage, error) {
+	// A touchpad swipe for QA: begin (unless it continues one), move by
+	// (dx, dy) in steps, then end unless hold is set.
+	var req struct {
+		Fingers  uint32  `json:"fingers"`
+		DX       float64 `json:"dx"`
+		DY       float64 `json:"dy"`
+		Steps    int     `json:"steps"`
+		Hold     bool    `json:"hold"`
+		Continue bool    `json:"continue"`
+	}
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid simulate-swipe: %w", err)
+	}
+	go s.simulateSwipe(req.Fingers, req.DX, req.DY, max(req.Steps, 1), req.Hold, req.Continue)
+	return nil, nil
+}
+
+// socketSimulateButton queues a simulated pointer button press or release.
+func (s *server) socketSimulateButton(msg *wlipc.Message) (json.RawMessage, error) {
+	var req struct {
+		Pressed bool `json:"pressed"`
+	}
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid simulate-button: %w", err)
+	}
+	s.mainThreadActions <- func() {
+		s.simulateButton(req.Pressed)
+	}
+	s.triggerWakeup()
+	return nil, nil
 }
 
 // raiseByTitle finds a window by title and raises it to the top.

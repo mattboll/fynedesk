@@ -58,6 +58,30 @@ func (s *server) dispatchAction(action string) bool {
 	// keybinding-driven window management (snap, maximize, close, etc.).
 	s.hideTooltips()
 
+	if handled := s.dispatchSessionAction(action); handled {
+		return true
+	}
+	if ok, handled := s.dispatchWindowAction(action); handled {
+		return ok
+	}
+	if handled := s.dispatchDesktopAction(action); handled {
+		return true
+	}
+	if handled := s.dispatchLaunchAction(action); handled {
+		return true
+	}
+	if handled := s.dispatchMediaAction(action); handled {
+		return true
+	}
+	if handled := s.dispatchLayoutAction(action); handled {
+		return true
+	}
+	return false
+}
+
+// dispatchSessionAction runs the quit and app switcher actions.
+// It returns false if action is not one of them.
+func (s *server) dispatchSessionAction(action string) bool {
 	switch action {
 	case wlipc.ActionQuit:
 		s.saveSessionState()
@@ -86,13 +110,24 @@ func (s *server) dispatchAction(action string) bool {
 			s.cancelSwitcher()
 		}
 
+	default:
+		return false
+	}
+	return true
+}
+
+// dispatchWindowAction runs the actions on the active window.
+// handled is false if action is not one of them; ok is false if there is
+// no window to act on.
+func (s *server) dispatchWindowAction(action string) (ok, handled bool) {
+	switch action {
 	case wlipc.ActionToggleFullscreen:
 		if s.activeXdg != nil {
 			s.fullscreenXdgWindow(s.activeXdg, !s.activeXdg.fullscreen)
 		} else if s.activeXway != nil && !s.activeXway.isPanel && !s.activeXway.isOverlay {
 			s.fullscreenXwayWindow(s.activeXway, !s.activeXway.fullscreen)
 		} else {
-			return false
+			return false, true
 		}
 
 	case wlipc.ActionMaximize:
@@ -101,7 +136,7 @@ func (s *server) dispatchAction(action string) bool {
 		} else if s.activeXway != nil && !s.activeXway.isPanel && !s.activeXway.isOverlay {
 			s.maximizeXwayWindow(s.activeXway)
 		} else {
-			return false
+			return false, true
 		}
 
 	case wlipc.ActionMinimize:
@@ -114,7 +149,7 @@ func (s *server) dispatchAction(action string) bool {
 			s.focusTopmostOnDesk(s.currentDesk)
 			s.writeWindowsState()
 		} else {
-			return false
+			return false, true
 		}
 
 	case wlipc.ActionSnapLeft:
@@ -128,12 +163,19 @@ func (s *server) dispatchAction(action string) bool {
 		} else if s.activeXway != nil && !s.activeXway.isPanel && !s.activeXway.isOverlay {
 			s.closeXwayWindow(s.activeXway)
 		} else {
-			return false
+			return false, true
 		}
 
-	case wlipc.ActionOpenTerminal:
-		go s.launchTerminal()
+	default:
+		return false, false
+	}
+	return true, true
+}
 
+// dispatchDesktopAction runs the actions that switch desktop or move the
+// active window to another one. It returns false if action is not one of them.
+func (s *server) dispatchDesktopAction(action string) bool {
+	switch action {
 	case wlipc.ActionPrevDesktop:
 		s.switchDesk(s.currentDesk - 1)
 	case wlipc.ActionNextDesktop:
@@ -162,6 +204,19 @@ func (s *server) dispatchAction(action string) bool {
 	case wlipc.ActionMoveToNextDesktop:
 		s.moveWindowToDesk(s.currentDesk + 1)
 
+	default:
+		return false
+	}
+	return true
+}
+
+// dispatchLaunchAction runs the actions that start a tool or open a panel
+// overlay. It returns false if action is not one of them.
+func (s *server) dispatchLaunchAction(action string) bool {
+	switch action {
+	case wlipc.ActionOpenTerminal:
+		go s.launchTerminal()
+
 	case wlipc.ActionScreenshotFull:
 		go s.takeScreenshot(false, false)
 	case wlipc.ActionScreenshotRegion:
@@ -182,6 +237,25 @@ func (s *server) dispatchAction(action string) bool {
 	case wlipc.ActionCommandPalette:
 		s.requestCommandPalette()
 
+	case wlipc.ActionCalculator:
+		go s.launchCalculator()
+
+	case wlipc.ActionToggleSidebar:
+		s.requestSidebar()
+
+	case wlipc.ActionWindowOverview:
+		s.toggleOverview()
+
+	default:
+		return false
+	}
+	return true
+}
+
+// dispatchMediaAction runs the volume and brightness keys.
+// It returns false if action is not one of them.
+func (s *server) dispatchMediaAction(action string) bool {
+	switch action {
 	case wlipc.ActionVolumeUp:
 		go s.adjustVolume(5)
 	case wlipc.ActionVolumeDown:
@@ -194,15 +268,16 @@ func (s *server) dispatchAction(action string) bool {
 	case wlipc.ActionBrightnessDown:
 		go s.adjustBrightness(-5)
 
-	case wlipc.ActionCalculator:
-		go s.launchCalculator()
+	default:
+		return false
+	}
+	return true
+}
 
-	case wlipc.ActionToggleSidebar:
-		s.requestSidebar()
-
-	case wlipc.ActionWindowOverview:
-		s.toggleOverview()
-
+// dispatchLayoutAction runs the tiling, display and panel debug actions.
+// It returns false if action is not one of them.
+func (s *server) dispatchLayoutAction(action string) bool {
+	switch action {
 	case wlipc.ActionToggleTiling:
 		s.toggleTiling()
 	case wlipc.ActionSwapMaster:

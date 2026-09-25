@@ -212,6 +212,19 @@ func (s *server) processIPCFiles(paths ipcFilePaths, parseFailures map[string]in
 	logAndRemoveIfStuck func(string, error), clearFailures func(string)) bool {
 	locked := s.locked.Load()
 
+	s.processDisplayIPCFiles(paths, locked, logAndRemoveIfStuck, clearFailures)
+	if !s.processSessionIPCFiles(paths, locked) {
+		return false
+	}
+	s.processSettingsIPCFiles(paths, locked)
+	s.processWindowIPCFiles(paths, locked, logAndRemoveIfStuck, clearFailures)
+
+	return true
+}
+
+// processDisplayIPCFiles handles the mode, scale and desktop change requests.
+func (s *server) processDisplayIPCFiles(paths ipcFilePaths, locked bool,
+	logAndRemoveIfStuck func(string, error), clearFailures func(string)) {
 	// Check for mode change request
 	if data, err := os.ReadFile(paths.modeRequest); err == nil {
 		if len(data) > 0 {
@@ -274,7 +287,11 @@ func (s *server) processIPCFiles(paths ipcFilePaths, parseFailures map[string]in
 			}
 		}
 	}
+}
 
+// processSessionIPCFiles handles the logout and restart requests.
+// Returns false if one of them terminated the event loop.
+func (s *server) processSessionIPCFiles(paths ipcFilePaths, locked bool) bool {
 	// Check for logout request — blocked while locked
 	if _, err := os.Stat(paths.logoutRequest); err == nil {
 		if locked {
@@ -304,7 +321,12 @@ func (s *server) processIPCFiles(paths ipcFilePaths, parseFailures map[string]in
 			return false
 		}
 	}
+	return true
+}
 
+// processSettingsIPCFiles handles the settings, output layout, lock and
+// keyboard layout requests.
+func (s *server) processSettingsIPCFiles(paths ipcFilePaths, locked bool) {
 	// Check for settings change notification (allowed while locked — needed for lock client config)
 	if data, err := os.ReadFile(paths.settingsChanged); err == nil {
 		removeIPC(paths.settingsChanged)
@@ -362,12 +384,17 @@ func (s *server) processIPCFiles(paths ipcFilePaths, parseFailures map[string]in
 			}
 		}
 	}
+}
 
+// processWindowIPCFiles handles the window action, raise and VRR requests.
+// A partial window action file defers the remaining requests to the next sweep.
+func (s *server) processWindowIPCFiles(paths ipcFilePaths, locked bool,
+	logAndRemoveIfStuck func(string, error), clearFailures func(string)) {
 	// Check for window action request — blocked while locked
 	if data, err := os.ReadFile(paths.windowAction); err == nil {
 		if len(data) == 0 {
 			// Partial write, defer to next sweep
-			return true
+			return
 		}
 		if locked {
 			removeIPC(paths.windowAction)
@@ -436,8 +463,6 @@ func (s *server) processIPCFiles(paths ipcFilePaths, parseFailures map[string]in
 			}
 		}
 	}
-
-	return true
 }
 
 // handleWindowAction processes a window action request from the panel
@@ -449,6 +474,17 @@ func (s *server) handleWindowAction(req wlipc.WindowActionRequest) {
 	}
 
 	switch req.Action {
+	case "focus", "raise", "close", "iconify", "uniconify":
+		s.handleWindowFocusAction(req.Action, xdgV, xwayV)
+	case "maximize", "unmaximize", "fullscreen", "unfullscreen":
+		s.handleWindowSizeAction(req.Action, xdgV, xwayV)
+	}
+}
+
+// handleWindowFocusAction focuses, raises, closes, iconifies or restores
+// the given window.
+func (s *server) handleWindowFocusAction(action string, xdgV *xdgView, xwayV *xwayView) {
+	switch action {
 	case "focus":
 		if xdgV != nil {
 			if xdgV.minimized {
@@ -485,6 +521,27 @@ func (s *server) handleWindowAction(req wlipc.WindowActionRequest) {
 			s.restoreXwayWindow(xwayV)
 		}
 		s.writeWindowsState()
+	case "raise":
+		// Restore the window if it was minimized (e.g. by show desktop)
+		if xdgV != nil {
+			if xdgV.minimized {
+				s.restoreXdgWindow(xdgV)
+			}
+			s.focusXdgView(xdgV)
+		} else if xwayV != nil {
+			if xwayV.minimized {
+				s.restoreXwayWindow(xwayV)
+			}
+			restackXwaylandSurfaceAbove(xwayV.surface)
+			s.focusXwayView(xwayV)
+		}
+		s.writeWindowsState()
+	}
+}
+
+// handleWindowSizeAction maximizes, fullscreens or restores the given window.
+func (s *server) handleWindowSizeAction(action string, xdgV *xdgView, xwayV *xwayView) {
+	switch action {
 	case "maximize":
 		if xdgV != nil {
 			if !xdgV.maximized {
@@ -519,21 +576,6 @@ func (s *server) handleWindowAction(req wlipc.WindowActionRequest) {
 			s.fullscreenXdgWindow(xdgV, false)
 		} else if xwayV != nil {
 			s.fullscreenXwayWindow(xwayV, false)
-		}
-		s.writeWindowsState()
-	case "raise":
-		// Restore the window if it was minimized (e.g. by show desktop)
-		if xdgV != nil {
-			if xdgV.minimized {
-				s.restoreXdgWindow(xdgV)
-			}
-			s.focusXdgView(xdgV)
-		} else if xwayV != nil {
-			if xwayV.minimized {
-				s.restoreXwayWindow(xwayV)
-			}
-			restackXwaylandSurfaceAbove(xwayV.surface)
-			s.focusXwayView(xwayV)
 		}
 		s.writeWindowsState()
 	}
