@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/oauth2"
 	gcal "google.golang.org/api/calendar/v3"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 
 	"fyshos.com/tyde/internal/calendar"
@@ -27,7 +30,19 @@ type Provider struct {
 	// It is called per request — implementations should cache to avoid
 	// hitting GOA / the refresh endpoint on every API call.
 	TokenFunc func(ctx context.Context, account calendar.Account) (string, time.Time, error)
+
+	mu       sync.Mutex
+	services map[string]cachedService // by account ID
 }
+
+// cachedService is a calendar client and the access token it uses.
+type cachedService struct {
+	svc    *gcal.Service
+	expiry time.Time
+}
+
+// tokenMargin is how long before its expiry a token is renewed.
+const tokenMargin = time.Minute
 
 // Name returns the provider identifier.
 func (p *Provider) Name() string { return "google" }
@@ -48,6 +63,7 @@ func (p *Provider) ListCalendars(ctx context.Context, account calendar.Account) 
 	}
 	res, err := svc.CalendarList.List().ShowHidden(false).Context(ctx).Do()
 	if err != nil {
+		p.forgetOnAuthError(account.ID, err)
 		return nil, fmt.Errorf("calendar list: %w", err)
 	}
 	out := make([]calendar.Calendar, 0, len(res.Items))
@@ -86,6 +102,7 @@ func (p *Provider) ListEvents(ctx context.Context, account calendar.Account, cal
 		}
 		res, err := c.Do()
 		if err != nil {
+			p.forgetOnAuthError(account.ID, err)
 			return nil, fmt.Errorf("events list %s: %w", calendarID, err)
 		}
 		for _, ev := range res.Items {
@@ -103,9 +120,18 @@ func (p *Provider) ListEvents(ctx context.Context, account calendar.Account, cal
 	return out, nil
 }
 
+// service returns the calendar client of an account. The client and its
+// access token are kept until shortly before the token expires: a sync
+// makes one call per calendar, and each used to get a token (a refresh
+// with Google, or a GOA call) and build a client.
 func (p *Provider) service(ctx context.Context, account calendar.Account) (*gcal.Service, error) {
 	if p.TokenFunc == nil {
 		return nil, errors.New("google.Provider.TokenFunc is nil")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if c, ok := p.services[account.ID]; ok && time.Until(c.expiry) > tokenMargin {
+		return c.svc, nil
 	}
 	tok, expiry, err := p.TokenFunc(ctx, account)
 	if err != nil {
@@ -116,7 +142,33 @@ func (p *Provider) service(ctx context.Context, account calendar.Account) (*gcal
 		TokenType:   "Bearer",
 		Expiry:      expiry,
 	})
-	return gcal.NewService(ctx, option.WithTokenSource(src))
+	// The client outlives this call's context: it is kept.
+	svc, err := gcal.NewService(context.Background(), option.WithTokenSource(src))
+	if err != nil {
+		return nil, err
+	}
+	if p.services == nil {
+		p.services = map[string]cachedService{}
+	}
+	p.services[account.ID] = cachedService{svc: svc, expiry: expiry}
+	return svc, nil
+}
+
+// forgetOnAuthError drops the kept client when Google refused its token, so
+// that the next call gets a new one instead of waiting for it to expire.
+func (p *Provider) forgetOnAuthError(accountID string, err error) {
+	var gerr *googleapi.Error
+	if errors.As(err, &gerr) && gerr.Code == http.StatusUnauthorized {
+		p.Forget(accountID)
+	}
+}
+
+// Forget drops what is kept for an account (its access was revoked, or it
+// was removed).
+func (p *Provider) Forget(accountID string) {
+	p.mu.Lock()
+	delete(p.services, accountID)
+	p.mu.Unlock()
 }
 
 // convertEvent maps a Google calendar event into our type. Returns ok=false
