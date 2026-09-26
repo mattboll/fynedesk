@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -450,5 +451,32 @@ func TestSocketEnv(t *testing.T) {
 	t.Setenv(SocketEnv, "/tmp/elsewhere.sock")
 	if got := SocketPath(); got != "/tmp/elsewhere.sock" {
 		t.Errorf("SocketPath() = %q", got)
+	}
+}
+
+// TestBroadcastNotBlockedByStalledSubscriber checks that a subscriber that
+// stops reading cannot make Broadcast (called from the compositor's main
+// thread) wait.
+func TestBroadcastNotBlockedByStalledSubscriber(t *testing.T) {
+	srv, _ := testServer(t, func(*Message) (json.RawMessage, error) { return nil, nil })
+	conn, err := net.Dial("unix", SocketPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	sub, _ := json.Marshal(Message{Type: "request", ID: 1, Name: ReqSubscribe, Data: json.RawMessage(`{"events":["windows-state"]}`)})
+	conn.Write(append(sub, '\n'))
+	deadline := time.Now().Add(2 * time.Second)
+	for srv.Broadcast("windows-state", 0) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	// The client never reads again: its socket buffer fills up.
+	big := strings.Repeat("x", 64*1024)
+	start := time.Now()
+	for i := 0; i < 50; i++ { // 3 MiB: well past what the socket buffers hold
+		srv.Broadcast("windows-state", big)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("50 broadcasts took %v with a stalled subscriber", d)
 	}
 }

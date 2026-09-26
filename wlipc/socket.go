@@ -142,9 +142,12 @@ type IPCServer struct {
 type RequestHandler func(msg *Message) (json.RawMessage, error)
 
 type ipcClient struct {
-	conn       net.Conn
-	writer     *bufio.Writer
-	mu         sync.Mutex // protects writer (used by request/response paths)
+	conn   net.Conn
+	writer *bufio.Writer
+	mu     sync.Mutex // protects writer (used by request/response paths)
+	// subsMu protects subs. It is not mu: Broadcast reads subs from the
+	// compositor's main thread, and must not wait for a write in progress.
+	subsMu     sync.Mutex
 	subs       map[string]bool
 	broadcasts chan []byte   // buffered; events drop-oldest when full
 	done       chan struct{} // closed when the client is being torn down
@@ -245,9 +248,9 @@ func (s *IPCServer) Broadcast(eventName string, data any) int {
 
 	reached := 0
 	for c := range s.clients {
-		c.mu.Lock()
+		c.subsMu.Lock()
 		subscribed := c.subs[eventName]
-		c.mu.Unlock()
+		c.subsMu.Unlock()
 		if !subscribed {
 			continue
 		}
@@ -317,12 +320,7 @@ func (s *IPCServer) broadcastWriter(c *ipcClient) {
 		case <-c.done:
 			return
 		case line := <-c.broadcasts:
-			c.mu.Lock()
-			_, werr := c.writer.Write(line)
-			if werr == nil {
-				werr = c.writer.Flush()
-			}
-			c.mu.Unlock()
+			werr := c.write(line)
 			if werr != nil {
 				// Connection is broken; close it so handleClient exits and
 				// the cleanup path runs.
@@ -361,9 +359,9 @@ func (s *IPCServer) handleClient(c *ipcClient) {
 	scanner.Buffer(make([]byte, 64*1024), maxMsg)
 
 	for {
-		c.mu.Lock()
+		c.subsMu.Lock()
 		hasSubs := len(c.subs) > 0
-		c.mu.Unlock()
+		c.subsMu.Unlock()
 		if hasSubs {
 			_ = c.conn.SetReadDeadline(time.Time{})
 		} else {
@@ -389,11 +387,11 @@ func (s *IPCServer) handleClient(c *ipcClient) {
 		if msg.Name == ReqSubscribe {
 			var sub SubscribeRequest
 			if err := json.Unmarshal(msg.Data, &sub); err == nil {
-				c.mu.Lock()
+				c.subsMu.Lock()
 				for _, ev := range sub.Events {
 					c.subs[ev] = true
 				}
-				c.mu.Unlock()
+				c.subsMu.Unlock()
 			}
 			s.sendResponse(c, msg.ID, nil, nil)
 			continue
@@ -422,10 +420,25 @@ func (s *IPCServer) sendResponse(c *ipcClient, reqID int64, data json.RawMessage
 	line, _ := json.Marshal(resp)
 	line = append(line, '\n')
 
+	if c.write(line) != nil {
+		c.conn.Close() // handleClient exits and cleans up
+	}
+}
+
+// clientWriteTimeout bounds a write to a client: one that stopped reading
+// is dropped instead of holding its goroutines forever.
+const clientWriteTimeout = 5 * time.Second
+
+// write sends one line to the client.
+func (c *ipcClient) write(line []byte) error {
 	c.mu.Lock()
-	c.writer.Write(line)
-	c.writer.Flush()
-	c.mu.Unlock()
+	defer c.mu.Unlock()
+	_ = c.conn.SetWriteDeadline(time.Now().Add(clientWriteTimeout))
+	_, err := c.writer.Write(line)
+	if err == nil {
+		err = c.writer.Flush()
+	}
+	return err
 }
 
 // --- Default server (used by compositor-side Notify* functions) ---
