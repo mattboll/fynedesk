@@ -54,6 +54,15 @@ const (
 	EventNightLight       = "night-light" // NightLightEvent: toggled by its shortcut
 )
 
+// AllEvents are all the events the compositor pushes.
+var AllEvents = []string{
+	EventWindowsState, EventDesktopState, EventNotification, EventNotifClosed,
+	EventScreenshot, EventClipboardHist, EventKeyboardLayout, EventVolumeChange,
+	EventBrightnessChange, EventLauncherRequest, EventEmojiPicker,
+	EventContextMenu, EventClipboardShow, EventCommandPalette, EventSidebar,
+	EventNextAgent, EventOverview, EventPanelHotspot, EventNightLight,
+}
+
 // NightLightEvent tells the panel the night light was toggled by its
 // shortcut, for it to save the setting.
 type NightLightEvent struct {

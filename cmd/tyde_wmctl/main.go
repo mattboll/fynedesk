@@ -465,22 +465,7 @@ func cmdSimulateInput(client *wlipc.IPCClient, kind, xs, ys string) {
 
 func cmdSubscribe(client *wlipc.IPCClient, events []string) {
 	if len(events) == 0 {
-		// Subscribe to all events
-		events = []string{
-			wlipc.EventWindowsState,
-			wlipc.EventDesktopState,
-			wlipc.EventNotification,
-			wlipc.EventScreenshot,
-			wlipc.EventClipboardHist,
-			wlipc.EventKeyboardLayout,
-			wlipc.EventVolumeChange,
-			wlipc.EventBrightnessChange,
-			wlipc.EventLauncherRequest,
-			wlipc.EventEmojiPicker,
-			wlipc.EventContextMenu,
-			wlipc.EventClipboardShow,
-			wlipc.EventCommandPalette,
-		}
+		events = wlipc.AllEvents
 	}
 
 	if err := client.Subscribe(events...); err != nil {

@@ -57,8 +57,11 @@ Subcommands:
   add-goa                Add a Google account from GNOME Online Accounts.
                          If a single Google account is configured in GOA,
                          it is added directly; otherwise pick from a list.
-  add-oauth              Add a Google account via OAuth loopback flow.
-                         You must supply your own OAuth client_id.
+  add-oauth [<client_id>]
+                         Add a Google account via OAuth loopback flow.
+                         You must supply your own OAuth client_id; the
+                         client secret is asked for (or read from
+                         TYDE_OAUTH_CLIENT_SECRET), never an argument.
   list                   List configured accounts and their calendars.
   remove <id|email>      Remove an account and its cached events.
   refresh [<id|email>]   Force a sync now. Default: all accounts.
@@ -135,13 +138,14 @@ func calAddOAuth(args []string) {
 	scanner := bufio.NewScanner(os.Stdin)
 
 	clientID := ""
-	clientSecret := ""
 	if len(args) >= 1 {
 		clientID = args[0]
 	}
+	// Never on the command line: other users see it in ps.
 	if len(args) >= 2 {
-		clientSecret = args[1]
+		fatal("the client secret is not taken as an argument (it would show in ps): paste it when asked, or set TYDE_OAUTH_CLIENT_SECRET")
 	}
+	clientSecret, secretSet := os.LookupEnv("TYDE_OAUTH_CLIENT_SECRET")
 
 	if clientID == "" {
 		fmt.Println("OAuth client_id required.")
@@ -161,7 +165,7 @@ func calAddOAuth(args []string) {
 	if clientID == "" {
 		fatal("client_id is required")
 	}
-	if clientSecret == "" {
+	if !secretSet {
 		fmt.Print("Client Secret (paste; press Enter if your client has none): ")
 		if !scanner.Scan() {
 			fatal("reading client_secret: %v", scanner.Err())
@@ -286,11 +290,12 @@ func calRefresh(args []string) {
 			fmt.Fprintf(os.Stderr, "  %s: %v\n", acc.Email, err)
 			continue
 		}
-		evs := store.EventsBetween(time.Now().Add(-time.Hour), time.Now().Add(7*24*time.Hour))
+		// This account's events of the coming week (the count used to take
+		// every account's).
+		from, to := time.Now().Add(-time.Hour), time.Now().Add(7*24*time.Hour)
 		count := 0
-		for _, e := range evs {
-			if strings.HasPrefix(e.CalendarID, acc.Email) || acc.Calendars != nil {
-				_ = e
+		for _, e := range store.AccountEvents(acc.ID) {
+			if e.End.After(from) && e.Start.Before(to) {
 				count++
 			}
 		}

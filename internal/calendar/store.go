@@ -107,6 +107,9 @@ func (s *Store) AddCalendars(accountID string, ids []string) (Account, bool) {
 	return out, true
 }
 
+// AccountEvents returns a copy of the events cached for an account.
+func (s *Store) AccountEvents(accountID string) []Event { return s.cachedEvents(accountID) }
+
 // cachedEvents returns a copy of the events cached for an account.
 func (s *Store) cachedEvents(accountID string) []Event {
 	s.mu.RLock()
