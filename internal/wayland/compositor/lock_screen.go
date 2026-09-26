@@ -239,6 +239,9 @@ func (s *server) activateBuiltinLock() {
 		s.closeOverlay()
 	}
 
+	// The windows get neither keys nor clicks until the session is unlocked.
+	s.clearSeatFocus()
+
 	// Render initial frame
 	s.updateBuiltinLockScene()
 

@@ -74,9 +74,10 @@ import (
 
 // Gesture state
 type gestureState struct {
-	active  bool
-	fingers uint32
-	dx, dy  float64 // Accumulated delta since gesture start
+	active    bool
+	fingers   uint32
+	dx, dy    float64 // Accumulated delta since gesture start
+	forwarded bool    // the gesture goes to the client (two fingers, not locked)
 }
 
 // Global reference (only one compositor instance)
@@ -108,8 +109,10 @@ func goSwipeBegin(timeMsec C.uint32_t, fingers C.uint32_t) {
 	s.gesture.dx = 0
 	s.gesture.dy = 0
 
-	// Forward 2-finger gestures to clients
-	if uint32(fingers) == 2 && s.pointerGestures != nil {
+	// Forward 2-finger gestures to clients, never while locked: the whole
+	// gesture goes to them or none of it.
+	s.gesture.forwarded = uint32(fingers) == 2 && s.pointerGestures != nil && !s.locked.Load()
+	if s.gesture.forwarded {
 		C.gestures_send_swipe_begin(
 			(*C.struct_wlr_pointer_gestures_v1)(s.pointerGestures),
 			seatPtr(s.seat),
@@ -132,7 +135,7 @@ func goSwipeUpdate(timeMsec C.uint32_t, fingers C.uint32_t, dx, dy C.double) {
 	}
 
 	// Forward 2-finger gestures to clients
-	if uint32(fingers) == 2 && s.pointerGestures != nil {
+	if s.gesture.forwarded {
 		C.gestures_send_swipe_update(
 			(*C.struct_wlr_pointer_gestures_v1)(s.pointerGestures),
 			seatPtr(s.seat),
@@ -148,7 +151,7 @@ func goSwipeEnd(timeMsec C.uint32_t, cancelled C.int) {
 	}
 
 	// Forward 2-finger gestures to clients
-	if s.gesture.fingers == 2 && s.pointerGestures != nil {
+	if s.gesture.forwarded {
 		C.gestures_send_swipe_end(
 			(*C.struct_wlr_pointer_gestures_v1)(s.pointerGestures),
 			seatPtr(s.seat),

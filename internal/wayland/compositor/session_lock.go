@@ -7,6 +7,12 @@ package compositor
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_seat.h>
 #include <wlr/types/wlr_output.h>
+#include "restricted_globals.h"
+
+// seat_keyboard_focus returns the surface the keyboard types into.
+static struct wlr_surface *seat_keyboard_focus(struct wlr_seat *seat) {
+	return seat->keyboard_state.focused_surface;
+}
 
 // --- Session Lock listeners ---
 
@@ -86,6 +92,8 @@ static void handle_lock_mgr_destroy(struct wl_listener *listener, void *data) {
 
 static void setup_session_lock(struct wl_display *display) {
 	lock_manager = wlr_session_lock_manager_v1_create(display);
+	// A sandboxed app has no business locking the session (nor unlocking it).
+	restrict_global(lock_manager->global);
 	lock_mgr_new_lock_listener.notify = handle_lock_new_lock;
 	wl_signal_add(&lock_manager->events.new_lock, &lock_mgr_new_lock_listener);
 	lock_mgr_destroy_listener.notify = handle_lock_mgr_destroy;
@@ -235,9 +243,12 @@ func goSessionLockNewLock(lock unsafe.Pointer) {
 
 	lockPtr := (*C.struct_wlr_session_lock_v1)(lock)
 
-	// Reject second lock client while already locked
-	if s.locked.Load() && s.currentLock != nil {
-		log.Println("[LOCK] Rejecting second lock client — already locked")
+	// Reject a second lock client while one holds the lock, and any while
+	// the built-in lock does: the newcomer would unlock it by unlocking
+	// itself. A lock client that died leaves the session locked with no
+	// current lock: its replacement is welcome.
+	if (s.locked.Load() && s.currentLock != nil) || (s.builtinLock != nil && s.builtinLock.active) {
+		log.Println("[LOCK] Rejecting a lock client — the session is already locked")
 		C.destroy_lock(lockPtr)
 		return
 	}
@@ -346,8 +357,9 @@ func (s *server) handleSessionLockNewLock(lock *C.struct_wlr_session_lock_v1) {
 	// (especially Firefox) when they're later reactivated on unlock.
 	// Keep s.activeXdg/s.activeXway intact so we can restore focus directly.
 
-	// Clear keyboard focus so the lock surface can receive keyboard input
-	C.keyboard_clear_focus_c(seatPtr(s.seat))
+	// Clear keyboard and pointer focus: the windows get nothing more until
+	// the session is unlocked.
+	s.clearSeatFocus()
 
 	log.Println("[LOCK] Lock session active — black fallback rects created")
 }
@@ -424,6 +436,54 @@ func (s *server) checkAllLockSurfacesMapped() {
 		// Focus the primary output's lock surface for keyboard input
 		s.focusLockSurface()
 	}
+}
+
+// clearSeatFocus takes the keyboard and the pointer away from every
+// surface, as the session locks.
+func (s *server) clearSeatFocus() {
+	C.keyboard_clear_focus_c(seatPtr(s.seat))
+	C.pointer_clear_focus_c(seatPtr(s.seat))
+}
+
+// coverNewOutputWhileLocked hides the desktop on an output that joins while
+// the session is locked: the built-in lock is drawn again over all outputs,
+// and under a lock client the output is black until the client covers it.
+func (s *server) coverNewOutputWhileLocked(out *outputState) {
+	if !s.locked.Load() {
+		return
+	}
+	if s.builtinLock != nil && s.builtinLock.active {
+		s.updateBuiltinLockScene()
+		return
+	}
+	name := out.output.Name()
+	if _, ok := s.lockBlackRects[name]; ok {
+		return
+	}
+	if s.lockBlackRects == nil {
+		s.lockBlackRects = map[string]unsafe.Pointer{}
+	}
+	lockTree := (*C.struct_wlr_scene_tree)(s.lockTree)
+	geo := s.getOutputGeometry(out)
+	rect := C.create_lock_black_rect(lockTree, C.int(geo.width), C.int(geo.height))
+	C.scene_node_set_position_c(&rect.node, C.int(geo.x), C.int(geo.y))
+	s.lockBlackRects[name] = unsafe.Pointer(rect)
+	log.Printf("[LOCK] Output %s joined while locked: covered", name)
+}
+
+// lockSurfaceFocused reports whether the keyboard types into a lock
+// surface, and nowhere else.
+func (s *server) lockSurfaceFocused() bool {
+	focused := unsafe.Pointer(C.seat_keyboard_focus((*C.struct_wlr_seat)(seatPtr(s.seat))))
+	if focused == nil {
+		return false
+	}
+	for _, ls := range s.lockSurfaceStates {
+		if ls.wlrSurface == focused {
+			return true
+		}
+	}
+	return false
 }
 
 // focusLockSurface gives keyboard focus to the primary output's lock surface
@@ -634,17 +694,22 @@ func (s *server) processLockedCursorMotion(t time.Time) {
 	// Find which output the cursor is on
 	curOut := s.getActiveOutput()
 	if curOut == nil {
+		C.pointer_clear_focus_c(seatPtr(s.seat))
 		return
 	}
 
+	// No lock surface under the pointer: it points at nothing (not at the
+	// window it was over before the lock).
 	name := curOut.output.Name()
 	ls, ok := s.lockSurfaceStates[name]
 	if !ok || ls.wlrSurface == nil {
+		C.pointer_clear_focus_c(seatPtr(s.seat))
 		return
 	}
 
 	surface := surfaceFromCPtr((*C.struct_wlr_surface)(ls.wlrSurface))
 	if !surface.Valid() {
+		C.pointer_clear_focus_c(seatPtr(s.seat))
 		return
 	}
 

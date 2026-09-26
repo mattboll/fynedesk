@@ -326,8 +326,8 @@ func (s *server) isXwayDescendantOf(v, ancestor *xwayView) bool {
 }
 
 func (s *server) focusXdgView(v *xdgView) {
-	if v == nil || !v.mapped {
-		return
+	if v == nil || !v.mapped || s.locked.Load() {
+		return // while locked, the keyboard belongs to the lock screen only
 	}
 
 	surface := v.xdgToplevel.Base().Surface()
@@ -448,8 +448,8 @@ func (s *server) focusSurfaceKeyboard(surface wlr.Surface) {
 }
 
 func (s *server) focusXwayView(v *xwayView) {
-	if v == nil || !v.mapped || v.isPanel || v.isOverlay {
-		return
+	if v == nil || !v.mapped || v.isPanel || v.isOverlay || s.locked.Load() {
+		return // while locked, the keyboard belongs to the lock screen only
 	}
 
 	surface := v.surface.Surface()

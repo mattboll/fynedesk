@@ -1,16 +1,27 @@
+#include <stdlib.h>
+
 #include "restricted_globals.h"
 
-// A handful of globals, all created at startup and living as long as the
-// display: a small fixed array is enough.
-#define MAX_RESTRICTED_GLOBALS 16
-
-static const struct wl_global *restricted[MAX_RESTRICTED_GLOBALS];
-static int restricted_count;
+// The globals restricted so far, all created at startup and living as long
+// as the display. The list grows as needed: a global left out of it would be
+// open to sandboxed clients.
+static const struct wl_global **restricted;
+static int restricted_count, restricted_cap;
 
 void restrict_global(const struct wl_global *global) {
-	if (global && restricted_count < MAX_RESTRICTED_GLOBALS) {
-		restricted[restricted_count++] = global;
+	if (!global) {
+		return;
 	}
+	if (restricted_count == restricted_cap) {
+		int cap = restricted_cap ? restricted_cap * 2 : 16;
+		const struct wl_global **grown = realloc(restricted, cap * sizeof(*grown));
+		if (!grown) {
+			abort(); // failing open would hand capture or typing to any sandboxed app
+		}
+		restricted = grown;
+		restricted_cap = cap;
+	}
+	restricted[restricted_count++] = global;
 }
 
 bool global_is_restricted(const struct wl_global *global) {

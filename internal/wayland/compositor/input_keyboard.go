@@ -197,10 +197,16 @@ func (s *server) handleLockedKey(keyboard, kb wlr.Keyboard, t time.Time, keyCode
 		}
 		return
 	}
-	// External lock client: forward to lock surface
+	// External lock client: forward to its lock surface, and to nothing
+	// else — a window that took the focus would get the password.
 	if s.currentLock != nil && len(s.lockSurfaceStates) > 0 {
-		s.seat.SetKeyboard(keyboard)
-		s.seat.KeyboardNotifyKey(t, keyCode, state)
+		if !s.lockSurfaceFocused() {
+			s.focusLockSurface()
+		}
+		if s.lockSurfaceFocused() {
+			s.seat.SetKeyboard(keyboard)
+			s.seat.KeyboardNotifyKey(t, keyCode, state)
+		}
 	}
 }
 

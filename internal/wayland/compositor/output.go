@@ -721,6 +721,7 @@ func (s *server) addOutputToDesktop(out *outputState, config *OutputLayoutConfig
 		s.refitWindowsToOutputs()
 		s.screensChanged()
 	}
+	s.coverNewOutputWhileLocked(out)
 }
 
 // loadWallpaperForNewOutput loads the wallpaper image for a newly connected output.
