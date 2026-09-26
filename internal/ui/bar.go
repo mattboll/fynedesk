@@ -596,9 +596,10 @@ func newBar(desk tyde.Desktop) *bar {
 type barRenderer struct {
 	layout barLayout
 
-	appBar     *bar
-	background fyne.CanvasObject
-	objects    []fyne.CanvasObject
+	appBar         *bar
+	background     fyne.CanvasObject
+	objects        []fyne.CanvasObject
+	backgroundLeft bool // the background was made for the left bar
 }
 
 // MinSize returns the layout's Min Size
@@ -625,7 +626,15 @@ func (b *barRenderer) Objects() []fyne.CanvasObject {
 
 // Refresh will recalculate the widget and repaint it
 func (b *barRenderer) Refresh() {
-	b.background = b.appBar.makeBackground()
+	// The background is made again only when the bar changes side (it was
+	// made at every refresh).
+	if left := tyde.Instance().Settings().BarPosition() == "left"; b.background == nil || left != b.backgroundLeft {
+		b.background = b.appBar.makeBackground()
+		b.backgroundLeft = left
+	} else if r, ok := b.background.(*canvas.Rectangle); ok && left {
+		r.FillColor = wmTheme.WidgetPanelBackground() // follows the theme
+		r.Refresh()
+	}
 	if b.appBar.separator != nil {
 		b.appBar.separator.FillColor = theme.Color(theme.ColorNameForeground)
 	}

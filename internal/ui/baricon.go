@@ -7,6 +7,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"fyshos.com/tyde/internal/icon"
@@ -28,6 +29,12 @@ import (
 type appWindow struct {
 	win tyde.Window
 	bar *bar
+
+	// The app last found for the window, and what it was found from: the
+	// dock asks at every mouse move.
+	appKey   string
+	app      appie.AppData
+	appFound bool
 }
 
 // findApp will try to return an application data associated with a window.
@@ -36,8 +43,14 @@ func (a *appWindow) findApp() appie.AppData {
 	if a.win == nil {
 		return nil
 	}
-
-	return icon.FindAppFromWinInfo(a.win, a.bar.desk.IconProvider())
+	p := a.win.Properties()
+	key := strings.Join([]string{p.Command(), strings.Join(p.Class(), "\x01"), p.IconName(), p.Title()}, "\x00")
+	if a.appFound && key == a.appKey {
+		return a.app
+	}
+	a.app = icon.FindAppFromWinInfo(a.win, a.bar.desk.IconProvider())
+	a.appKey, a.appFound = key, true
+	return a.app
 }
 
 type barIconRenderer struct {
