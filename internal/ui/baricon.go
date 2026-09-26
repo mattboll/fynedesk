@@ -170,20 +170,15 @@ func (bi *barIconRenderer) Refresh() {
 			bi.Layout(bi.image.Size())
 
 			// Start pulse animation if not already running
-			if bi.image.urgentPulse == nil {
-				bi.image.urgentPulse = time.NewTicker(600 * time.Millisecond)
-				go func() {
-					for range bi.image.urgentPulse.C {
-						fyne.Do(func() {
-							bi.image.urgentBright = !bi.image.urgentBright
-							bi.image.Refresh()
-						})
-					}
-				}()
+			if bi.image.stopPulse == nil {
+				bi.image.stopPulse = every(600*time.Millisecond, func() {
+					bi.image.urgentBright = !bi.image.urgentBright
+					bi.image.Refresh()
+				})
 			}
-		} else if bi.image.urgentPulse != nil {
-			bi.image.urgentPulse.Stop()
-			bi.image.urgentPulse = nil
+		} else if bi.image.stopPulse != nil {
+			bi.image.stopPulse()
+			bi.image.stopPulse = nil
 			bi.image.urgentBright = false
 		}
 	}
@@ -227,8 +222,8 @@ type barIcon struct {
 	dragAccum fyne.Delta // accumulated drag distance before threshold
 	launching bool       // true while app is launching (shows pulse feedback)
 
-	urgentPulse  *time.Ticker // pulse animation for urgent state
-	urgentBright bool         // toggles between bright/dim for pulse
+	stopPulse    func() // stops the pulse animation of the urgent state
+	urgentBright bool   // toggles between bright/dim for pulse
 }
 
 // allWindows returns all windows represented by this icon (primary + grouped).

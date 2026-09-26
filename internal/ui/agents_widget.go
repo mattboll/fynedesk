@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -53,8 +54,8 @@ type agentsWidget struct {
 	box      *fyne.Container
 	showIdle bool
 	dots     []*statusDot // the animated ones
-	anim     *time.Ticker
-	peekGen  int // hovers counted: a late preview of an earlier one is dropped
+	stopAnim func()       // stops the pulse of the dots, while it runs
+	peekGen  int          // hovers counted: a late preview of an earlier one is dropped
 }
 
 func newAgentsWidget(h *agentHub) *agentsWidget {
@@ -208,28 +209,43 @@ func secondaryTextColor() color.Color {
 // low rate: the panel is a large window.
 func (w *agentsWidget) animate() {
 	if len(w.dots) == 0 || !w.Visible() {
-		if w.anim != nil {
-			w.anim.Stop()
-			w.anim = nil
+		if w.stopAnim != nil {
+			w.stopAnim()
+			w.stopAnim = nil
 		}
 		return
 	}
-	if w.anim != nil {
+	if w.stopAnim != nil {
 		return
 	}
-	w.anim = time.NewTicker(250 * time.Millisecond)
-	ticker := w.anim
 	start := time.Now()
+	w.stopAnim = every(250*time.Millisecond, func() {
+		phase := time.Since(start).Seconds()
+		for _, d := range w.dots {
+			d.step(phase)
+		}
+	})
+}
+
+// every calls fn on the Fyne thread every interval, until the returned
+// function is called (a ticker's Stop alone would leave its goroutine
+// waiting forever).
+func every(interval time.Duration, fn func()) (stop func()) {
+	ticker := time.NewTicker(interval)
+	done := make(chan struct{})
 	go func() {
-		for range ticker.C {
-			phase := time.Since(start).Seconds()
-			fyne.Do(func() {
-				for _, d := range w.dots {
-					d.step(phase)
-				}
-			})
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				fyne.Do(fn)
+			}
 		}
 	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(done) }) }
 }
 
 // statusDot is the coloured dot before an agent.
