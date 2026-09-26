@@ -38,6 +38,18 @@ func (s *server) addBlur(v *xwayView) {
 }
 
 // removeBlur takes the blur away from behind a window.
+// dropBlursGL destroys the blurs, made with the old renderer after a GPU
+// reset; they are made again on the next frame.
+func (s *server) dropBlursGL() {
+	for v, b := range s.blurs {
+		if b != nil {
+			C.blur_destroy(b)
+			s.blurs[v] = nil
+		}
+	}
+	C.blur_reset_gl()
+}
+
 func (s *server) removeBlur(v *xwayView) {
 	if b, ok := s.blurs[v]; ok {
 		if b != nil {

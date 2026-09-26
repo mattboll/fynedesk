@@ -3,6 +3,7 @@ package compositor
 /*
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 #include <wayland-server-core.h>
 #include <drm_fourcc.h>
 #include <EGL/egl.h>
@@ -297,6 +298,10 @@ static const char *wobble_fs_solid =
 static GLuint wobble_compile(const char *fs_src);
 
 static GLuint wobble_programs[3]; // sampler2D, samplerExternalOES, solid colour
+
+static void wobble_reset_gl(void) {
+    memset(wobble_programs, 0, sizeof(wobble_programs)); // they went with the old context
+}
 
 static GLuint wobble_program(int kind) {
     if (!wobble_programs[kind]) {
@@ -855,6 +860,16 @@ func (s *server) releaseWobble() {
 	if s.wobble != nil {
 		s.wobble.anchor = -1
 	}
+}
+
+// dropWobbleGL ends the effects and forgets their GL programs, after a GPU
+// reset: all were made with the old renderer.
+func (s *server) dropWobbleGL() {
+	s.stopWobble()
+	if s.genie != nil {
+		s.endGenie()
+	}
+	C.wobble_reset_gl()
 }
 
 // stopWobble shows the window as it is, at once.

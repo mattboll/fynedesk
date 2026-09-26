@@ -28,4 +28,7 @@ bool blur_alive(struct blur *b);
 // blur_destroy removes the blur and frees it.
 void blur_destroy(struct blur *b);
 
+// blur_reset_gl forgets the GL programs, after a GPU reset.
+void blur_reset_gl(void);
+
 #endif

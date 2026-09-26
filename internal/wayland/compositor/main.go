@@ -1049,6 +1049,9 @@ func (s *server) handleRendererLost() {
 		delete(s.iconCache, appID)
 	}
 	resetThumbGL()
+	s.dropBlursGL()
+	s.dropWobbleGL()
+	s.dropZoomBuffers()
 	C.set_egl_from_renderer((*C.struct_wlr_renderer)(renderer.Ptr()))
 
 	oldAllocator.Destroy()

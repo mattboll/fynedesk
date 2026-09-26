@@ -287,6 +287,15 @@ func (s *server) zoomCenter(output wlr.Output) (float64, float64) {
 }
 
 // forgetZoomOutput drops the zoom of an output going away.
+// dropZoomBuffers destroys the enlarged pictures, made with the old
+// allocator after a GPU reset; they are made again on the next frame.
+func (s *server) dropZoomBuffers() {
+	for out, z := range s.zoom.outputs {
+		C.zoom_destroy(z)
+		delete(s.zoom.outputs, out)
+	}
+}
+
 func (s *server) forgetZoomOutput(output unsafe.Pointer) {
 	out := (*C.struct_wlr_output)(output)
 	if z := s.zoom.outputs[out]; z != nil {

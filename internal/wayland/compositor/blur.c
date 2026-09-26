@@ -1,6 +1,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <drm_fourcc.h>
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
@@ -206,6 +207,10 @@ static GLuint blur_compile(const char *fs_src) {
     glDeleteShader(vs);
     glDeleteShader(fs);
     return prog;
+}
+
+void blur_reset_gl(void) {
+    memset(blur_programs, 0, sizeof(blur_programs)); // they went with the old context
 }
 
 static GLuint blur_program(int kind) {
