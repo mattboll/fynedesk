@@ -181,3 +181,23 @@ func TestUnicodeVersion(t *testing.T) {
 	assert.NotEmpty(t, unicodeVersion)
 	assert.NotEqual(t, "unknown", unicodeVersion, "the generator could not read the data version")
 }
+
+func TestPages(t *testing.T) {
+	pages := Pages()
+	assert.Equal(t, RecentPage, pages[0].Name)
+	assert.Equal(t, RecentIcon, pages[0].Icon)
+	assert.Len(t, pages, len(wantGroups)+1)
+	for _, p := range pages[1:] {
+		assert.NotEmpty(t, GroupItems(p.Name), p.Name)
+		assert.NotEqual(t, p.Name, p.Icon, "%s has no icon", p.Name)
+	}
+	assert.Nil(t, GroupItems("no such group"))
+}
+
+func TestFromCharacters(t *testing.T) {
+	got := FromCharacters([]string{"🚀", "not an emoji", "", "😀"})
+	if assert.Len(t, got, 2) {
+		assert.Equal(t, "rocket", got[0].Name)
+		assert.Equal(t, "😀", got[1].Character)
+	}
+}

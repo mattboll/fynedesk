@@ -17,6 +17,9 @@ import (
 	"fyshos.com/tyde/wlipc"
 )
 
+// emojiPages are the pages of the picker: the recents, then the groups.
+var emojiPages = emoji.Pages()
+
 type picker struct {
 	app       fyne.App
 	win       fyne.Window
@@ -24,7 +27,7 @@ type picker struct {
 	grid      *widget.GridWrap
 	catBtns   []*widget.Button
 	activeCat int
-	current   []emoji.Entry
+	current   []emoji.Emoji
 }
 
 type pickerEntry struct {
@@ -50,14 +53,14 @@ func (p *picker) selectEmoji(emoji string) {
 	p.quit()
 }
 
-func (p *picker) setEmojis(emojis []emoji.Entry) {
+func (p *picker) setEmojis(emojis []emoji.Emoji) {
 	p.current = emojis
 	p.grid.Refresh()
 	p.grid.ScrollToOffset(0)
 }
 
 func (p *picker) selectCategory(idx int) {
-	if idx < 0 || idx >= len(emoji.Categories) {
+	if idx < 0 || idx >= len(emojiPages) {
 		return
 	}
 	if p.activeCat >= 0 && p.activeCat < len(p.catBtns) {
@@ -68,12 +71,12 @@ func (p *picker) selectCategory(idx int) {
 	p.catBtns[idx].Importance = widget.HighImportance
 	p.catBtns[idx].Refresh()
 
-	name := emoji.Categories[idx].Name
-	if name == "recent" {
+	name := emojiPages[idx].Name
+	if name == emoji.RecentPage {
 		p.setEmojis(getRecentEmojis())
 		return
 	}
-	p.setEmojis(emoji.ForCategory(name))
+	p.setEmojis(emoji.GroupItems(name))
 }
 
 func main() {
@@ -119,7 +122,7 @@ func main() {
 	p.current = getRecentEmojis()
 	startCat := 0
 	if len(p.current) == 0 {
-		p.current = emoji.ForCategory("smileys")
+		p.current = emoji.GroupItems(emojiPages[1].Name)
 		startCat = 1
 	}
 
@@ -137,9 +140,9 @@ func main() {
 			btn := obj.(*widget.Button)
 			if id < len(p.current) {
 				emoji := p.current[id]
-				btn.SetText(emoji.Emoji)
+				btn.SetText(emoji.Character)
 				btn.OnTapped = func() {
-					p.selectEmoji(emoji.Emoji)
+					p.selectEmoji(emoji.Character)
 				}
 			}
 		},
@@ -147,7 +150,7 @@ func main() {
 
 	// Category buttons
 	var catButtons []fyne.CanvasObject
-	for i, cat := range emoji.Categories {
+	for i, cat := range emojiPages {
 		idx := i
 		btn := widget.NewButton(cat.Icon, func() {
 			entry.SetText("")
@@ -180,28 +183,20 @@ func main() {
 	win.ShowAndRun()
 }
 
-// --- Recents (file-based, shared with panel) ---
+// --- Recents, kept in the config directory ---
 
 func getRecentsPath() string {
 	return filepath.Join(wlipc.ConfigDir(), "emoji-recents.txt")
 }
 
-func getRecentEmojis() []emoji.Entry {
+func getRecentEmojis() []emoji.Emoji {
 	data, err := os.ReadFile(getRecentsPath())
 	if err != nil || len(data) == 0 {
 		return nil
 	}
 
 	parts := strings.Split(strings.TrimSpace(string(data)), ",")
-	var results []emoji.Entry
-	for _, em := range parts {
-		if em == "" {
-			continue
-		}
-		name := emoji.FindName(em)
-		results = append(results, emoji.Entry{Emoji: em, Name: name, Category: "recent"})
-	}
-	return results
+	return emoji.FromCharacters(parts)
 }
 
 func saveEmojiRecent(em string) {

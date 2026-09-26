@@ -9,6 +9,7 @@ import (
 	"fyne.io/fyne/v2/test"
 
 	"fyshos.com/tyde"
+	emojidata "fyshos.com/tyde/internal/emoji"
 	wmTest "fyshos.com/tyde/test"
 
 	"github.com/stretchr/testify/assert"
@@ -115,7 +116,7 @@ func TestPicker_RecentsDeduplicate(t *testing.T) {
 func TestPicker_RecentsCapped(t *testing.T) {
 	p := newTestPicker(t)
 
-	for _, e := range All()[:maxRecent+10] {
+	for _, e := range emojidata.All()[:maxRecent+10] {
 		p.remember(e)
 	}
 	assert.Len(t, p.recent(), maxRecent)
@@ -219,14 +220,14 @@ func TestPicker_HoverNamesEmoji(t *testing.T) {
 
 // findEmoji looks up one emoji by character, failing the test if the table ever
 // drops it.
-func findEmoji(t *testing.T, char string) Emoji {
+func findEmoji(t *testing.T, char string) emojidata.Emoji {
 	t.Helper()
 
-	for _, e := range All() {
+	for _, e := range emojidata.All() {
 		if e.Character == char {
 			return e
 		}
 	}
 	t.Fatalf("emoji %q missing from the table", char)
-	return Emoji{}
+	return emojidata.Emoji{}
 }

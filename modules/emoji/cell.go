@@ -9,6 +9,8 @@ import (
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+
+	emojidata "fyshos.com/tyde/internal/emoji"
 )
 
 // cellSize is the width and height of one emoji in the grid, and glyphSize the
@@ -45,7 +47,7 @@ func newEmojiCell() *emojiCell {
 
 // SetEmoji points the cell at a different emoji - called as the grid recycles
 // cells while scrolling, so it must reset every piece of per-item state.
-func (c *emojiCell) SetEmoji(e Emoji, onTap func(), onHover func(bool)) {
+func (c *emojiCell) SetEmoji(e emojidata.Emoji, onTap func(), onHover func(bool)) {
 	c.onTap = onTap
 	c.onHover = onHover
 	c.text.Text = e.Character

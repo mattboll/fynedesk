@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/tyde"
+	emojidata "fyshos.com/tyde/internal/emoji"
 	wmTheme "fyshos.com/tyde/theme"
 )
 
@@ -27,22 +28,6 @@ const (
 // recentPage is the label of the pseudo-group holding recently used emoji.
 const recentPage = "Recent"
 
-// pageIcons gives each group a recognisable glyph for its selector button,
-// chosen by hand: the first emoji of a group in code point order is often an
-// obscure one, and the button row is the picker's main navigation.
-var pageIcons = map[string]string{
-	recentPage:          "🕘",
-	"Smileys & Emotion": "😀",
-	"People & Body":     "👋",
-	"Animals & Nature":  "🐻",
-	"Food & Drink":      "🍔",
-	"Travel & Places":   "✈️",
-	"Activities":        "⚽",
-	"Objects":           "💡",
-	"Symbols":           "❤️",
-	"Flags":             "🏁",
-}
-
 // picker is the emoji grid overlay. One instance is reused for the life of the
 // module: it is built on first show and then hidden and re-shown, so the recents
 // and the selected page survive between uses.
@@ -53,8 +38,8 @@ type picker struct {
 	pages   *fyne.Container
 	status  *widget.Label
 
-	items []Emoji // what the grid is currently showing
-	page  string  // selected group, or recentPage
+	items []emojidata.Emoji // what the grid is currently showing
+	page  string            // selected group, or recentPage
 	shown bool
 }
 
@@ -172,9 +157,9 @@ func (p *picker) rebuildPageButtons() {
 	p.pages.RemoveAll()
 	for _, name := range p.pageNames() {
 		page := name
-		icon := pageIcons[page]
-		if icon == "" {
-			icon = page
+		icon := emojidata.GroupIcon(page)
+		if page == recentPage {
+			icon = emojidata.RecentIcon
 		}
 		btn := &widget.Button{
 			Text: icon, Importance: widget.LowImportance,
@@ -194,7 +179,7 @@ func (p *picker) pageNames() []string {
 	if len(p.recent()) > 0 {
 		names = append(names, recentPage)
 	}
-	for _, g := range Groups() {
+	for _, g := range emojidata.Groups() {
 		names = append(names, g.Name)
 	}
 	return names
@@ -211,7 +196,7 @@ func (p *picker) defaultPage() string {
 
 // firstGroup is the page shown when there is nothing better to show.
 func firstGroup() string {
-	if gs := Groups(); len(gs) > 0 {
+	if gs := emojidata.Groups(); len(gs) > 0 {
 		return gs[0].Name
 	}
 	return ""
@@ -229,7 +214,7 @@ func (p *picker) showPage(name string) {
 		p.setItems(p.recent())
 		return
 	}
-	for _, g := range Groups() {
+	for _, g := range emojidata.Groups() {
 		if g.Name == name {
 			p.setItems(g.Items)
 			return
@@ -245,11 +230,11 @@ func (p *picker) search(query string) {
 		p.showPage(p.page)
 		return
 	}
-	p.setItems(Search(query))
+	p.setItems(emojidata.Search(query))
 }
 
 // setItems replaces the grid contents.
-func (p *picker) setItems(items []Emoji) {
+func (p *picker) setItems(items []emojidata.Emoji) {
 	p.items = items
 	if p.grid == nil {
 		return
@@ -260,7 +245,7 @@ func (p *picker) setItems(items []Emoji) {
 
 // hover names the emoji under the pointer, which is how anyone learns what the
 // less obvious ones are called - and what to type next time.
-func (p *picker) hover(e Emoji, in bool) {
+func (p *picker) hover(e emojidata.Emoji, in bool) {
 	if !in {
 		p.setStatus("")
 		return
@@ -278,7 +263,7 @@ func (p *picker) setStatus(text string) {
 // pick delivers the emoji by copying it to the clipboard, then closes the
 // picker: with nothing typed for you, the next thing you want is your own
 // window back so you can paste.
-func (p *picker) pick(e Emoji) {
+func (p *picker) pick(e emojidata.Emoji) {
 	fyne.CurrentApp().Clipboard().SetContent(e.Character)
 	p.remember(e)
 	p.hide()
@@ -286,20 +271,15 @@ func (p *picker) pick(e Emoji) {
 
 // recent reads the stored recents back into emoji, newest first. Characters that
 // no longer resolve (a dataset update, a hand-edited preference) are skipped.
-func (p *picker) recent() []Emoji {
+func (p *picker) recent() []emojidata.Emoji {
 	stored := fyne.CurrentApp().Preferences().String(prefRecent)
 	if stored == "" {
 		return nil
 	}
 
-	byChar := map[string]Emoji{}
-	for _, e := range All() {
-		byChar[e.Character] = e
-	}
-
-	var out []Emoji
+	var out []emojidata.Emoji
 	for _, char := range strings.Split(stored, recentSep) {
-		if e, ok := byChar[char]; ok {
+		if e, ok := emojidata.Find(char); ok {
 			out = append(out, e)
 		}
 	}
@@ -307,7 +287,7 @@ func (p *picker) recent() []Emoji {
 }
 
 // remember moves an emoji to the front of the recents, trimming the tail.
-func (p *picker) remember(e Emoji) {
+func (p *picker) remember(e emojidata.Emoji) {
 	chars := []string{e.Character}
 	for _, old := range p.recent() {
 		if old.Character == e.Character {

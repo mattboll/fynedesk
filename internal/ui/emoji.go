@@ -17,8 +17,8 @@ import (
 
 var emojiPicker *emojiPickerWindow
 
-// emojiCategories references the shared emoji categories.
-var emojiCategories = emoji.Categories
+// emojiPages are the pages of the picker: the recents, then the groups.
+var emojiPages = emoji.Pages()
 
 type emojiPickerWindow struct {
 	win       fyne.Window
@@ -26,7 +26,7 @@ type emojiPickerWindow struct {
 	grid      *widget.GridWrap
 	catBtns   []*widget.Button
 	activeCat int
-	current   []emoji.Entry
+	current   []emoji.Emoji
 }
 
 type emojiEntry_ struct {
@@ -63,14 +63,14 @@ func (p *emojiPickerWindow) selectEmoji(emoji string) {
 	p.close()
 }
 
-func (p *emojiPickerWindow) setEmojis(emojis []emoji.Entry) {
+func (p *emojiPickerWindow) setEmojis(emojis []emoji.Emoji) {
 	p.current = emojis
 	p.grid.Refresh()
 	p.grid.ScrollToOffset(0)
 }
 
 func (p *emojiPickerWindow) selectCategory(idx int) {
-	if idx < 0 || idx >= len(emojiCategories) {
+	if idx < 0 || idx >= len(emojiPages) {
 		return
 	}
 	// Update button emphasis
@@ -82,12 +82,12 @@ func (p *emojiPickerWindow) selectCategory(idx int) {
 	p.catBtns[idx].Importance = widget.HighImportance
 	p.catBtns[idx].Refresh()
 
-	name := emojiCategories[idx].Name
-	if name == "recent" {
+	name := emojiPages[idx].Name
+	if name == emoji.RecentPage {
 		p.setEmojis(getRecentEmojis())
 		return
 	}
-	p.setEmojis(emoji.ForCategory(name))
+	p.setEmojis(emoji.GroupItems(name))
 }
 
 // ShowEmojiPicker opens the emoji picker near the given cursor position.
@@ -130,7 +130,7 @@ func ShowEmojiPicker(cursorX, cursorY float32) {
 	p.current = getRecentEmojis()
 	startCat := 0 // "recent"
 	if len(p.current) == 0 {
-		p.current = emoji.ForCategory("smileys")
+		p.current = emoji.GroupItems(emojiPages[1].Name)
 		startCat = 1 // "smileys"
 	}
 
@@ -148,9 +148,9 @@ func ShowEmojiPicker(cursorX, cursorY float32) {
 			btn := obj.(*widget.Button)
 			if id < len(p.current) {
 				emoji := p.current[id]
-				btn.SetText(emoji.Emoji)
+				btn.SetText(emoji.Character)
 				btn.OnTapped = func() {
-					p.selectEmoji(emoji.Emoji)
+					p.selectEmoji(emoji.Character)
 				}
 			}
 		},
@@ -158,7 +158,7 @@ func ShowEmojiPicker(cursorX, cursorY float32) {
 
 	// Category buttons — simple horizontal row (no AppTabs content area overhead)
 	var catButtons []fyne.CanvasObject
-	for i, cat := range emojiCategories {
+	for i, cat := range emojiPages {
 		idx := i
 		btn := widget.NewButton(cat.Icon, func() {
 			entry.SetText("")
@@ -202,7 +202,7 @@ func ShowEmojiPicker(cursorX, cursorY float32) {
 }
 
 // getRecentEmojis returns the recently used emojis from preferences.
-func getRecentEmojis() []emoji.Entry {
+func getRecentEmojis() []emoji.Emoji {
 	prefs := fyne.CurrentApp().Preferences()
 	data := prefs.String("emoji_recents")
 	if data == "" {
@@ -210,15 +210,7 @@ func getRecentEmojis() []emoji.Entry {
 	}
 
 	parts := strings.Split(data, ",")
-	var results []emoji.Entry
-	for _, em := range parts {
-		if em == "" {
-			continue
-		}
-		name := emoji.FindName(em)
-		results = append(results, emoji.Entry{Emoji: em, Name: name, Category: "recent"})
-	}
-	return results
+	return emoji.FromCharacters(parts)
 }
 
 // saveEmojiRecent adds an emoji to the front of the recents list.

@@ -18,6 +18,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/tyde"
+	emojidata "fyshos.com/tyde/internal/emoji"
 )
 
 // ModuleName is the registered name of the emoji picker module.
@@ -107,7 +108,7 @@ func (m *module) LaunchSuggestions(input string) []tyde.LaunchSuggestion {
 func (m *module) searchSuggestions(query string) []tyde.LaunchSuggestion {
 	const maxSuggestions = 5
 
-	results := Search(query)
+	results := emojidata.Search(query)
 	if len(results) == 0 {
 		return []tyde.LaunchSuggestion{&openItem{m: m}}
 	}
@@ -143,7 +144,7 @@ func (i *openItem) Launch() { i.m.picker.show() }
 // from the launcher.
 type emojiItem struct {
 	m     *module
-	emoji Emoji
+	emoji emojidata.Emoji
 }
 
 func (i *emojiItem) Icon() fyne.Resource { return Icon }
