@@ -79,6 +79,7 @@ var qaSocketHandlers = map[string]socketHandler{
 	"simulate-move":   (*server).socketSimulateMove,
 	"simulate-swipe":  (*server).socketSimulateSwipe,
 	"simulate-button": (*server).socketSimulateButton,
+	"simulate-action": (*server).socketSimulateAction,
 }
 
 // qaEnabled reports whether the test requests are accepted.
@@ -418,6 +419,16 @@ func (s *server) socketDumpScene(msg *wlipc.Message) (json.RawMessage, error) {
 		s.debugViewAt(100, 100)
 		s.debugViewAt(500, 300)
 	})
+}
+
+// socketSimulateAction runs an action as its key would: unlike
+// compositor-action, the window switcher it opens stays open.
+func (s *server) socketSimulateAction(msg *wlipc.Message) (json.RawMessage, error) {
+	var req wlipc.CompositorActionRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid simulate-action: %w", err)
+	}
+	return nil, s.enqueueAction(func() { s.dispatchAction(req.Action) })
 }
 
 // socketSimulateClick queues a simulated pointer click.
