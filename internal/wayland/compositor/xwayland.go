@@ -264,23 +264,6 @@ func (s *server) detachXwaySurface(v *xwayView) {
 	}
 }
 
-// stripXwayDecorations removes the decorations and shadows of an XWayland view.
-func (s *server) stripXwayDecorations(v *xwayView) {
-	s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
-	v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
-	v.decoTitlebar = nil
-	releasePixelBuffer(&v.decoTitlePix)
-	s.removeShadow(v)
-}
-
-// stripXwayDecorationsAndOffset removes the decorations and shadows of an
-// XWayland view and moves its surface back to the top-left corner.
-func (s *server) stripXwayDecorationsAndOffset(v *xwayView) {
-	s.stripXwayDecorations(v)
-	if v.surfaceTree != nil {
-		C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, 0)
-	}
-}
 
 // handleXwayMap places, decorates and focuses an XWayland view when its
 // wl_surface is mapped.
@@ -359,7 +342,7 @@ func (s *server) classifyXwayOnMap(v *xwayView, surface wlr.XwaylandSurface, vie
 			title, v.mapped, v.sceneTree != nil)
 		// Remove any leftover decorations (shadows, titlebar, borders)
 		// created before the window was identified as the panel.
-		s.stripXwayDecorationsAndOffset(v)
+		s.tearDownXwayDecorations(v)
 		// Reparent to panelTree
 		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.panelTree))
 		// Panel uses ARGB8888 DMA-BUF with empty opaque_region,
@@ -373,7 +356,7 @@ func (s *server) classifyXwayOnMap(v *xwayView, surface wlr.XwaylandSurface, vie
 		v.isPanel = true
 		v.decorated = false
 		v.wantsSSD = false
-		s.stripXwayDecorationsAndOffset(v)
+		s.tearDownXwayDecorations(v)
 		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.panelTree))
 		if s.secondaryPanels == nil {
 			s.secondaryPanels = make(map[string]*xwayView)
@@ -558,7 +541,7 @@ func (s *server) handleXwaySetTitle(v *xwayView, surface wlr.XwaylandSurface, vi
 		s.panelXway = v
 		log.Printf("[PANEL] Panel detected on title: title=%q mapped=%v\n", title, v.mapped)
 		// Remove any leftover decorations
-		s.stripXwayDecorationsAndOffset(v)
+		s.tearDownXwayDecorations(v)
 		// Reparent to panelTree if not already
 		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.panelTree))
 		// Position panel on primary output (both XWayland configure + scene node)
@@ -568,7 +551,7 @@ func (s *server) handleXwaySetTitle(v *xwayView, surface wlr.XwaylandSurface, vi
 		outputName := strings.TrimPrefix(title, "Tyde:Bar:")
 		v.isPanel = true
 		v.decorated = false
-		s.stripXwayDecorationsAndOffset(v)
+		s.tearDownXwayDecorations(v)
 		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.panelTree))
 		if s.secondaryPanels == nil {
 			s.secondaryPanels = make(map[string]*xwayView)
@@ -582,7 +565,7 @@ func (s *server) handleXwaySetTitle(v *xwayView, surface wlr.XwaylandSurface, vi
 		v.decorated = false
 		v.isOverlay = true
 		// Remove any leftover decorations
-		s.stripXwayDecorationsAndOffset(v)
+		s.tearDownXwayDecorations(v)
 		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.overlayTree))
 		// Enable now — the node may have been kept hidden at map time
 		// (pending overlay position). positionOverlay will set the correct pos.
@@ -605,7 +588,7 @@ func (s *server) handleXwaySetTitle(v *xwayView, surface wlr.XwaylandSurface, vi
 		s.closeOverlay()
 		v.decorated = false
 		// Remove any leftover decorations
-		s.stripXwayDecorationsAndOffset(v)
+		s.tearDownXwayDecorations(v)
 		v.isOverlay = true
 		s.overlayXway = v
 		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.overlayTree))

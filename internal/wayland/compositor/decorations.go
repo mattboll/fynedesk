@@ -433,6 +433,16 @@ func (s *server) tearDownXdgDecorations(v *xdgView) {
 // tearDownXwayDecorations destroys all SSD decoration nodes for an XWayland view,
 // nulls the pointers, removes shadows, and resets the surface offset to (0,0).
 func (s *server) tearDownXwayDecorations(v *xwayView) {
+	s.stripXwayDecorations(v)
+	if v.surfaceTree != nil {
+		C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, 0)
+	}
+}
+
+// stripXwayDecorations destroys the decoration nodes (title bar, borders,
+// corners, icon) and the shadow of an XWayland view, leaving the surface
+// where it is. Idempotent.
+func (s *server) stripXwayDecorations(v *xwayView) {
 	s.removeDecoNodes(v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR, v.decoTitlebar)
 	v.decoBorderT, v.decoBorderB, v.decoBorderL, v.decoBorderR = nil, nil, nil, nil
 	v.decoTitlebar = nil
@@ -444,9 +454,6 @@ func (s *server) tearDownXwayDecorations(v *xwayView) {
 		releasePixelBuffer(&v.decoIconPix)
 	}
 	s.removeShadow(v)
-	if v.surfaceTree != nil {
-		C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, 0)
-	}
 }
 
 // reconcileXdgDecorations brings an XDG view's decoration scene nodes in sync

@@ -561,6 +561,7 @@ type xdgView struct {
 	savedWidth, savedHeight  int
 	configuredW, configuredH int      // Pending configured size (for decorations before client commits)
 	focusSeq                 uint64   // Global focus ordering
+	everMapped               bool     // mapped before: a new map is the window shown again
 	opacity                  float32  // Per-window opacity [0.1, 1.0]
 	anim                     viewAnim // Position animation state
 	hideDecorations          bool     // Suppress decorations during open-anim fade-in

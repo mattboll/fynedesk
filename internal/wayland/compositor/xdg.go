@@ -180,6 +180,10 @@ func (s *server) handleXdgMap(v *xdgView, viewTree *C.struct_wlr_scene_tree, top
 	}
 	v.mapped = true
 	s.captureShowXdg(v)
+	// Mapped again (shown from the tray): it keeps its place and rules, and
+	// its old decorations go before new ones are made.
+	remap := v.everMapped
+	v.everMapped = true
 
 	// Assign to current desktop by default
 	v.desk = s.currentDesk
@@ -206,35 +210,37 @@ func (s *server) handleXdgMap(v *xdgView, viewTree *C.struct_wlr_scene_tree, top
 		v.desk = v.parent.desk
 	}
 
-	// Apply per-app window rules before positioning
 	appID := getXdgToplevelAppID(toplevel)
-	rule := s.matchWindowRule(appID)
-	if rule != nil {
-		s.applyWindowRuleXdg(v, rule)
-	}
-
-	// Restore session window state (position, desktop, maximize)
-	if sw := s.matchSessionWindow(appID); sw != nil {
-		s.applySessionWindowXdg(v, sw)
-	}
-
 	surfState := Surface.Current()
-	log.Printf("[DECO] XDG map: app_id=%q title=%q size=%dx%d decorated=%v parent=%v\n",
-		appID, toplevel.Title(), surfState.Width(), surfState.Height(), v.decorated, v.parent != nil)
+	log.Printf("[DECO] XDG map: app_id=%q title=%q size=%dx%d decorated=%v parent=%v remap=%v\n",
+		appID, toplevel.Title(), surfState.Width(), surfState.Height(), v.decorated, v.parent != nil, remap)
 
-	s.positionNewXdgWindow(v, surfState.Width(), surfState.Height())
+	if !remap {
+		// Apply per-app window rules before positioning
+		rule := s.matchWindowRule(appID)
+		if rule != nil {
+			s.applyWindowRuleXdg(v, rule)
+		}
 
-	// Apply maximize geometry if set by window rule (rule only sets flag, not geometry)
-	if v.maximized {
-		s.configureXdgMaximized(v)
-	}
-	if v.parent == nil {
-		s.placeNewWindow(placeable{xdg: v}, rule != nil) // where it was with these screens
+		// Restore session window state (position, desktop, maximize)
+		if sw := s.matchSessionWindow(appID); sw != nil {
+			s.applySessionWindowXdg(v, sw)
+		}
+
+		s.positionNewXdgWindow(v, surfState.Width(), surfState.Height())
+
+		// Apply maximize geometry if set by window rule (rule only sets flag, not geometry)
+		if v.maximized {
+			s.configureXdgMaximized(v)
+		}
+		if v.parent == nil {
+			s.placeNewWindow(placeable{xdg: v}, rule != nil) // where it was with these screens
+		}
 	}
 
 	// Determine if open animation will run
 	onCurrentDesk := v.pinned || v.desk == s.currentDesk
-	willAnimate := onCurrentDesk && !s.reduceMotion && v.parent == nil && !v.fullscreen
+	willAnimate := onCurrentDesk && !s.reduceMotion && v.parent == nil && !v.fullscreen && !remap
 
 	// Enable scene node only if on current desktop AND no animation
 	// (animation keeps it hidden until it finishes)
@@ -243,6 +249,7 @@ func (s *server) handleXdgMap(v *xdgView, viewTree *C.struct_wlr_scene_tree, top
 	}
 	// If decorated, offset the surface down by titlebarHeight
 	if v.decorated {
+		s.tearDownXdgDecorations(v) // those of an earlier map
 		surfT := (*C.struct_wlr_scene_tree)(v.surfaceTree)
 		C.scene_node_set_position(&surfT.node, 0, C.int(titlebarHeight))
 		// Create decoration nodes
