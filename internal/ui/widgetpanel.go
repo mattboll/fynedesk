@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"os"
 	"os/user"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -171,8 +172,11 @@ func (w *widgetPanel) formattedDate() string {
 func (w *widgetPanel) createClock() {
 	var style fyne.TextStyle
 	style.Monospace = true
-	startedOffset = getOffset()
-	currentOffset.Store(int64(startedOffset))
+	// What Go's local time uses (fixed at start); getOffset reads the zone
+	// of now.
+	_, secs := time.Now().Zone()
+	startedOffset = secs / 60
+	currentOffset.Store(int64(getOffset()))
 
 	fg := theme.Color(theme.ColorNameForeground)
 	w.clock = &canvas.Text{
@@ -481,7 +485,33 @@ func refreshOffset() {
 	currentOffset.Store(int64(getOffset()))
 }
 
+// getOffset returns the offset from UTC of the system's time zone now, in
+// minutes. Go reads the zone once at start (time.Local), so the zone is read
+// again: TZ, else /etc/localtime.
 func getOffset() int {
-	_, secs := time.Now().Zone()
+	now := time.Now()
+	if loc := systemLocation(); loc != nil {
+		now = now.In(loc)
+	}
+	_, secs := now.Zone()
 	return secs / 60
+}
+
+// systemLocation reads the system's time zone as it is now, or nil.
+func systemLocation() *time.Location {
+	if tz, ok := os.LookupEnv("TZ"); ok {
+		if loc, err := time.LoadLocation(strings.TrimPrefix(tz, ":")); err == nil {
+			return loc
+		}
+		return nil
+	}
+	data, err := os.ReadFile("/etc/localtime")
+	if err != nil {
+		return nil
+	}
+	loc, err := time.LoadLocationFromTZData("Local", data)
+	if err != nil {
+		return nil
+	}
+	return loc
 }
