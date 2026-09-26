@@ -49,43 +49,17 @@ func (d *settingsUI) loadAdvancedScreen() fyne.CanvasObject {
 	windowsCard := widget.NewCard(locale.T("advanced.windows"), "",
 		container.NewVBox(innerGapLabel, innerGapSlider, outerGapLabel, outerGapSlider, wobbly, blur, shadows))
 
-	// Power profile (only if powerprofilesctl is available)
-	var powerCard fyne.CanvasObject
-	if profileOut, profileErr := wm.ExecOutput("powerprofilesctl", "get"); profileErr == nil {
-		powerSelect := &widget.Select{Options: []string{
-			locale.T("advanced.performance"),
-			locale.T("advanced.balanced"),
-			locale.T("advanced.powerSaver"),
-		}}
-		cur := strings.TrimSpace(string(profileOut))
-		switch cur {
-		case "performance":
-			powerSelect.SetSelected(locale.T("advanced.performance"))
-		case "power-saver":
-			powerSelect.SetSelected(locale.T("advanced.powerSaver"))
-		default:
-			powerSelect.SetSelected(locale.T("advanced.balanced"))
+	// Power profile (only if powerprofilesctl is available): asked off the
+	// Fyne thread, the card comes when it answers.
+	items := container.NewVBox(inputCard, windowsCard)
+	go func() {
+		profileOut, profileErr := wm.ExecOutput("powerprofilesctl", "get")
+		if profileErr != nil {
+			return
 		}
-		powerSelect.OnChanged = func(selected string) {
-			var profile string
-			switch selected {
-			case locale.T("advanced.performance"):
-				profile = "performance"
-			case locale.T("advanced.powerSaver"):
-				profile = "power-saver"
-			default:
-				profile = "balanced"
-			}
-			go wm.ExecRun("powerprofilesctl", "set", profile) //nolint:errcheck
-		}
-		powerCard = widget.NewCard(locale.T("advanced.power"), "", powerSelect)
-	}
-
-	items := []fyne.CanvasObject{inputCard, windowsCard}
-	if powerCard != nil {
-		items = append(items, powerCard)
-	}
-	content := container.NewVScroll(container.NewVBox(items...))
+		fyne.Do(func() { items.Add(powerProfileCard(strings.TrimSpace(string(profileOut)))) })
+	}()
+	content := container.NewVScroll(items)
 
 	applyButton := container.NewHBox(layout.NewSpacer(),
 		&widget.Button{Text: locale.T("settings.apply"), Importance: widget.HighImportance, OnTapped: func() {
@@ -98,4 +72,35 @@ func (d *settingsUI) loadAdvancedScreen() fyne.CanvasObject {
 		}})
 
 	return container.NewBorder(nil, applyButton, nil, nil, content)
+}
+
+// powerProfileCard lets the user pick the power profile, cur being the
+// current one.
+func powerProfileCard(cur string) fyne.CanvasObject {
+	powerSelect := &widget.Select{Options: []string{
+		locale.T("advanced.performance"),
+		locale.T("advanced.balanced"),
+		locale.T("advanced.powerSaver"),
+	}}
+	switch cur {
+	case "performance":
+		powerSelect.SetSelected(locale.T("advanced.performance"))
+	case "power-saver":
+		powerSelect.SetSelected(locale.T("advanced.powerSaver"))
+	default:
+		powerSelect.SetSelected(locale.T("advanced.balanced"))
+	}
+	powerSelect.OnChanged = func(selected string) {
+		var profile string
+		switch selected {
+		case locale.T("advanced.performance"):
+			profile = "performance"
+		case locale.T("advanced.powerSaver"):
+			profile = "power-saver"
+		default:
+			profile = "balanced"
+		}
+		go wm.ExecRun("powerprofilesctl", "set", profile) //nolint:errcheck
+	}
+	return widget.NewCard(locale.T("advanced.power"), "", powerSelect)
 }

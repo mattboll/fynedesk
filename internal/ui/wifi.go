@@ -79,10 +79,12 @@ func newWifiPanel(win fyne.Window) (*wifiPickerWindow, fyne.CanvasObject) {
 		win:    win,
 		status: widget.NewLabel(""),
 	}
-	// Scan networks
-	go rescanWifi()
-	networks, _ := scanWifiNetworks()
-	p.networks = networks
+	// The networks are listed off the Fyne thread (nmcli takes its time):
+	// the panel shows at once and fills in.
+	go func() {
+		rescanWifi()
+		p.refreshNetworks()
+	}()
 
 	// Header
 	refreshBtn := widget.NewButtonWithIcon("", theme.ViewRefreshIcon(), func() {
@@ -101,18 +103,9 @@ func newWifiPanel(win fyne.Window) (*wifiPickerWindow, fyne.CanvasObject) {
 
 	// Content
 	p.netList = container.NewVBox()
-	p.buildNetworkRows()
-
-	var content fyne.CanvasObject
-	if !isWifiEnabled() {
-		content = p.buildDisabledView()
-	} else if len(p.networks) == 0 {
-		content = p.buildEmptyView()
-	} else {
-		content = container.NewScroll(p.netList)
-	}
-
-	p.body = container.NewStack(content)
+	scanning := widget.NewLabel("Scanning...")
+	scanning.Alignment = fyne.TextAlignCenter
+	p.body = container.NewStack(container.NewCenter(scanning))
 	root := container.NewBorder(header, p.status, nil, nil, p.body)
 
 	return p, root
@@ -156,20 +149,20 @@ func (p *wifiPickerWindow) buildNetworkRow(n WifiNetwork) fyne.CanvasObject {
 		} else if !n.IsSecured() {
 			p.setStatus(fmt.Sprintf("Connecting to %s...", n.SSID))
 			go p.doConnect(n.SSID, "", n.Security)
-		} else if hasSavedWifiProfile(n.SSID) {
-			// Reuse the saved password — only fall back to the password
-			// prompt if activation fails (e.g. the saved key is now wrong).
+		} else {
+			// Reuse a saved password — only fall back to the password
+			// prompt if there is none or activation fails (e.g. the saved
+			// key is now wrong). nmcli is asked off the Fyne thread.
 			p.setStatus(fmt.Sprintf("Connecting to %s...", n.SSID))
 			go func() {
-				if err := connectSavedWifi(n.SSID); err != nil {
+				if !hasSavedWifiProfile(n.SSID) || connectSavedWifi(n.SSID) != nil {
+					p.setStatus("")
 					fyne.Do(func() { p.showPasswordForm(n.SSID, n.Security) })
 					return
 				}
 				p.setStatus("Connected!")
 				p.refreshNetworks()
 			}()
-		} else {
-			p.showPasswordForm(n.SSID, n.Security)
 		}
 	})
 	btn.Importance = widget.LowImportance
@@ -188,13 +181,19 @@ func (p *wifiPickerWindow) setStatus(text string) {
 	fyne.Do(func() { p.status.SetText(text) })
 }
 
+// refreshNetworks lists the networks again and shows them. Not on the Fyne
+// thread: it runs nmcli.
 func (p *wifiPickerWindow) refreshNetworks() {
+	enabled := isWifiEnabled()
 	networks, _ := scanWifiNetworks()
 	fyne.Do(func() {
 		p.networks = networks
-		if len(networks) == 0 {
+		switch {
+		case !enabled:
+			p.body.Objects = []fyne.CanvasObject{p.buildDisabledView()}
+		case len(networks) == 0:
 			p.body.Objects = []fyne.CanvasObject{p.buildEmptyView()}
-		} else {
+		default:
 			p.buildNetworkRows()
 			p.body.Objects = []fyne.CanvasObject{container.NewScroll(p.netList)}
 		}
@@ -285,9 +284,9 @@ func (p *wifiPickerWindow) buildDisabledView() fyne.CanvasObject {
 	msg := widget.NewLabel("WiFi is disabled.")
 	msg.Alignment = fyne.TextAlignCenter
 	enableBtn := widget.NewButton("Enable WiFi", func() {
-		toggleWifi(true)
 		p.setStatus("Enabling...")
 		go func() {
+			toggleWifi(true)
 			rescanWifi()
 			p.refreshNetworks()
 			p.setStatus("")

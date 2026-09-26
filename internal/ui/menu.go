@@ -85,8 +85,7 @@ func (w *widgetPanel) askLogoutOverlay() {
 
 	logout := widget.NewButtonWithIcon("Logout", theme.LogoutIcon(), func() {
 		dismiss()
-		time.Sleep(time.Second / 10)
-		w.desk.WindowManager().Close()
+		afterDismiss(func() { w.desk.WindowManager().Close() })
 	})
 	logout.Importance = widget.DangerImportance
 	cancel := widget.NewButton("Cancel", func() {
@@ -205,14 +204,19 @@ func (w *widgetPanel) showAccountMenuOverlay() {
 	combined = w.desk.(*desktop).ShowOverlayWithBackdrop(menuContent, menuSize, menuSize, pos, fyne.Position{})
 }
 
+// afterDismiss runs action on the Fyne thread once the dialog had a moment
+// to go away (it used to sleep on the Fyne thread, which froze the panel).
+func afterDismiss(action func()) {
+	time.AfterFunc(time.Second/10, func() { fyne.Do(action) })
+}
+
 // askPowerWindow asks to log out or change the power state, in a window of its own.
 func (w *widgetPanel) askPowerWindow() {
 	win := fyne.CurrentApp().Driver().(deskDriver.Driver).CreateSplashWindow()
 
 	closeAndDo := func(action func()) {
 		win.Close()
-		time.Sleep(time.Second / 10)
-		action()
+		afterDismiss(action)
 	}
 
 	logout := widget.NewButtonWithIcon(locale.T("menu.logout"), theme.LogoutIcon(), func() {
@@ -228,9 +232,11 @@ func (w *widgetPanel) askPowerWindow() {
 	restart := widget.NewButtonWithIcon(locale.T("menu.restart"), theme.ViewRefreshIcon(), func() {
 		closeAndDo(func() {
 			if wlipc.IsWaylandSession() {
-				if err := exec.Command("systemctl", "reboot").Run(); err != nil {
-					fyne.LogError("systemctl reboot failed", err)
-				}
+				go func() { // it waits for the reboot to be scheduled
+					if err := exec.Command("systemctl", "reboot").Run(); err != nil {
+						fyne.LogError("systemctl reboot failed", err)
+					}
+				}()
 			} else {
 				os.Exit(5)
 			}
