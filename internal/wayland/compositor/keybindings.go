@@ -221,7 +221,7 @@ func (s *server) dispatchLaunchAction(action string) bool {
 		go s.takeScreenshot(false, true)
 
 	case wlipc.ActionToggleDropdown:
-		go s.toggleDropdownTerminal()
+		s.toggleDropdownTerminal() // it moves windows: main thread
 	case wlipc.ActionLockScreen:
 		go s.lockScreen()
 	case wlipc.ActionShowLauncher:

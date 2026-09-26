@@ -589,6 +589,8 @@ func (s *server) restoreVolume() {
 	log.Printf("Volume restored: %.0f%%%s\n", state.Volume*100, map[bool]string{true: " (muted)", false: ""}[state.Muted])
 }
 
+// toggleDropdownTerminal shows, hides or starts the dropdown terminal. Main
+// thread.
 func (s *server) toggleDropdownTerminal() {
 	// Try to find existing dropdown terminal window
 	for _, v := range s.xwayViews {
@@ -655,6 +657,7 @@ func (s *server) toggleDropdownTerminal() {
 		}
 		cmd.Env = safeEnv()
 		if err := cmd.Start(); err == nil {
+			go func() { _ = cmd.Wait() }()
 			log.Printf("Launched dropdown terminal: %s\n", term)
 			return
 		}
