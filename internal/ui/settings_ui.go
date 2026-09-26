@@ -25,6 +25,7 @@ import (
 	"fyshos.com/tyde/modules/updates"
 	wmtheme "fyshos.com/tyde/theme"
 	"fyshos.com/tyde/wlipc"
+	"fyshos.com/tyde/wm"
 	"github.com/godbus/dbus/v5"
 )
 
@@ -318,11 +319,9 @@ func resolvePicturesDir() (fyne.ListableURI, error) {
 
 	const xdg = "xdg-user-dir"
 	if _, err := exec.LookPath(xdg); err == nil {
-		cmd := exec.Command(xdg, "PICTURES")
-
-		out, err := cmd.Output()
-		location := string(out[:len(out)-1]) // Remove \n at the end
-		if err == nil && location != home {
+		out, err := wm.ExecOutput(xdg, "PICTURES")
+		location := strings.TrimSpace(string(out)) // empty output must not panic
+		if err == nil && location != "" && location != home {
 			uri := storage.NewFileURI(location)
 			return storage.ListerForURI(uri)
 		}
