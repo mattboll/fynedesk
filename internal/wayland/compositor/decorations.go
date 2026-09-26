@@ -51,16 +51,9 @@ static void scene_node_place_below(struct wlr_scene_node *node, struct wlr_scene
 import "C"
 
 import (
-	"image"
 	"image/color"
 	"log"
-	"os"
-	"strings"
 	"unsafe"
-
-	"github.com/FyshOS/appie"
-
-	"golang.org/x/image/draw"
 )
 
 // scrimOpacity is the opacity of the modal scrim overlay (0.0-1.0).
@@ -264,6 +257,17 @@ func (s *server) createTitlebarBuffer(parent *C.struct_wlr_scene_tree, width int
 }
 
 // updateTitlebarBuffer updates an existing titlebar scene buffer with new content.
+// titlebarKey is what a title bar is drawn from: when it is the same, the
+// title bar already shows it. decoGen changes with the theme and settings.
+type titlebarKey struct {
+	width  int
+	title  string
+	iconW  int
+	active bool
+	hover  decoZone
+	gen    uint64
+}
+
 func (s *server) updateTitlebarBuffer(sceneBufP, pixBufP unsafe.Pointer, parent *C.struct_wlr_scene_tree, width int, title, appID string, active bool, iconW int, hoverBtn decoZone) (unsafe.Pointer, unsafe.Pointer) {
 	img := s.renderDecoTitlebar(width, title, iconW, active, hoverBtn)
 	if img == nil {
@@ -329,7 +333,11 @@ func (s *server) updateXdgViewDecorations(v *xdgView) {
 	}
 
 	// Update/create titlebar
-	v.decoTitlebar, v.decoTitlePix = s.updateTitlebarBuffer(v.decoTitlebar, v.decoTitlePix, parent, width, v.xdgToplevel.Title(), appID, active, iconW, hoverBtn)
+	key := titlebarKey{width, v.xdgToplevel.Title(), iconW, active, hoverBtn, s.decoGen}
+	if v.decoTitlebar == nil || key != v.decoTitleKey {
+		v.decoTitlebar, v.decoTitlePix = s.updateTitlebarBuffer(v.decoTitlebar, v.decoTitlePix, parent, width, key.title, appID, active, iconW, hoverBtn)
+		v.decoTitleKey = key
+	}
 
 	// Update borders
 	s.updateDecoBorders(v, width, height, active)
@@ -378,7 +386,11 @@ func (s *server) updateXwayViewDecorations(v *xwayView) {
 		hoverBtn = s.hoverButton
 	}
 
-	v.decoTitlebar, v.decoTitlePix = s.updateTitlebarBuffer(v.decoTitlebar, v.decoTitlePix, parent, width, v.surface.Title(), xwayClass, active, iconW, hoverBtn)
+	key := titlebarKey{width, v.surface.Title(), iconW, active, hoverBtn, s.decoGen}
+	if v.decoTitlebar == nil || key != v.decoTitleKey {
+		v.decoTitlebar, v.decoTitlePix = s.updateTitlebarBuffer(v.decoTitlebar, v.decoTitlePix, parent, width, key.title, xwayClass, active, iconW, hoverBtn)
+		v.decoTitleKey = key
+	}
 	s.updateDecoBorders(v, width, height, active)
 	s.updateBottomCorners(&v.decoCornerBL, &v.decoCornerBR, &v.decoCornerPL, &v.decoCornerPR, parent, width, height, active)
 	s.updateDecoIcon(v, xwayClass, active, width)
@@ -545,28 +557,7 @@ func (s *server) updateDecoIcon(v interface{}, appID string, active bool, titleb
 		return
 	}
 
-	// Render icon to NRGBA
-	iconImg := image.NewNRGBA(image.Rect(0, 0, icon.w, icon.h))
-	// Get the icon image from the cache texture — for now use placeholder
-	// The icon is already rendered as a wlr.Texture, but for scene we need pixel data.
-	// We'll use the icon loading directly from appie.
-	iconPath := ""
-	if appID != "" {
-		iconPath = appie.FdoLookupIconPath("", 48, strings.ToLower(appID))
-		if iconPath == "" {
-			iconPath = appie.FdoLookupIconPath("", 48, appID)
-		}
-	}
-	if iconPath != "" {
-		f, err := os.Open(iconPath)
-		if err == nil {
-			img, _, err := image.Decode(f)
-			f.Close()
-			if err == nil {
-				draw.BiLinear.Scale(iconImg, iconImg.Bounds(), img, img.Bounds(), draw.Over, nil)
-			}
-		}
-	}
+	iconImg := icon.pix // decoded and scaled once, by loadAppIcon
 
 	var textX float64
 	if s.buttonsOnLeft {

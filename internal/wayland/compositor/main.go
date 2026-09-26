@@ -1086,12 +1086,6 @@ func (s *server) handleRendererLost() {
 
 	// Textures and GL objects created with the old renderer die with it.
 	s.destroySwitcherThumbnails()
-	for appID, entry := range s.iconCache {
-		if entry != nil && entry.texture.Valid() {
-			entry.texture.Destroy()
-		}
-		delete(s.iconCache, appID)
-	}
 	resetThumbGL()
 	s.dropBlursGL()
 	s.dropWobbleGL()

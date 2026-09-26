@@ -639,6 +639,7 @@ func (s *server) reloadSettings() {
 
 // reloadSettingsFrom applies runtime-changeable settings from the given prefs map.
 func (s *server) reloadSettingsFrom(prefs map[string]interface{}) {
+	s.decoGen++ // the title bars are drawn again with the new settings
 	oldNarrowWidget := s.narrowWidgetPanel
 	oldNarrowLeft := s.narrowLeftLauncher
 	oldButtonsOnLeft := s.buttonsOnLeft
@@ -815,6 +816,7 @@ func (s *server) refreshAllDecorations() {
 // applyThemeColors parses theme color overrides from a pipe-separated string
 // (format: "key1=#rrggbb|key2=#rrggbbaa") and updates decoration colors.
 func (s *server) applyThemeColors(colorsStr string) {
+	s.decoGen++ // new colours: the title bars are drawn again
 	pairs := strings.Split(colorsStr, "|")
 	changed := false
 	for _, pair := range pairs {

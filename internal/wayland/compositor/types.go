@@ -148,6 +148,7 @@ type VRRRequest struct {
 }
 
 type server struct {
+	decoGen       uint64 // changes when the title bars must be drawn again (theme, settings)
 	display       wlr.Display
 	backend       wlr.Backend
 	session       wlr.Session // DRM/libinput session (invalid when nested)
@@ -584,6 +585,7 @@ type xdgView struct {
 	surfaceTree      unsafe.Pointer // *C.struct_wlr_scene_tree — XDG surface + subsurfaces
 	decoTitlebar     unsafe.Pointer // *C.struct_wlr_scene_buffer — titlebar composite
 	decoTitlePix     unsafe.Pointer // *C.struct_pixel_buffer — titlebar pixel data
+	decoTitleKey     titlebarKey    // what the title bar shows
 	decoBorderT      unsafe.Pointer // *C.struct_wlr_scene_rect — top border (above titlebar)
 	decoBorderB      unsafe.Pointer // *C.struct_wlr_scene_rect — bottom border
 	decoBorderL      unsafe.Pointer // *C.struct_wlr_scene_rect — left border
@@ -647,6 +649,7 @@ type xwayView struct {
 	surfaceTree   unsafe.Pointer // *C.struct_wlr_scene_tree — XWayland surface + subsurfaces
 	decoTitlebar  unsafe.Pointer // *C.struct_wlr_scene_buffer — titlebar composite
 	decoTitlePix  unsafe.Pointer // *C.struct_pixel_buffer — titlebar pixel data
+	decoTitleKey  titlebarKey    // what the title bar shows
 	decoBorderT   unsafe.Pointer // *C.struct_wlr_scene_rect — top border (above titlebar)
 	decoBorderB   unsafe.Pointer // *C.struct_wlr_scene_rect — bottom border
 	decoBorderL   unsafe.Pointer // *C.struct_wlr_scene_rect — left border

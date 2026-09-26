@@ -10,8 +10,6 @@ import (
 
 	"github.com/FyshOS/appie"
 
-	"fyshos.com/tyde/internal/wayland/wlr"
-
 	"golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
@@ -19,13 +17,14 @@ import (
 )
 
 type iconEntry struct {
-	texture wlr.Texture
-	w, h    int
+	pix  *image.NRGBA // the icon at iconSize, ready for the title bar
+	w, h int
 }
 
 const iconSize = 18 // pixels for titlebar icon
 
-// loadAppIcon loads an app icon from the FDO icon theme and creates a wlr texture
+// loadAppIcon loads an app icon from the FDO icon theme, scaled for the title
+// bar; the result (or its absence) is cached per app id.
 func (s *server) loadAppIcon(appID string) *iconEntry {
 	if s.iconCache == nil {
 		s.iconCache = make(map[string]*iconEntry)
@@ -33,6 +32,7 @@ func (s *server) loadAppIcon(appID string) *iconEntry {
 	if entry, ok := s.iconCache[appID]; ok {
 		return entry
 	}
+	s.iconCache[appID] = nil // not found, unless found below
 
 	// Look up icon path using FDO standard
 	iconPath := appie.FdoLookupIconPath("", 48, strings.ToLower(appID))
@@ -41,34 +41,22 @@ func (s *server) loadAppIcon(appID string) *iconEntry {
 		iconPath = appie.FdoLookupIconPath("", 48, appID)
 	}
 	if iconPath == "" {
-		s.iconCache[appID] = nil
 		return nil
 	}
-
 	f, err := os.Open(iconPath)
 	if err != nil {
-		s.iconCache[appID] = nil
 		return nil
 	}
 	defer f.Close()
-
 	img, _, err := image.Decode(f)
 	if err != nil {
-		s.iconCache[appID] = nil
 		return nil
 	}
 
-	// Scale to iconSize x iconSize
-	scaled := image.NewRGBA(image.Rect(0, 0, iconSize, iconSize))
+	// Scaled once to iconSize x iconSize, in NRGBA (the pixel buffers' format)
+	scaled := image.NewNRGBA(image.Rect(0, 0, iconSize, iconSize))
 	draw.BiLinear.Scale(scaled, scaled.Bounds(), img, img.Bounds(), draw.Over, nil)
-
-	texture := wlr.TextureFromImage(s.renderer, scaled)
-	if !texture.Valid() {
-		s.iconCache[appID] = nil
-		return nil
-	}
-
-	entry := &iconEntry{texture: texture, w: iconSize, h: iconSize}
+	entry := &iconEntry{pix: scaled, w: iconSize, h: iconSize}
 	s.iconCache[appID] = entry
 	return entry
 }
