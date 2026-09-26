@@ -1,4 +1,4 @@
-package launcher
+package quaketerm
 
 import (
 	_ "embed"
@@ -34,6 +34,7 @@ var resourceTerminal = &fyne.StaticResource{
 	StaticContent: resourceTerminalSvgData,
 }
 
+// term is the dropdown terminal. Its state is used on the Fyne thread only.
 type term struct {
 	shown          bool
 	running        bool
@@ -43,7 +44,16 @@ type term struct {
 	themeListening bool // true once the per-process theme listener is registered
 }
 
+// Destroy puts the terminal away and ends its shell (it outlived the
+// module).
 func (t *term) Destroy() {
+	if t.shown {
+		t.shown = false
+		tyde.Instance().HideOverlay(t.content)
+	}
+	if t.running && t.console != nil {
+		t.console.Exit()
+	}
 }
 
 func (t *term) Metadata() tyde.ModuleMetadata {
@@ -53,7 +63,7 @@ func (t *term) Metadata() tyde.ModuleMetadata {
 func (t *term) Shortcuts() map[*tyde.Shortcut]func() {
 	return map[*tyde.Shortcut]func(){
 		{Name: "Open Terminal Overlay", KeyName: fyne.KeyBackTick, Modifier: tyde.UserModifier}: func() {
-			t.toggle()
+			fyne.Do(t.toggle)
 		},
 	}
 }
@@ -72,73 +82,84 @@ func (t *term) createTerm() {
 	t.content = container.NewStack(img, bg, over, t.console)
 }
 
+// hide slides the terminal up and away. Fyne thread.
 func (t *term) hide() {
-	var y float32
-	end := -float32(height)
-	for y > end {
-		currY := y
-		fyne.Do(func() {
-			t.content.Move(fyne.NewPos(0, currY))
-		})
-		time.Sleep(delay)
-		y -= step
+	if !t.shown {
+		return
 	}
-
 	t.shown = false
-	tyde.Instance().HideOverlay(t.content)
+	content := t.content
+	t.slide(content, 0, -float32(height), func() { tyde.Instance().HideOverlay(content) })
 }
 
+// show slides the terminal down, starting its shell the first time. Fyne
+// thread.
 func (t *term) show() {
+	if t.shown {
+		return
+	}
+	t.shown = true
 	screen := tyde.Instance().Screens().Primary()
-	scale := screen.CanvasScale()
-	w := float32(screen.Width) / scale
-	y := -float32(height)
-	var end float32
-	size := fyne.NewSize(w, height)
+	size := fyne.NewSize(float32(screen.Width)/screen.CanvasScale(), height)
 
-	// Register the overlay at its resting position (0,0).
+	// Register the overlay at its resting position (0,0), drawn above it.
 	tyde.Instance().ShowOverlay(t.content, size, fyne.NewPos(0, 0))
+	t.content.Resize(size)
+	t.content.Move(fyne.NewPos(0, -float32(height)))
 
 	if !t.running {
 		t.running = true
+		console := t.console
 		go func() {
-			err := t.console.RunLocalShell()
-			if err != nil {
+			if err := console.RunLocalShell(); err != nil {
 				fyne.LogError("Failed to open terminal", err)
 			}
-			t.running = false
-			if t.shown {
+			fyne.Do(func() {
+				t.running = false
+				if t.console != console {
+					return
+				}
 				t.hide()
-			}
-			t.createTerm() // reset for next usage
+				t.createTerm() // reset for next usage
+			})
 		}()
 	}
 
-	for y < end {
-		currY := y
-		fyne.Do(func() {
-			t.content.Resize(size)
-			t.content.Move(fyne.NewPos(0, currY))
-		})
-		time.Sleep(delay)
-		y += step
-	}
-	fyne.Do(func() {
-		t.content.Move(fyne.NewPos(0, end))
-		tyde.Instance().Root().Canvas().Focus(t.console)
+	console := t.console
+	t.slide(t.content, -float32(height), 0, func() {
+		tyde.Instance().Root().Canvas().Focus(console)
 	})
-	t.shown = true
 }
 
+// slide moves content from one height to another, a step at a time, then
+// calls done; only the waiting happens off the Fyne thread.
+func (t *term) slide(content fyne.CanvasObject, from, to float32, done func()) {
+	go func() {
+		dir := float32(step)
+		if to < from {
+			dir = -dir
+		}
+		for y := from; (dir > 0 && y < to) || (dir < 0 && y > to); y += dir {
+			pos := fyne.NewPos(0, y)
+			fyne.Do(func() { content.Move(pos) })
+			time.Sleep(delay)
+		}
+		fyne.Do(func() {
+			content.Move(fyne.NewPos(0, to))
+			done()
+		})
+	}()
+}
+
+// toggle shows or hides the terminal. Fyne thread.
 func (t *term) toggle() {
 	if t.content == nil {
 		t.createTerm()
 	}
-
-	if !t.shown {
-		go t.show()
+	if t.shown {
+		t.hide()
 	} else {
-		go t.hide()
+		t.show()
 	}
 }
 

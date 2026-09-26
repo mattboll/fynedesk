@@ -1,5 +1,5 @@
 // Package quaketerm provides a dropdown terminal module accessible via keyboard shortcut.
-package launcher
+package quaketerm
 
 import "fyshos.com/tyde"
 
