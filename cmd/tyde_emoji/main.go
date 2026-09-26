@@ -12,8 +12,10 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
+	"github.com/BurntSushi/toml"
 
 	"fyshos.com/tyde/internal/emoji"
+	"fyshos.com/tyde/locale"
 	"fyshos.com/tyde/wlipc"
 )
 
@@ -94,6 +96,7 @@ func main() {
 	// Ask the compositor to place the window at the cursor
 	_ = wlipc.RequestOverlayPositionAbsolute("EmojiPicker", cursorX, cursorY, 350, 400)
 
+	applyLanguage()
 	a := app.New()
 	// Window title includes "Tyde:EmojiPicker" for compositor detection
 	win := a.NewWindow("Tyde:EmojiPicker")
@@ -108,7 +111,7 @@ func main() {
 	// Search entry
 	entry := &pickerEntry{pick: p}
 	entry.ExtendBaseWidget(entry)
-	entry.SetPlaceHolder("Search emojis...")
+	entry.SetPlaceHolder(locale.T("emoji.search"))
 	entry.OnChanged = func(input string) {
 		if input == "" {
 			p.selectCategory(p.activeCat)
@@ -181,6 +184,18 @@ func main() {
 	})
 
 	win.ShowAndRun()
+}
+
+// applyLanguage uses the language chosen in the Tyde settings.
+func applyLanguage() {
+	var cfg struct {
+		Display struct {
+			Language string `toml:"language"`
+		} `toml:"display"`
+	}
+	if _, err := toml.DecodeFile(filepath.Join(wlipc.ConfigDir(), "config.toml"), &cfg); err == nil && cfg.Display.Language != "" {
+		locale.SetLanguage(cfg.Display.Language)
+	}
 }
 
 // --- Recents, kept in the config directory ---

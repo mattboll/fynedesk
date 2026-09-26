@@ -14,6 +14,7 @@ import (
 	"github.com/FyshOS/fyqr/pkg/qrgen"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 )
 
 var qrAliases = []string{"qr", "qrcode"}
@@ -72,9 +73,9 @@ func (i *qrItem) Icon() fyne.Resource {
 
 func (i *qrItem) Title() string {
 	if i.content == "" {
-		return "QR Code: type a URL or text"
+		return locale.T("launcher.qrEmpty")
 	}
-	return "QR Code: " + i.content
+	return locale.Tf("launcher.qrCode", i.content)
 }
 
 func (i *qrItem) Launch() {

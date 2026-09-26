@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -21,6 +22,8 @@ import (
 
 	"fyne.io/fyne/v2"
 	"github.com/tmc/langchaingo/llms"
+
+	"fyshos.com/tyde/locale"
 )
 
 // server.go lets tyde run a local model server for the user. When Local AI is
@@ -275,11 +278,9 @@ func localError(err error) error {
 	if kronkManaged() {
 		// The most common cause we've seen: kronk segfaults loading a
 		// multimodal (vision) model's projection, taking the server down.
-		return fmt.Errorf("the local AI server isn't responding - it may still be starting, or it crashed "+
-			"loading the model. Vision/multimodal models can crash kronk; try a text-only model. See %s for details",
-			kronkLogPath())
+		return errors.New(locale.Tf("ai.kronkDown", kronkLogPath()))
 	}
-	return fmt.Errorf("couldn't reach the local AI server - is it running at the Base URL in AI settings? (%w)", err)
+	return fmt.Errorf(locale.T("ai.unreachable"), err)
 }
 
 // probeResult is the outcome of a settings "Test connection" check.
@@ -332,7 +333,7 @@ func probeEndpoint(ctx context.Context, endpoint string) probeResult {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return probeResult{err: fmt.Errorf("server responded %s", resp.Status)}
+		return probeResult{err: errors.New(locale.Tf("ai.serverResponded", resp.Status))}
 	}
 
 	var body struct {
@@ -341,7 +342,7 @@ func probeEndpoint(ctx context.Context, endpoint string) probeResult {
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return probeResult{err: fmt.Errorf("unexpected response from server: %w", err)}
+		return probeResult{err: fmt.Errorf(locale.T("ai.unexpectedResponse"), err)}
 	}
 
 	models := make([]string, 0, len(body.Data))

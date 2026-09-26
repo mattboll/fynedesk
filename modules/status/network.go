@@ -17,6 +17,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 	wmtheme "fyshos.com/tyde/theme"
 	"fyshos.com/tyde/wm"
 	"github.com/FyshOS/networks/pkg/netman"
@@ -271,11 +272,15 @@ func (n *network) tick() {
 func (n *network) refreshContent() {
 	val := n.networkName()
 	blocked, _ := n.isBlocked()
+	shown := val
+	if val == networkNameEthernet {
+		shown = locale.T("network.ethernet")
+	}
 
 	fyne.Do(func() {
-		if val != n.name.Text || blocked != n.wasBlocked {
+		if shown != n.name.Text || blocked != n.wasBlocked {
 			n.wasBlocked = blocked
-			n.name.SetText(val)
+			n.name.SetText(shown)
 
 			if blocked {
 				n.icon.SetIcon(wmtheme.AirplaneIcon)
@@ -393,7 +398,7 @@ func (n *network) showMenu() {
 			items = append(items, fyne.NewMenuItemSeparator())
 		}
 
-		air := fyne.NewMenuItem("Airplane Mode", n.toggleFlightMode)
+		air := fyne.NewMenuItem(locale.T("network.airplaneMode"), n.toggleFlightMode)
 		air.Checked = blocked
 		items = append(items, air)
 
@@ -424,8 +429,8 @@ func (n *network) networks() *netman.Networks {
 	handlePass := func(name string) string {
 		result := make(chan string, 1)
 		entry := widget.NewPasswordEntry()
-		d := dialog.NewForm("Connect to "+name, "Connect", "Cancel",
-			[]*widget.FormItem{widget.NewFormItem("Password", entry)},
+		d := dialog.NewForm(locale.Tf("wifi.connectTo", name), locale.T("wifi.connect"), locale.T("wifi.cancel"),
+			[]*widget.FormItem{widget.NewFormItem(locale.T("wifi.password"), entry)},
 			func(ok bool) {
 				if ok {
 					result <- entry.Text

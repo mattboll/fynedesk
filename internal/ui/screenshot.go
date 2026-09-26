@@ -14,6 +14,7 @@ import (
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
 
+	"fyshos.com/tyde/locale"
 	"fyshos.com/tyde/wlipc"
 )
 
@@ -83,10 +84,10 @@ func (l *desktop) screenshotWindow() {
 }
 
 func (l *desktop) showCaptureSave(img image.Image) {
-	w := fyne.CurrentApp().NewWindow("Screenshot")
+	w := fyne.CurrentApp().NewWindow(locale.T("screenshot.title"))
 
 	save := &widget.Button{
-		Text:       "Save...",
+		Text:       locale.T("screenshot.save"),
 		Importance: widget.HighImportance,
 		OnTapped: func() {
 			saveImage(img, w)
@@ -95,7 +96,7 @@ func (l *desktop) showCaptureSave(img image.Image) {
 
 	buttons := container.NewHBox(
 		layout.NewSpacer(),
-		widget.NewButton("Cancel", w.Close),
+		widget.NewButton(locale.T("screenshot.cancel"), w.Close),
 		save,
 	)
 

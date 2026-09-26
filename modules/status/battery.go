@@ -14,6 +14,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 	wmtheme "fyshos.com/tyde/theme"
 	"fyshos.com/tyde/wm"
 	"github.com/FyshOS/dryvers"
@@ -137,8 +138,8 @@ func (b *battery) setValue(val float64) {
 // triggerHibernate warns the user and puts the system into hibernate/suspend.
 func (b *battery) triggerHibernate(val float64) {
 	pct := strconv.Itoa(int(val * 100))
-	n := wm.NewNotification("Critical Battery",
-		"Battery at "+pct+"% — hibernating now to prevent data loss.")
+	n := wm.NewNotification(locale.T("status.critBattery"),
+		locale.Tf("status.critBatteryBody", pct))
 	wm.SendNotification(n)
 
 	// Wait a moment for the notification to display

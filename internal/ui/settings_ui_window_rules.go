@@ -7,6 +7,8 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
+
+	"fyshos.com/tyde/locale"
 	"fyshos.com/tyde/wlipc"
 )
 
@@ -23,7 +25,7 @@ func (ui *settingsUI) loadWindowRulesScreen() fyne.CanvasObject {
 		r := &rules[idx]
 
 		appIDEntry := widget.NewEntry()
-		appIDEntry.SetPlaceHolder("app_id or WM_CLASS")
+		appIDEntry.SetPlaceHolder(locale.T("rules.appId"))
 		if r.AppID != "" {
 			appIDEntry.SetText(r.AppID)
 		} else if r.Pattern != "" {
@@ -40,21 +42,21 @@ func (ui *settingsUI) loadWindowRulesScreen() fyne.CanvasObject {
 			}
 		}
 
-		floatCheck := widget.NewCheck("Float", func(b bool) {
+		floatCheck := widget.NewCheck(locale.T("rules.float"), func(b bool) {
 			r.Float = &b
 		})
 		if r.Float != nil {
 			floatCheck.SetChecked(*r.Float)
 		}
 
-		maxCheck := widget.NewCheck("Maximize", func(b bool) {
+		maxCheck := widget.NewCheck(locale.T("rules.maximize"), func(b bool) {
 			r.Maximize = &b
 		})
 		if r.Maximize != nil {
 			maxCheck.SetChecked(*r.Maximize)
 		}
 
-		pinCheck := widget.NewCheck("Pinned", func(b bool) {
+		pinCheck := widget.NewCheck(locale.T("rules.pinned"), func(b bool) {
 			r.Pinned = &b
 		})
 		if r.Pinned != nil {
@@ -62,7 +64,7 @@ func (ui *settingsUI) loadWindowRulesScreen() fyne.CanvasObject {
 		}
 
 		wsEntry := widget.NewEntry()
-		wsEntry.SetPlaceHolder("Workspace (1-8)")
+		wsEntry.SetPlaceHolder(locale.T("rules.workspace"))
 		if r.Workspace > 0 {
 			wsEntry.SetText(strconv.Itoa(r.Workspace))
 		}
@@ -75,7 +77,7 @@ func (ui *settingsUI) loadWindowRulesScreen() fyne.CanvasObject {
 		}
 
 		wEntry := widget.NewEntry()
-		wEntry.SetPlaceHolder("Width")
+		wEntry.SetPlaceHolder(locale.T("rules.width"))
 		if r.Width > 0 {
 			wEntry.SetText(strconv.Itoa(r.Width))
 		}
@@ -88,7 +90,7 @@ func (ui *settingsUI) loadWindowRulesScreen() fyne.CanvasObject {
 		}
 
 		hEntry := widget.NewEntry()
-		hEntry.SetPlaceHolder("Height")
+		hEntry.SetPlaceHolder(locale.T("rules.height"))
 		if r.Height > 0 {
 			hEntry.SetText(strconv.Itoa(r.Height))
 		}
@@ -100,7 +102,7 @@ func (ui *settingsUI) loadWindowRulesScreen() fyne.CanvasObject {
 			}
 		}
 
-		removeBtn := widget.NewButton("Remove", func() {
+		removeBtn := widget.NewButton(locale.T("rules.remove"), func() {
 			rules = append(rules[:idx], rules[idx+1:]...)
 			rebuildList()
 		})
@@ -125,12 +127,12 @@ func (ui *settingsUI) loadWindowRulesScreen() fyne.CanvasObject {
 	}
 	rebuildList()
 
-	addBtn := widget.NewButton("Add Rule", func() {
+	addBtn := widget.NewButton(locale.T("rules.addRule"), func() {
 		rules = append(rules, wlipc.WindowRule{})
 		rebuildList()
 	})
 
-	applyBtn := widget.NewButton("Apply", func() {
+	applyBtn := widget.NewButton(locale.T("settings.apply"), func() {
 		// Remove empty rules
 		var filtered []wlipc.WindowRule
 		for _, r := range rules {
@@ -142,7 +144,7 @@ func (ui *settingsUI) loadWindowRulesScreen() fyne.CanvasObject {
 	})
 	applyBtn.Importance = widget.HighImportance
 
-	header := widget.NewRichTextFromMarkdown("Per-app rules matched by `app_id` (exact) or glob `pattern` (e.g. `firefox*`).")
+	header := widget.NewRichTextFromMarkdown(locale.T("rules.desc"))
 
 	scrollable := container.NewVScroll(list)
 	scrollable.SetMinSize(fyne.NewSize(400, 200))

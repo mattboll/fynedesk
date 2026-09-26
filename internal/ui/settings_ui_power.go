@@ -100,7 +100,7 @@ func (d *settingsUI) loadPowerScreen() fyne.CanvasObject {
 
 func formatTimeout(prefix string, minutes int) string {
 	if minutes == 0 {
-		return prefix + ": " + locale.T("power.never")
+		return locale.Tf("common.labelValue", prefix, locale.T("power.never"))
 	}
-	return fmt.Sprintf("%s: %d min", prefix, minutes)
+	return locale.Tf("common.labelValue", prefix, fmt.Sprintf("%d min", minutes))
 }

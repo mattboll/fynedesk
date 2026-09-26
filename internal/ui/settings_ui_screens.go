@@ -150,7 +150,7 @@ func modeLabel(mode OutputModeInfo) string {
 		res += " (" + mode.AspectRatio + ")"
 	}
 	if mode.Custom {
-		return res + " [scaled]"
+		return res + " [" + locale.T("screens.scaled") + "]"
 	}
 	return fmt.Sprintf("%s @%dHz", res, mode.RefreshRate)
 }
@@ -263,11 +263,11 @@ func (d *settingsUI) positionRows(out CompositorOutputState, outputs []Composito
 func outputDescription(out CompositorOutputState) string {
 	if out.PhysWidth > 0 && out.PhysHeight > 0 {
 		dpi := float64(out.Width) * float64(out.Scale) / (float64(out.PhysWidth) / 25.4)
-		return fmt.Sprintf("Physical: %dx%d mm, DPI: %.0f, Logical: %dx%d at (%d,%d)",
+		return locale.Tf("screens.physicalDesc",
 			out.PhysWidth, out.PhysHeight, dpi, out.Width, out.Height, out.X, out.Y)
 	}
 	if out.Width > 0 {
-		return fmt.Sprintf("Logical: %dx%d at (%d,%d)", out.Width, out.Height, out.X, out.Y)
+		return locale.Tf("screens.logicalDesc", out.Width, out.Height, out.X, out.Y)
 	}
 	return ""
 }

@@ -1,8 +1,6 @@
 package ui
 
 import (
-	"fmt"
-
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	deskDriver "fyne.io/fyne/v2/driver/desktop"
@@ -11,6 +9,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 	"fyshos.com/tyde/modules/status"
 	wmtheme "fyshos.com/tyde/theme"
 )
@@ -88,7 +87,7 @@ func newWifiPanel(win fyne.Window) (*wifiPickerWindow, fyne.CanvasObject) {
 
 	// Header
 	refreshBtn := widget.NewButtonWithIcon("", theme.ViewRefreshIcon(), func() {
-		p.setStatus("Scanning...")
+		p.setStatus(locale.T("wifi.scanning"))
 		go func() {
 			rescanWifi()
 			p.refreshNetworks()
@@ -97,13 +96,13 @@ func newWifiPanel(win fyne.Window) (*wifiPickerWindow, fyne.CanvasObject) {
 	})
 	refreshBtn.Importance = widget.LowImportance
 
-	title := widget.NewLabel("Wi-Fi Networks")
+	title := widget.NewLabel(locale.T("wifi.networks"))
 	title.TextStyle = fyne.TextStyle{Bold: true}
 	header := container.NewBorder(nil, nil, nil, refreshBtn, title)
 
 	// Content
 	p.netList = container.NewVBox()
-	scanning := widget.NewLabel("Scanning...")
+	scanning := widget.NewLabel(locale.T("wifi.scanning"))
 	scanning.Alignment = fyne.TextAlignCenter
 	p.body = container.NewStack(container.NewCenter(scanning))
 	root := container.NewBorder(header, p.status, nil, nil, p.body)
@@ -144,23 +143,23 @@ func (p *wifiPickerWindow) buildNetworkRow(n WifiNetwork) fyne.CanvasObject {
 
 	btn := widget.NewButton("", func() {
 		if n.Active {
-			p.setStatus("Disconnecting...")
+			p.setStatus(locale.T("wifi.disconnecting"))
 			go p.doDisconnect()
 		} else if !n.IsSecured() {
-			p.setStatus(fmt.Sprintf("Connecting to %s...", n.SSID))
+			p.setStatus(locale.Tf("wifi.connectingTo", n.SSID))
 			go p.doConnect(n.SSID, "", n.Security)
 		} else {
 			// Reuse a saved password — only fall back to the password
 			// prompt if there is none or activation fails (e.g. the saved
 			// key is now wrong). nmcli is asked off the Fyne thread.
-			p.setStatus(fmt.Sprintf("Connecting to %s...", n.SSID))
+			p.setStatus(locale.Tf("wifi.connectingTo", n.SSID))
 			go func() {
 				if !hasSavedWifiProfile(n.SSID) || connectSavedWifi(n.SSID) != nil {
 					p.setStatus("")
 					fyne.Do(func() { p.showPasswordForm(n.SSID, n.Security) })
 					return
 				}
-				p.setStatus("Connected!")
+				p.setStatus(locale.T("wifi.connected"))
 				p.refreshNetworks()
 			}()
 		}
@@ -207,7 +206,7 @@ func (p *wifiPickerWindow) doConnect(ssid, password, security string) {
 		p.setStatus(err.Error())
 		return
 	}
-	p.setStatus("Connected!")
+	p.setStatus(locale.T("wifi.connected"))
 	p.refreshNetworks()
 }
 
@@ -217,26 +216,26 @@ func (p *wifiPickerWindow) doDisconnect() {
 		p.setStatus(err.Error())
 		return
 	}
-	p.setStatus("Disconnected.")
+	p.setStatus(locale.T("wifi.disconnected"))
 	p.refreshNetworks()
 }
 
 func (p *wifiPickerWindow) showPasswordForm(ssid, security string) {
 	passEntry := widget.NewPasswordEntry()
-	passEntry.SetPlaceHolder("Password")
+	passEntry.SetPlaceHolder(locale.T("wifi.password"))
 
 	errLabel := widget.NewLabel("")
 	errLabel.Wrapping = fyne.TextWrapWord
 
 	var connectBtn *widget.Button
-	connectBtn = widget.NewButtonWithIcon("Connect", theme.ConfirmIcon(), func() {
+	connectBtn = widget.NewButtonWithIcon(locale.T("wifi.connect"), theme.ConfirmIcon(), func() {
 		pw := passEntry.Text
 		if pw == "" {
-			errLabel.SetText("Password required.")
+			errLabel.SetText(locale.T("wifi.passwordRequired"))
 			return
 		}
 		connectBtn.Disable()
-		errLabel.SetText("Connecting...")
+		errLabel.SetText(locale.T("wifi.connecting"))
 		go func() {
 			err := connectWifi(ssid, pw, security)
 			fyne.Do(func() {
@@ -245,18 +244,18 @@ func (p *wifiPickerWindow) showPasswordForm(ssid, security string) {
 					connectBtn.Enable()
 					return
 				}
-				p.setStatus("Connected!")
+				p.setStatus(locale.T("wifi.connected"))
 				p.showListView()
 				p.refreshNetworks()
 			})
 		}()
 	})
 
-	cancelBtn := widget.NewButtonWithIcon("Cancel", theme.CancelIcon(), func() {
+	cancelBtn := widget.NewButtonWithIcon(locale.T("wifi.cancel"), theme.CancelIcon(), func() {
 		p.showListView()
 	})
 
-	label := widget.NewLabel("Connect to " + ssid)
+	label := widget.NewLabel(locale.Tf("wifi.connectTo", ssid))
 	label.TextStyle = fyne.TextStyle{Bold: true}
 	label.Wrapping = fyne.TextWrapWord
 
@@ -281,10 +280,10 @@ func (p *wifiPickerWindow) showListView() {
 }
 
 func (p *wifiPickerWindow) buildDisabledView() fyne.CanvasObject {
-	msg := widget.NewLabel("WiFi is disabled.")
+	msg := widget.NewLabel(locale.T("wifi.disabled"))
 	msg.Alignment = fyne.TextAlignCenter
-	enableBtn := widget.NewButton("Enable WiFi", func() {
-		p.setStatus("Enabling...")
+	enableBtn := widget.NewButton(locale.T("wifi.enable"), func() {
+		p.setStatus(locale.T("wifi.enabling"))
 		go func() {
 			toggleWifi(true)
 			rescanWifi()
@@ -296,7 +295,7 @@ func (p *wifiPickerWindow) buildDisabledView() fyne.CanvasObject {
 }
 
 func (p *wifiPickerWindow) buildEmptyView() fyne.CanvasObject {
-	empty := widget.NewLabel("No networks found.")
+	empty := widget.NewLabel(locale.T("wifi.noNetworks"))
 	empty.Alignment = fyne.TextAlignCenter
 	return container.NewCenter(empty)
 }

@@ -309,7 +309,7 @@ func (e *embededWM) setupSocketEventHandlers(client *wlipc.IPCClient) {
 		var evt wlipc.ScreenshotEvent
 		if json.Unmarshal(data, &evt) == nil {
 			fyne.Do(func() {
-				n := wm.NewNotification("Screenshot Saved", evt.FilePath)
+				n := wm.NewNotification(locale.T("screenshot.saved"), evt.FilePath)
 				wm.SendNotification(n)
 			})
 		}
@@ -425,7 +425,7 @@ func (e *embededWM) startFileIPCWatcher() {
 
 	wlipc.WatchScreenshotEvent(func(evt *wlipc.ScreenshotEvent) {
 		fyne.Do(func() {
-			n := wm.NewNotification("Screenshot Saved", evt.FilePath)
+			n := wm.NewNotification(locale.T("screenshot.saved"), evt.FilePath)
 			wm.SendNotification(n)
 		})
 	}, done)

@@ -22,18 +22,21 @@ func (d *settingsUI) loadKeyboardScreen() fyne.CanvasObject {
 // xkbToDisplayName returns a human-readable label for an XKB key name.
 func xkbToDisplayName(xkbKey string) string {
 	display := map[string]string{
-		"grave": "`", "space": "Space", "Return": "Enter", "BackSpace": "Backspace",
-		"Print": "PrintScreen", "minus": "Minus", "equal": "Equal",
-		"comma": "Comma", "period": "Period", "slash": "Slash",
-		"backslash": "Backslash", "semicolon": "Semicolon",
+		"grave": "`", "space": "keyboard.keySpace", "Return": "keyboard.keyEnter", "BackSpace": "keyboard.keyBackspace",
+		"Print": "keyboard.keyPrint", "minus": "keyboard.keyMinus", "equal": "keyboard.keyEqual",
+		"comma": "keyboard.keyComma", "period": "keyboard.keyPeriod", "slash": "keyboard.keySlash",
+		"backslash": "keyboard.keyBackslash", "semicolon": "keyboard.keySemicolon",
 		"XF86AudioRaiseVolume":  "Vol+",
 		"XF86AudioLowerVolume":  "Vol-",
-		"XF86AudioMute":         "Mute",
-		"XF86MonBrightnessUp":   "Brightness+",
-		"XF86MonBrightnessDown": "Brightness-",
-		"XF86Calculator":        "Calculator",
+		"XF86AudioMute":         "keyboard.keyMute",
+		"XF86MonBrightnessUp":   "keyboard.keyBrightUp",
+		"XF86MonBrightnessDown": "keyboard.keyBrightDown",
+		"XF86Calculator":        "keyboard.keyCalculator",
 	}
 	if d, ok := display[xkbKey]; ok {
+		if strings.HasPrefix(d, "keyboard.") {
+			return locale.T(d)
+		}
 		return d
 	}
 	// Single lowercase letter -> uppercase for display
@@ -260,9 +263,9 @@ func (d *settingsUI) showAddLayoutDialog(onAdd func(string)) {
 	if err != nil {
 		// Fallback: manual entry
 		entry := widget.NewEntry()
-		entry.SetPlaceHolder("layout:variant (e.g. us:dvorak)")
+		entry.SetPlaceHolder(locale.T("keyboard.manualPlaceholder"))
 		dlg := dialog.NewCustomConfirm(locale.T("keyboard.addTitle"), locale.T("keyboard.add"), locale.T("keyboard.cancel"),
-			container.NewVBox(widget.NewLabel("Enter layout:variant"), entry),
+			container.NewVBox(widget.NewLabel(locale.T("keyboard.manualLabel")), entry),
 			func(ok bool) {
 				if ok && entry.Text != "" {
 					onAdd(entry.Text)
@@ -283,10 +286,10 @@ func (d *settingsUI) showAddLayoutDialog(onAdd func(string)) {
 	}
 
 	layoutSelect := widget.NewSelect(layoutNames, nil)
-	layoutSelect.PlaceHolder = "Select layout..."
+	layoutSelect.PlaceHolder = locale.T("keyboard.selectLayout")
 
 	variantSelect := widget.NewSelect([]string{locale.T("keyboard.default")}, nil)
-	variantSelect.PlaceHolder = "Select variant..."
+	variantSelect.PlaceHolder = locale.T("keyboard.selectVariant")
 	variantSelect.SetSelectedIndex(0)
 
 	layoutSelect.OnChanged = func(selected string) {

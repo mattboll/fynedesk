@@ -9,6 +9,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
+	"fyshos.com/tyde/locale"
 	"fyshos.com/tyde/wlipc"
 )
 
@@ -72,7 +73,7 @@ func newCommandPalette() *commandPalette {
 
 	cp.entry = &cmdEntry{palette: cp}
 	cp.entry.ExtendBaseWidget(cp.entry)
-	cp.entry.SetPlaceHolder("> Type a command...")
+	cp.entry.SetPlaceHolder(locale.T("cmd.prompt"))
 
 	cp.list = container.NewVBox()
 	cp.scroll = container.NewScroll(cp.list)
@@ -142,7 +143,7 @@ func (cp *commandPalette) rebuildList() {
 	for i, a := range cp.filtered {
 		act := a
 		idx := i
-		label := act.category + ": " + act.name
+		label := locale.Tf("common.labelValue", act.category, act.name)
 		btn := widget.NewButton(label, func() {
 			cp.executeAction(act)
 		})
@@ -240,52 +241,52 @@ func fuzzyMatch(pattern, str string) bool {
 func buildPaletteActions() []paletteAction {
 	return []paletteAction{
 		// Window actions
-		{name: "Close Window", category: "Window", action: wlipc.ActionCloseWindow},
-		{name: "Maximize / Restore", category: "Window", action: wlipc.ActionMaximize},
-		{name: "Minimize", category: "Window", action: wlipc.ActionMinimize},
-		{name: "Toggle Fullscreen", category: "Window", action: wlipc.ActionToggleFullscreen},
-		{name: "Snap Left", category: "Window", action: wlipc.ActionSnapLeft},
-		{name: "Snap Right", category: "Window", action: wlipc.ActionSnapRight},
-		{name: "Switch App Next", category: "Window", action: wlipc.ActionSwitchAppNext},
-		{name: "Switch App Previous", category: "Window", action: wlipc.ActionSwitchAppPrev},
-		{name: "Window Overview", category: "Window", action: wlipc.ActionWindowOverview},
+		{name: locale.T("cmd.closeWindow"), category: locale.T("cmd.catWindow"), action: wlipc.ActionCloseWindow},
+		{name: locale.T("cmd.maxRestore"), category: locale.T("cmd.catWindow"), action: wlipc.ActionMaximize},
+		{name: locale.T("cmd.minimize"), category: locale.T("cmd.catWindow"), action: wlipc.ActionMinimize},
+		{name: locale.T("cmd.fullscreen"), category: locale.T("cmd.catWindow"), action: wlipc.ActionToggleFullscreen},
+		{name: locale.T("cmd.snapLeft"), category: locale.T("cmd.catWindow"), action: wlipc.ActionSnapLeft},
+		{name: locale.T("cmd.snapRight"), category: locale.T("cmd.catWindow"), action: wlipc.ActionSnapRight},
+		{name: locale.T("cmd.switchNext"), category: locale.T("cmd.catWindow"), action: wlipc.ActionSwitchAppNext},
+		{name: locale.T("cmd.switchPrev"), category: locale.T("cmd.catWindow"), action: wlipc.ActionSwitchAppPrev},
+		{name: locale.T("cmd.overview"), category: locale.T("cmd.catWindow"), action: wlipc.ActionWindowOverview},
 
 		// Apps
-		{name: "App Launcher", category: "Apps", action: wlipc.ActionShowLauncher},
-		{name: "Open Terminal", category: "Apps", action: wlipc.ActionOpenTerminal},
-		{name: "Dropdown Terminal", category: "Apps", action: wlipc.ActionToggleDropdown},
-		{name: "Emoji Picker", category: "Tools", action: wlipc.ActionShowEmojiPicker},
-		{name: "Clipboard Manager", category: "Tools", action: wlipc.ActionShowClipboard},
-		{name: "Toggle Sidebar", category: "Tools", action: wlipc.ActionToggleSidebar},
+		{name: locale.T("cmd.launcher"), category: locale.T("cmd.catApps"), action: wlipc.ActionShowLauncher},
+		{name: locale.T("cmd.terminal"), category: locale.T("cmd.catApps"), action: wlipc.ActionOpenTerminal},
+		{name: locale.T("cmd.dropdown"), category: locale.T("cmd.catApps"), action: wlipc.ActionToggleDropdown},
+		{name: locale.T("cmd.emoji"), category: locale.T("cmd.catTools"), action: wlipc.ActionShowEmojiPicker},
+		{name: locale.T("cmd.clipboard"), category: locale.T("cmd.catTools"), action: wlipc.ActionShowClipboard},
+		{name: locale.T("cmd.sidebar"), category: locale.T("cmd.catTools"), action: wlipc.ActionToggleSidebar},
 
 		// Screenshot
-		{name: "Screenshot Full", category: "Screenshot", action: wlipc.ActionScreenshotFull},
-		{name: "Screenshot Region", category: "Screenshot", action: wlipc.ActionScreenshotRegion},
-		{name: "Screenshot Window", category: "Screenshot", action: wlipc.ActionScreenshotWindow},
+		{name: locale.T("cmd.screenshotFull"), category: locale.T("cmd.catScreenshot"), action: wlipc.ActionScreenshotFull},
+		{name: locale.T("cmd.screenshotRegion"), category: locale.T("cmd.catScreenshot"), action: wlipc.ActionScreenshotRegion},
+		{name: locale.T("cmd.screenshotWindow"), category: locale.T("cmd.catScreenshot"), action: wlipc.ActionScreenshotWindow},
 
 		// Desktop
-		{name: "Previous Desktop", category: "Desktop", action: wlipc.ActionPrevDesktop},
-		{name: "Next Desktop", category: "Desktop", action: wlipc.ActionNextDesktop},
-		{name: "Desktop 1", category: "Desktop", action: wlipc.ActionSwitchDesk1},
-		{name: "Desktop 2", category: "Desktop", action: wlipc.ActionSwitchDesk2},
-		{name: "Desktop 3", category: "Desktop", action: wlipc.ActionSwitchDesk3},
-		{name: "Desktop 4", category: "Desktop", action: wlipc.ActionSwitchDesk4},
-		{name: "Move Window to Desktop 1", category: "Desktop", action: wlipc.ActionMoveToDesk1},
-		{name: "Move Window to Desktop 2", category: "Desktop", action: wlipc.ActionMoveToDesk2},
-		{name: "Move Window to Desktop 3", category: "Desktop", action: wlipc.ActionMoveToDesk3},
-		{name: "Move Window to Desktop 4", category: "Desktop", action: wlipc.ActionMoveToDesk4},
+		{name: locale.T("cmd.prevDesktop"), category: locale.T("cmd.catDesktop"), action: wlipc.ActionPrevDesktop},
+		{name: locale.T("cmd.nextDesktop"), category: locale.T("cmd.catDesktop"), action: wlipc.ActionNextDesktop},
+		{name: locale.T("cmd.desktop1"), category: locale.T("cmd.catDesktop"), action: wlipc.ActionSwitchDesk1},
+		{name: locale.T("cmd.desktop2"), category: locale.T("cmd.catDesktop"), action: wlipc.ActionSwitchDesk2},
+		{name: locale.T("cmd.desktop3"), category: locale.T("cmd.catDesktop"), action: wlipc.ActionSwitchDesk3},
+		{name: locale.T("cmd.desktop4"), category: locale.T("cmd.catDesktop"), action: wlipc.ActionSwitchDesk4},
+		{name: locale.T("cmd.moveDesktop1"), category: locale.T("cmd.catDesktop"), action: wlipc.ActionMoveToDesk1},
+		{name: locale.T("cmd.moveDesktop2"), category: locale.T("cmd.catDesktop"), action: wlipc.ActionMoveToDesk2},
+		{name: locale.T("cmd.moveDesktop3"), category: locale.T("cmd.catDesktop"), action: wlipc.ActionMoveToDesk3},
+		{name: locale.T("cmd.moveDesktop4"), category: locale.T("cmd.catDesktop"), action: wlipc.ActionMoveToDesk4},
 
 		// Tiling
-		{name: "Toggle Tiling", category: "Layout", action: wlipc.ActionToggleTiling},
-		{name: "Swap Master", category: "Layout", action: wlipc.ActionSwapMaster},
-		{name: "Toggle Float", category: "Layout", action: wlipc.ActionToggleFloat},
+		{name: locale.T("cmd.toggleTiling"), category: locale.T("cmd.catLayout"), action: wlipc.ActionToggleTiling},
+		{name: locale.T("cmd.swapMaster"), category: locale.T("cmd.catLayout"), action: wlipc.ActionSwapMaster},
+		{name: locale.T("cmd.toggleFloat"), category: locale.T("cmd.catLayout"), action: wlipc.ActionToggleFloat},
 
 		// System
-		{name: "Lock Screen", category: "System", action: wlipc.ActionLockScreen},
-		{name: "Volume Up", category: "System", action: wlipc.ActionVolumeUp},
-		{name: "Volume Down", category: "System", action: wlipc.ActionVolumeDown},
-		{name: "Volume Mute", category: "System", action: wlipc.ActionVolumeMute},
-		{name: "Brightness Up", category: "System", action: wlipc.ActionBrightnessUp},
-		{name: "Brightness Down", category: "System", action: wlipc.ActionBrightnessDown},
+		{name: locale.T("cmd.lockScreen"), category: locale.T("cmd.catSystem"), action: wlipc.ActionLockScreen},
+		{name: locale.T("cmd.volUp"), category: locale.T("cmd.catSystem"), action: wlipc.ActionVolumeUp},
+		{name: locale.T("cmd.volDown"), category: locale.T("cmd.catSystem"), action: wlipc.ActionVolumeDown},
+		{name: locale.T("cmd.volMute"), category: locale.T("cmd.catSystem"), action: wlipc.ActionVolumeMute},
+		{name: locale.T("cmd.brightUp"), category: locale.T("cmd.catSystem"), action: wlipc.ActionBrightnessUp},
+		{name: locale.T("cmd.brightDown"), category: locale.T("cmd.catSystem"), action: wlipc.ActionBrightnessDown},
 	}
 }

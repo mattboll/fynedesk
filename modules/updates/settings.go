@@ -14,6 +14,8 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+
+	"fyshos.com/tyde/locale"
 )
 
 // SettingsContent builds the "System Updates" settings panel: what is pending,
@@ -23,9 +25,7 @@ import (
 func SettingsContent() fyne.CanvasObject {
 	c := Shared()
 	if c.Backend() == nil {
-		msg := widget.NewLabel("System updates are unavailable.\n\n" +
-			"No supported package manager was found on this system. " +
-			"Tyde can manage updates on Debian-based systems (apt) and Arch Linux (pacman).")
+		msg := widget.NewLabel(locale.T("updates.unavailable"))
 		msg.Wrapping = fyne.TextWrapWord
 		return container.NewCenter(msg)
 	}
@@ -79,8 +79,8 @@ func (p *updatesPanel) build() fyne.CanvasObject {
 		},
 	)
 
-	p.check = widget.NewButtonWithIcon("Check Now", theme.ViewRefreshIcon(), p.runCheck)
-	p.install = widget.NewButtonWithIcon("Install Updates", theme.DownloadIcon(), p.runInstall)
+	p.check = widget.NewButtonWithIcon(locale.T("updates.checkNow"), theme.ViewRefreshIcon(), p.runCheck)
+	p.install = widget.NewButtonWithIcon(locale.T("updates.install"), theme.DownloadIcon(), p.runInstall)
 	p.install.Importance = widget.HighImportance
 
 	p.logText = widget.NewLabel("")
@@ -116,26 +116,26 @@ func (p *updatesPanel) refresh() {
 
 	switch {
 	case checking:
-		p.status.SetText("Checking for updates…")
-		p.detail.SetText("Refreshing package information from your configured repositories.")
+		p.status.SetText(locale.T("updates.checking"))
+		p.detail.SetText(locale.T("updates.refreshing"))
 		p.progress.Show()
 		p.check.Disable()
 		p.install.Disable()
 		return
 	case err != nil:
-		p.status.SetText("Could not check for updates")
+		p.status.SetText(locale.T("updates.checkError"))
 		// Show the package manager's own words: "no mirrors configured" and
 		// "network unreachable" need very different responses from the user.
 		p.detail.SetText(err.Error())
 	case len(res.Updates) == 0 && res.Stale:
 		// Never claim the system is up to date off a list we could not refresh.
-		p.status.SetText("No known updates")
+		p.status.SetText(locale.T("updates.noneKnown"))
 		p.detail.SetText(res.StaleReason)
 	case len(res.Updates) == 0:
-		p.status.SetText("Your system is up to date")
+		p.status.SetText(locale.T("updates.upToDate"))
 		p.detail.SetText(lastCheckedText(checked))
 	default:
-		p.status.SetText(updateCount(len(res.Updates)) + " available")
+		p.status.SetText(availableCount(len(res.Updates)))
 		if res.Stale {
 			p.detail.SetText(res.StaleReason)
 		} else {
@@ -164,8 +164,8 @@ func (p *updatesPanel) runInstall() {
 	}
 	p.installing = true
 
-	p.status.SetText("Installing updates…")
-	p.detail.SetText("Authenticating. Do not power off the machine while updates are being applied.")
+	p.status.SetText(locale.T("updates.installing"))
+	p.detail.SetText(locale.T("updates.authenticating"))
 	p.progress.Show()
 	p.check.Disable()
 	p.install.Disable()
@@ -182,15 +182,15 @@ func (p *updatesPanel) runInstall() {
 			p.progress.Hide()
 
 			if err != nil {
-				p.status.SetText("Update failed")
+				p.status.SetText(locale.T("updates.failed"))
 				p.detail.SetText(err.Error())
 				p.check.Enable()
 				p.install.Enable()
 				return
 			}
 
-			p.status.SetText("Updates installed")
-			p.detail.SetText("Some updates only take effect after restarting.")
+			p.status.SetText(locale.T("updates.installed"))
+			p.detail.SetText(locale.T("updates.restartHint"))
 			p.check.Enable()
 			p.install.Disable()
 			p.logScroll.Hide()
@@ -209,12 +209,12 @@ func (p *updatesPanel) stream(argv []string) error {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	out, err := cmd.StdoutPipe()
 	if err != nil {
-		return &backendError{what: "could not start update", detail: err.Error()}
+		return &backendError{what: locale.T("updates.startFailed"), detail: err.Error()}
 	}
 	cmd.Stderr = cmd.Stdout // interleave, so errors appear in context
 
 	if err := cmd.Start(); err != nil {
-		return &backendError{what: "could not start update", detail: err.Error()}
+		return &backendError{what: locale.T("updates.startFailed"), detail: err.Error()}
 	}
 
 	tail := p.consume(out)
@@ -278,43 +278,42 @@ func installError(err error, tail string) error {
 	if errors.As(err, &exit) {
 		switch exit.ExitCode() {
 		case 126:
-			return errors.New("authentication was cancelled, so no updates were installed")
+			return errors.New(locale.T("updates.authCancelled"))
 		case 127:
-			return errors.New("authentication failed, so no updates were installed. " +
-				"Your account must be an administrator to install system updates")
+			return errors.New(locale.T("updates.authFailed"))
 		}
 	}
 
 	if tail = strings.TrimSpace(tail); tail != "" {
-		return &backendError{what: "the package manager reported a problem", detail: tail}
+		return &backendError{what: locale.T("updates.pmProblem"), detail: tail}
 	}
-	return &backendError{what: "the update did not complete", detail: err.Error()}
+	return &backendError{what: locale.T("updates.incomplete"), detail: err.Error()}
 }
 
 // versionChange renders the version transition for a pending update.
 func versionChange(up Update) string {
 	if up.OldVersion == "" {
-		return up.NewVersion + " (new)"
+		return locale.Tf("updates.newPackage", up.NewVersion)
 	}
 	return fmt.Sprintf("%s -> %s", up.OldVersion, up.NewVersion)
 }
 
 func lastCheckedText(t time.Time) string {
 	if t.IsZero() {
-		return "Not checked yet."
+		return locale.T("updates.notChecked")
 	}
-	return "Last checked " + humanSince(time.Since(t)) + "."
+	return locale.Tf("updates.lastChecked", humanSince(time.Since(t)))
 }
 
 func humanSince(d time.Duration) string {
 	switch {
 	case d < time.Minute:
-		return "just now"
+		return locale.T("updates.justNow")
 	case d < time.Hour:
-		return fmt.Sprintf("%d minutes ago", int(d.Minutes()))
+		return locale.Tf("updates.minutesAgo", int(d.Minutes()))
 	case d < time.Hour*24:
-		return fmt.Sprintf("%d hours ago", int(d.Hours()))
+		return locale.Tf("updates.hoursAgo", int(d.Hours()))
 	default:
-		return fmt.Sprintf("%d days ago", int(d.Hours()/24))
+		return locale.Tf("updates.daysAgo", int(d.Hours()/24))
 	}
 }

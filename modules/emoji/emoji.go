@@ -19,6 +19,7 @@ import (
 
 	"fyshos.com/tyde"
 	emojidata "fyshos.com/tyde/internal/emoji"
+	"fyshos.com/tyde/locale"
 )
 
 // ModuleName is the registered name of the emoji picker module.
@@ -136,7 +137,7 @@ type openItem struct {
 
 func (i *openItem) Icon() fyne.Resource { return Icon }
 
-func (i *openItem) Title() string { return "Emoji Picker" }
+func (i *openItem) Title() string { return locale.T("cmd.emoji") }
 
 func (i *openItem) Launch() { i.m.picker.show() }
 

@@ -20,6 +20,8 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+
+	"fyshos.com/tyde/locale"
 )
 
 const zoneTabFile = "/usr/share/zoneinfo/zone.tab"
@@ -332,7 +334,7 @@ func (d *settingsUI) loadTimeScreen() fyne.CanvasObject {
 	// Assume automatic (network) time until timedatectl is queried below (off the
 	// render thread); the real value is applied to these widgets asynchronously.
 	manual := false
-	auto := widget.NewCheck("Set time automatically (network time)", nil)
+	auto := widget.NewCheck(locale.T("time.auto"), nil)
 	auto.SetChecked(!manual)
 	updateManual := func() {
 		manual = !auto.Checked
@@ -347,7 +349,7 @@ func (d *settingsUI) loadTimeScreen() fyne.CanvasObject {
 	auto.OnChanged = func(bool) { updateManual() }
 	updateManual()
 
-	manualRow := container.NewBorder(nil, nil, widget.NewLabel("Date / Time"), nil,
+	manualRow := container.NewBorder(nil, nil, widget.NewLabel(locale.T("time.dateTime")), nil,
 		container.NewGridWithColumns(2, dateEntry, timeEntry))
 	timeSection := container.NewVBox(auto, manualRow, widget.NewSeparator())
 
@@ -362,7 +364,7 @@ func (d *settingsUI) loadTimeScreen() fyne.CanvasObject {
 	mapWidget := newWorldMap(zones)
 	selectedLabel := widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	search := widget.NewSelectEntry(names)
-	search.SetPlaceHolder("Search for a city or region")
+	search.SetPlaceHolder(locale.T("time.search"))
 
 	current := ""
 	updating := false
@@ -387,7 +389,7 @@ func (d *settingsUI) loadTimeScreen() fyne.CanvasObject {
 		if z.comment != "" {
 			label += "  –  " + z.comment
 		}
-		selectedLabel.SetText("Selected: " + label)
+		selectedLabel.SetText(locale.Tf("time.selected", label))
 		updating = false
 	}
 	mapWidget.OnSelected = func(z zoneInfo) { selectZone(z.name) }
@@ -406,12 +408,12 @@ func (d *settingsUI) loadTimeScreen() fyne.CanvasObject {
 		})
 	}()
 
-	tzSection := container.NewBorder(sectionHeading("Time Zone", ""), nil, nil, nil,
+	tzSection := container.NewBorder(sectionHeading(locale.T("time.zone"), ""), nil, nil, nil,
 		container.NewBorder(search, selectedLabel, nil, nil, mapWidget))
 
 	// --- apply ---
 	var applyButton *widget.Button
-	applyButton = &widget.Button{Text: "Apply", Importance: widget.HighImportance, OnTapped: func() {
+	applyButton = &widget.Button{Text: locale.T("settings.apply"), Importance: widget.HighImportance, OnTapped: func() {
 		applyButton.Disable()
 		wantNTP := !manual
 		wantZone := current
@@ -452,7 +454,7 @@ func (d *settingsUI) applyTimeSettings(zone string, ntp bool, dateText, timeText
 	if !ntp { // timedatectl refuses set-time while NTP is active
 		when, err := time.ParseInLocation("2006-01-02 15:04", dateText+" "+timeText, time.Local)
 		if err != nil {
-			return fmt.Errorf("invalid date or time: %w", err)
+			return fmt.Errorf("%s: %w", locale.T("time.invalid"), err)
 		}
 		if err := runTimedatectl("set-time", when.Format("2006-01-02 15:04:05")); err != nil {
 			return err

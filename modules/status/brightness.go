@@ -17,6 +17,7 @@ import (
 	"github.com/FyshOS/dryvers"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 	wmtheme "fyshos.com/tyde/theme"
 	"fyshos.com/tyde/wlipc"
 	"fyshos.com/tyde/wm"
@@ -253,11 +254,11 @@ func (i *brightItem) Icon() fyne.Resource {
 
 func (i *brightItem) Title() string {
 	if _, err := strconv.Atoi(i.input); err == nil {
-		return "Brightness " + i.input + "%"
+		return locale.Tf("status.brightnessPct", i.input)
 	} else if startsWith(i.input, "d") {
-		return "Brightness down"
+		return locale.T("status.brightnessDown")
 	} else if startsWith(i.input, "u") {
-		return "Brightness up"
+		return locale.T("status.brightnessUp")
 	}
 
 	return ""

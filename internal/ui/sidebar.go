@@ -129,7 +129,7 @@ func (sb *sidebarPanel) buildContent() {
 	nightLightRow := container.NewBorder(nil, nil, widget.NewIcon(theme.ColorPaletteIcon()), nil, nightLightCheck)
 
 	// Wi-Fi toggle
-	wifiCheck := widget.NewCheck("Wi-Fi", func(on bool) {
+	wifiCheck := widget.NewCheck(locale.T("sidebar.wifi"), func(on bool) {
 		go toggleWifi(on)
 	})
 	wifiIconHolder := container.NewStack(widget.NewIcon(wmtheme.WifiOffIcon))

@@ -14,7 +14,7 @@ package ai
 
 import (
 	_ "embed"
-	"fmt"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -26,6 +26,7 @@ import (
 	"fyshos.com/tyde/modules/launcher"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/anthropic"
@@ -241,7 +242,7 @@ func (a *assistant) open(prompt string) {
 			a.open(entry.Text)
 			entry.SetText("")
 		}
-		entry.SetPlaceHolder("Ask fathom...")
+		entry.SetPlaceHolder(locale.T("ai.askFathom"))
 		entry.Wrapping = fyne.TextWrapWord
 		entry.OnSubmitted = func(_ string) { startNew() }
 
@@ -290,7 +291,7 @@ func (a *assistant) newTab(prompt string, titleSetter func(string)) *container.T
 	chat.win = a.win
 	chat.titleSetter = titleSetter
 
-	title := "New chat"
+	title := locale.T("ai.newChat")
 	if p := strings.TrimSpace(prompt); p != "" {
 		title = launcher.TruncatePrompt(p)
 	}
@@ -314,7 +315,7 @@ type launchItem struct {
 
 func (i *launchItem) Icon() fyne.Resource { return Icon }
 
-func (i *launchItem) Title() string { return "Ask AI: " + launcher.TruncatePrompt(i.text) }
+func (i *launchItem) Title() string { return locale.Tf("ai.askAI", launcher.TruncatePrompt(i.text)) }
 
 func (i *launchItem) Launch() { i.a.open(i.text) }
 
@@ -386,9 +387,9 @@ func defaultModel(provider string) string {
 func (c config) newLLM() (llms.Model, error) {
 	if !c.ready() {
 		if c.provider == ProviderLocal {
-			return nil, fmt.Errorf("no Local AI server URL set - add one in the AI settings")
+			return nil, errors.New(locale.T("ai.noLocalURL"))
 		}
-		return nil, fmt.Errorf("no %s API key set - add one in the AI settings", c.provider)
+		return nil, errors.New(locale.Tf("ai.noAPIKey", c.provider))
 	}
 
 	switch c.provider {

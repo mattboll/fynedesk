@@ -12,6 +12,7 @@ import (
 	"github.com/mafik/pulseaudio"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 	wmtheme "fyshos.com/tyde/theme"
 	"fyshos.com/tyde/wlipc"
 )
@@ -239,15 +240,15 @@ func (i *volItem) Icon() fyne.Resource {
 
 func (i *volItem) Title() string {
 	if _, err := strconv.Atoi(i.input); err == nil {
-		return "Volume " + i.input + "%"
+		return locale.Tf("status.volumePct", i.input)
 	} else if i.input == "mute" {
-		return "Mute volume"
+		return locale.T("status.muteVolume")
 	} else if i.input == "unmute" {
-		return "Unmute volume"
+		return locale.T("status.unmuteVolume")
 	} else if startsWith(i.input, "u") {
-		return "Volume up"
+		return locale.T("status.volumeUp")
 	} else if startsWith(i.input, "d") {
-		return "Volume down"
+		return locale.T("status.volumeDown")
 	}
 
 	return ""

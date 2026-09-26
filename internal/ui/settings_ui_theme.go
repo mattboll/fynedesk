@@ -112,7 +112,7 @@ func (d *settingsUI) loadThemeScreen() fyne.CanvasObject {
 			preview.SetMinSize(fyne.NewSize(120, 68))
 			return container.NewBorder(nil, nil, nil, preview,
 				container.NewBorder(nil, install, nil, nil,
-					widget.NewRichTextFromMarkdown("## Theme Name")))
+					widget.NewRichTextFromMarkdown("## "+locale.T("theme.themeName"))))
 		},
 		func(id widget.ListItemID, o fyne.CanvasObject) {
 			outer := o.(*fyne.Container)

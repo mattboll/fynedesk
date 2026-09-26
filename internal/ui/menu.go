@@ -57,7 +57,11 @@ func (w *widgetPanel) appendAppCategories(acc *widget.Accordion, dismiss func())
 			defer w.loadIcon(app, btn)
 		}
 
-		accList = append(accList, widget.NewAccordionItem(cat,
+		title := cat
+		if cat == "Other" {
+			title = locale.T("menu.other")
+		}
+		accList = append(accList, widget.NewAccordionItem(title,
 			container.NewVBox(items...)))
 	}
 
@@ -83,16 +87,16 @@ func (w *widgetPanel) askLogoutOverlay() {
 		w.desk.HideOverlay(combined)
 	}
 
-	logout := widget.NewButtonWithIcon("Logout", theme.LogoutIcon(), func() {
+	logout := widget.NewButtonWithIcon(locale.T("menu.logout"), theme.LogoutIcon(), func() {
 		dismiss()
 		afterDismiss(func() { w.desk.WindowManager().Close() })
 	})
 	logout.Importance = widget.DangerImportance
-	cancel := widget.NewButton("Cancel", func() {
+	cancel := widget.NewButton(locale.T("menu.cancel"), func() {
 		dismiss()
 	})
 
-	header := widget.NewRichTextFromMarkdown("### Log out")
+	header := widget.NewRichTextFromMarkdown("### " + locale.T("menu.logout"))
 	header.Truncation = fyne.TextTruncateEllipsis
 	bottomPad := canvas.NewRectangle(color.Transparent)
 	bottomPad.SetMinSize(fyne.NewSquareSize(10))
@@ -104,7 +108,7 @@ func (w *widgetPanel) askLogoutOverlay() {
 				layout.NewSpacer()), bottomPad,
 		),
 		nil, nil,
-		widget.NewLabel("Are you sure you want to log out?"),
+		widget.NewLabel(locale.T("menu.logoutConfirm")),
 	)
 
 	r, g, b, _ := theme.Color(theme.ColorNameOverlayBackground).RGBA()
@@ -171,7 +175,7 @@ func (w *widgetPanel) showAccountMenuOverlay() {
 		}},
 	}
 	items := container.NewBorder(nil, nil, container.NewHBox(items1...), container.NewHBox(items2...),
-		&widget.Button{Icon: theme.SearchIcon(), Text: "Search", Importance: widget.LowImportance, OnTapped: func() {
+		&widget.Button{Icon: theme.SearchIcon(), Text: locale.T("menu.search"), Importance: widget.LowImportance, OnTapped: func() {
 			dismiss()
 			ShowAppLauncher()
 		}})
@@ -183,7 +187,7 @@ func (w *widgetPanel) showAccountMenuOverlay() {
 		btn.Icon = app.Icon(w.desk.Settings().IconTheme(), int(64*w.desk.Screens().Primary().CanvasScale()))
 	}
 
-	acc := widget.NewAccordion(widget.NewAccordionItem("Recent",
+	acc := widget.NewAccordion(widget.NewAccordionItem(locale.T("menu.recent"),
 		container.NewVBox(recent...)))
 	acc.MultiOpen = true
 	acc.Open(0)

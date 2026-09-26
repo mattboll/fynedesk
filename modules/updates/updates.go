@@ -1,14 +1,13 @@
 package updates
 
 import (
-	"fmt"
-
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 	wmtheme "fyshos.com/tyde/theme"
 )
 
@@ -91,7 +90,7 @@ func (u *updates) refresh(row fyne.CanvasObject) {
 		// indistinguishable from "up to date", which is exactly the wrong thing
 		// to imply when we do not actually know.
 		u.icon.SetResource(theme.NewErrorThemedResource(wmtheme.UpdateIcon))
-		u.label.SetText("Check failed")
+		u.label.SetText(locale.T("updates.checkFailed"))
 		row.Show()
 	default:
 		row.Hide()
@@ -101,9 +100,17 @@ func (u *updates) refresh(row fyne.CanvasObject) {
 // updateCount renders the pending count for the narrow status area.
 func updateCount(n int) string {
 	if n == 1 {
-		return "1 update"
+		return locale.T("updates.countOne")
 	}
-	return fmt.Sprintf("%d updates", n)
+	return locale.Tf("updates.countMany", n)
+}
+
+// availableCount renders the pending count for the settings panel heading.
+func availableCount(n int) string {
+	if n == 1 {
+		return locale.T("updates.availableOne")
+	}
+	return locale.Tf("updates.availableMany", n)
 }
 
 // narrowRow lays an icon beside its label, dropping the label when the widget

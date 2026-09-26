@@ -24,8 +24,8 @@ func TestLocalSettingsManaged(t *testing.T) {
 
 	p.SetBool(prefLocalManaged, true)
 	panel := localSettings(p, func() {})
-	if !hasCheck(panel, managedLabel) {
-		t.Errorf("managed panel is missing the %q option", managedLabel)
+	if !hasCheck(panel, managedLabel()) {
+		t.Errorf("managed panel is missing the %q option", managedLabel())
 	}
 	if hasEntryPlaceholder(panel, ollamaEndpoint) {
 		t.Error("managed panel offers a Base URL, but tyde owns the address")
@@ -33,8 +33,8 @@ func TestLocalSettingsManaged(t *testing.T) {
 
 	p.SetBool(prefLocalManaged, false)
 	panel = localSettings(p, func() {})
-	if !hasCheck(panel, managedLabel) {
-		t.Errorf("user-run panel is missing the %q option", managedLabel)
+	if !hasCheck(panel, managedLabel()) {
+		t.Errorf("user-run panel is missing the %q option", managedLabel())
 	}
 	if !hasEntryPlaceholder(panel, ollamaEndpoint) {
 		t.Error("user-run panel has no Base URL to point at their server")

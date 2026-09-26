@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 )
 
 // IsFirstRun returns true if no config.toml exists yet,
@@ -29,7 +30,7 @@ func ShowSetupWizard(desk tyde.Desktop) {
 	}
 	settings := d.settings.(*deskSettings)
 
-	win := fyne.CurrentApp().NewWindow("Welcome to Tyde")
+	win := fyne.CurrentApp().NewWindow(locale.T("wizard.welcome"))
 	win.SetFixedSize(true)
 	win.Resize(fyne.NewSize(480, 360))
 	win.CenterOnScreen()
@@ -65,19 +66,19 @@ func ShowSetupWizard(desk tyde.Desktop) {
 	dots := makeDots(len(steps), 0)
 
 	var backBtn, nextBtn *widget.Button
-	backBtn = widget.NewButton("Back", nil)
-	nextBtn = widget.NewButton("Next", nil)
+	backBtn = widget.NewButton(locale.T("wizard.back"), nil)
+	nextBtn = widget.NewButton(locale.T("wizard.next"), nil)
 	nextBtn.Importance = widget.HighImportance
 
 	updateButtons := func() {
-		backBtn.SetText("Back")
+		backBtn.SetText(locale.T("wizard.back"))
 		if currentStep == 0 {
-			backBtn.SetText("Skip")
+			backBtn.SetText(locale.T("wizard.skip"))
 		}
 		if currentStep == len(steps)-1 {
-			nextBtn.SetText("Finish")
+			nextBtn.SetText(locale.T("wizard.finish"))
 		} else {
-			nextBtn.SetText("Next")
+			nextBtn.SetText(locale.T("wizard.next"))
 		}
 		dots = makeDots(len(steps), currentStep)
 	}
@@ -121,29 +122,29 @@ func ShowSetupWizard(desk tyde.Desktop) {
 
 // makeStep1 builds the keyboard layout selection step.
 func makeStep1(current []string, onChange func([]string)) fyne.CanvasObject {
-	title := widget.NewRichTextFromMarkdown("# Welcome to Tyde")
-	subtitle := widget.NewLabel("Let's set up your desktop. First, choose your keyboard layout.")
+	title := widget.NewRichTextFromMarkdown(locale.T("wizard.welcomeMd"))
+	subtitle := widget.NewLabel(locale.T("wizard.setup"))
 	subtitle.Wrapping = fyne.TextWrapWord
 
 	layoutEntry := widget.NewEntry()
 	if len(current) > 0 {
 		layoutEntry.SetText(current[0])
 	}
-	layoutEntry.SetPlaceHolder("e.g. us, fr, de, fr:bepo_afnor")
+	layoutEntry.SetPlaceHolder(locale.T("wizard.kbExample"))
 	layoutEntry.OnChanged = func(text string) {
 		if text != "" {
 			onChange([]string{text})
 		}
 	}
 
-	hint := widget.NewLabel("Format: language or language:variant")
+	hint := widget.NewLabel(locale.T("wizard.kbFormat"))
 	hint.TextStyle = fyne.TextStyle{Italic: true}
 
 	return container.NewVBox(
 		title,
 		subtitle,
 		layout.NewSpacer(),
-		widget.NewLabel("Keyboard layout"),
+		widget.NewLabel(locale.T("wizard.kbLayout")),
 		layoutEntry,
 		hint,
 		layout.NewSpacer(),
@@ -152,20 +153,18 @@ func makeStep1(current []string, onChange func([]string)) fyne.CanvasObject {
 
 // makeStep2 builds the bar position selection step.
 func makeStep2(current string, onChange func(string)) fyne.CanvasObject {
-	title := widget.NewRichTextFromMarkdown("# Panel Position")
-	subtitle := widget.NewLabel("Where should the application bar appear?")
+	title := widget.NewRichTextFromMarkdown(locale.T("wizard.panelTitle"))
+	subtitle := widget.NewLabel(locale.T("wizard.panelDesc"))
 	subtitle.Wrapping = fyne.TextWrapWord
 
-	selected := "Left side (vertical)"
+	left, bottom := locale.T("wizard.panelLeft"), locale.T("wizard.panelBottom")
+	selected := left
 	if current == "bottom" {
-		selected = "Bottom (horizontal)"
+		selected = bottom
 	}
 
-	radio := widget.NewRadioGroup([]string{
-		"Left side (vertical)",
-		"Bottom (horizontal)",
-	}, func(val string) {
-		if val == "Bottom (horizontal)" {
+	radio := widget.NewRadioGroup([]string{left, bottom}, func(val string) {
+		if val == bottom {
 			onChange("bottom")
 		} else {
 			onChange("left")
@@ -184,18 +183,19 @@ func makeStep2(current string, onChange func(string)) fyne.CanvasObject {
 
 // makeStep3 builds the theme and clock format selection step.
 func makeStep3(currentScheme, currentClock string, onChange func(scheme, clock string)) fyne.CanvasObject {
-	title := widget.NewRichTextFromMarkdown("# Appearance")
-	subtitle := widget.NewLabel("Choose your color scheme and clock format.")
+	title := widget.NewRichTextFromMarkdown(locale.T("wizard.appearance"))
+	subtitle := widget.NewLabel(locale.T("wizard.appearDesc"))
 	subtitle.Wrapping = fyne.TextWrapWord
 
 	scheme := currentScheme
 	clock := currentClock
 
-	schemeRadio := widget.NewRadioGroup([]string{"Auto", "Dark", "Light"}, func(val string) {
+	auto, dark, light := locale.T("appearance.auto"), locale.T("appearance.dark"), locale.T("appearance.light")
+	schemeRadio := widget.NewRadioGroup([]string{auto, dark, light}, func(val string) {
 		switch val {
-		case "Dark":
+		case dark:
 			scheme = "dark"
-		case "Light":
+		case light:
 			scheme = "light"
 		default:
 			scheme = "auto"
@@ -204,11 +204,11 @@ func makeStep3(currentScheme, currentClock string, onChange func(scheme, clock s
 	})
 	switch currentScheme {
 	case "dark":
-		schemeRadio.SetSelected("Dark")
+		schemeRadio.SetSelected(dark)
 	case "light":
-		schemeRadio.SetSelected("Light")
+		schemeRadio.SetSelected(light)
 	default:
-		schemeRadio.SetSelected("Auto")
+		schemeRadio.SetSelected(auto)
 	}
 	schemeRadio.Horizontal = true
 
@@ -227,9 +227,9 @@ func makeStep3(currentScheme, currentClock string, onChange func(scheme, clock s
 		title,
 		subtitle,
 		layout.NewSpacer(),
-		widget.NewLabel("Color scheme"),
+		widget.NewLabel(locale.T("wizard.colorScheme")),
 		schemeRadio,
-		widget.NewLabel("Clock format"),
+		widget.NewLabel(locale.T("wizard.clockFormat")),
 		clockRadio,
 		layout.NewSpacer(),
 	)

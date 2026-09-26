@@ -1,6 +1,10 @@
 package wlipc
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"fyshos.com/tyde/locale"
+)
 
 // KeyBinding represents a single key binding with a key name and modifiers.
 // Key names are XKB names (e.g. "Escape", "Tab", "space", "t", "Print").
@@ -132,64 +136,12 @@ func DefaultBindings() ActionBindings {
 // the next_agent action is left unbound.
 const AgentsModule = "Coding Agents"
 
-// ActionDisplayName returns a human-readable name for an action.
+// ActionDisplayName returns a human-readable name for an action, in the
+// user's language.
 func ActionDisplayName(action string) string {
-	names := map[string]string{
-		ActionQuit:              "Log out",
-		ActionSwitchAppNext:     "Switch app (next)",
-		ActionSwitchAppPrev:     "Switch app (previous)",
-		ActionToggleFullscreen:  "Toggle fullscreen",
-		ActionMaximize:          "Maximize / restore",
-		ActionMinimize:          "Minimize",
-		ActionCloseWindow:       "Close window",
-		ActionOpenTerminal:      "Open terminal",
-		ActionEmergencyLogout:   "Emergency logout",
-		ActionPrevDesktop:       "Previous desktop",
-		ActionNextDesktop:       "Next desktop",
-		ActionSwitchDesk1:       "Switch to desktop 1",
-		ActionSwitchDesk2:       "Switch to desktop 2",
-		ActionSwitchDesk3:       "Switch to desktop 3",
-		ActionSwitchDesk4:       "Switch to desktop 4",
-		ActionMoveToDesk1:       "Move window to desktop 1",
-		ActionMoveToDesk2:       "Move window to desktop 2",
-		ActionMoveToDesk3:       "Move window to desktop 3",
-		ActionMoveToDesk4:       "Move window to desktop 4",
-		ActionMoveToPrevDesktop: "Move window to previous desktop",
-		ActionMoveToNextDesktop: "Move window to next desktop",
-		ActionScreenshotFull:    "Screenshot (full screen)",
-		ActionScreenshotRegion:  "Screenshot (region)",
-		ActionScreenshotWindow:  "Screenshot (window)",
-		ActionToggleDropdown:    "Toggle dropdown terminal",
-		ActionLockScreen:        "Lock screen",
-		ActionShowLauncher:      "Show app launcher",
-		ActionVolumeUp:          "Volume up",
-		ActionVolumeDown:        "Volume down",
-		ActionVolumeMute:        "Volume mute/unmute",
-		ActionBrightnessUp:      "Brightness up",
-		ActionBrightnessDown:    "Brightness down",
-		ActionCalculator:        "Calculator",
-		ActionShowEmojiPicker:   "Emoji picker",
-		ActionShowClipboard:     "Clipboard manager",
-		ActionSnapLeft:          "Snap window left",
-		ActionSnapRight:         "Snap window right",
-		ActionCommandPalette:    "Command palette",
-		ActionToggleSidebar:     "Toggle sidebar",
-		ActionWindowOverview:    "Window overview",
-		ActionToggleTiling:      "Toggle tiling mode",
-		ActionSwapMaster:        "Swap master (tiling)",
-		ActionShrinkMaster:      "Shrink master (tiling)",
-		ActionGrowMaster:        "Grow master (tiling)",
-		ActionToggleFloat:       "Toggle float (tiling)",
-		ActionToggleNightLight:  "Toggle night light",
-		ActionFocusMode:         "Focus mode",
-		ActionNextAgent:         "Go to the agent waiting for you",
-		ActionZoomIn:            "Magnifier: zoom in",
-		ActionZoomOut:           "Magnifier: zoom out",
-		ActionZoomReset:         "Magnifier: off",
-		ActionShowDesktop:       "Show desktop",
-	}
-	if n, ok := names[action]; ok {
-		return n
+	key := "action." + action
+	if name := locale.T(key); name != key {
+		return name
 	}
 	return action
 }

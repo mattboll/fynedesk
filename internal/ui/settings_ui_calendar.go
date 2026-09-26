@@ -220,8 +220,8 @@ func (d *settingsUI) startAddOAuthFlow(rebuild func()) {
 
 	form := container.NewVBox(
 		widget.NewLabel(locale.T("cal.oauthInstructions")),
-		widget.NewLabel("Client ID"), clientIDEntry,
-		widget.NewLabel("Client Secret"), clientSecretEntry,
+		widget.NewLabel(locale.T("cal.clientID")), clientIDEntry,
+		widget.NewLabel(locale.T("cal.clientSecret")), clientSecretEntry,
 	)
 
 	dialog.ShowCustomConfirm(locale.T("cal.addManual"),

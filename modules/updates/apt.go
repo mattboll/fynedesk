@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"fyshos.com/tyde/locale"
 )
 
 // aptBackend drives Debian and derivatives through apt-get.
@@ -52,7 +54,7 @@ func (a *aptBackend) Check(ctx context.Context) (Result, error) {
 		// A refresh we cannot do is not a check we cannot do: fall back to the
 		// system lists, but say so, because their age is not something we know.
 		res.Stale = true
-		res.StaleReason = runError("package lists could not be refreshed", out, err).Error()
+		res.StaleReason = runError(locale.T("updates.listsNotRefreshed"), out, err).Error()
 		opts = nil
 	}
 
@@ -60,7 +62,7 @@ func (a *aptBackend) Check(ctx context.Context) (Result, error) {
 	sim := exec.CommandContext(ctx, a.aptGet, append([]string{"-s", "upgrade"}, opts...)...)
 	out, err := sim.Output()
 	if err != nil {
-		return Result{}, runError("could not list available updates", exitOutput(out, err), err)
+		return Result{}, runError(locale.T("updates.listFailed"), exitOutput(out, err), err)
 	}
 
 	res.Updates = parseAptUpdates(string(out))
@@ -74,7 +76,7 @@ func (a *aptBackend) Check(ctx context.Context) (Result, error) {
 func (a *aptBackend) privateStateOpts() ([]string, error) {
 	cache, err := os.UserCacheDir()
 	if err != nil {
-		return nil, &backendError{what: "could not locate cache directory", detail: err.Error()}
+		return nil, &backendError{what: locale.T("updates.noCacheDir"), detail: err.Error()}
 	}
 	dir := filepath.Join(cache, "tyde", "apt")
 
@@ -83,7 +85,7 @@ func (a *aptBackend) privateStateOpts() ([]string, error) {
 	// apt stages in-flight downloads in "partial" and fails if it is missing.
 	for _, sub := range []string{filepath.Join(lists, "partial"), filepath.Join(archives, "partial")} {
 		if err := os.MkdirAll(sub, 0o755); err != nil {
-			return nil, &backendError{what: "could not create update cache", detail: err.Error()}
+			return nil, &backendError{what: locale.T("updates.cacheCreateFailed"), detail: err.Error()}
 		}
 	}
 

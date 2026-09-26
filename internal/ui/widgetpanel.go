@@ -288,7 +288,7 @@ func (w *widgetPanel) CreateRenderer() fyne.WidgetRenderer {
 	var accountWidget fyne.CanvasObject
 	if narrow {
 		currentUser, _ := user.Current()
-		tipText := "Account"
+		tipText := locale.T("widget.account")
 		if currentUser != nil {
 			tipText = currentUser.Username
 		}
@@ -321,7 +321,7 @@ func (w *widgetPanel) accountLabel() string {
 	currentUser, err := user.Current()
 	if err != nil {
 		fyne.LogError("Unable to look up user", err)
-		return "Account"
+		return locale.T("widget.account")
 	}
 	displayName := currentUser.Username
 	return displayName

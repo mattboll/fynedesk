@@ -63,7 +63,7 @@ func (w *widgetPanel) showAbout() {
 	authors := widget.NewRichTextFromMarkdown(formatAuthors(string(Authors.Content())))
 	content := container.NewVBox(
 		container.NewCenter(
-			widget.NewRichTextFromMarkdown("**Version:** "+version()),
+			widget.NewRichTextFromMarkdown("**"+locale.T("about.version")+"** "+version()),
 		),
 		container.NewCenter(container.NewStack(canvas.NewRectangle(color.White), logo)),
 		container.NewCenter(authors),
@@ -172,7 +172,7 @@ func (u unpad) MinSize(_ []fyne.CanvasObject) fyne.Size {
 
 func formatAuthors(lines string) string {
 	markdown := &strings.Builder{}
-	markdown.WriteString("### Authors\n\n")
+	markdown.WriteString("### " + locale.T("about.authors") + "\n\n")
 
 	for _, line := range strings.Split(lines, "\n") {
 		if len(line) == 0 {

@@ -12,6 +12,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 )
 
 var largeTypeAliases = []string{"largetype", "large", "big", "bigtype", "type"}
@@ -68,7 +69,7 @@ func (i *largeTypeItem) Icon() fyne.Resource {
 }
 
 func (i *largeTypeItem) Title() string {
-	return "Large Type: " + i.text
+	return locale.Tf("launcher.largeType", i.text)
 }
 
 func (i *largeTypeItem) Launch() {

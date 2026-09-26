@@ -22,6 +22,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 )
 
 // appWindow describes a type of icon that refers to an open window rather than an app.
@@ -361,7 +362,7 @@ func (bi *barIcon) TappedSecondary(ev *fyne.PointEvent) {
 		items = append(items, fyne.NewMenuItemSeparator())
 	}
 
-	addRemove := fyne.NewMenuItem("Remove "+app.Name(), func() {
+	addRemove := fyne.NewMenuItem(locale.Tf("dock.removeApp", app.Name()), func() {
 		if bi.windowData != nil {
 			addToBar(app)
 		} else {
@@ -370,13 +371,13 @@ func (bi *barIcon) TappedSecondary(ev *fyne.PointEvent) {
 	})
 
 	if bi.windowData != nil {
-		addRemove.Label = "Pin " + app.Name()
+		addRemove.Label = locale.Tf("dock.pinApp", app.Name())
 	}
 
 	items = append(items, addRemove)
 	editor := editorPath()
 	if app.Source() != nil && editor != "" {
-		items = append(items, fyne.NewMenuItem("Edit", func() {
+		items = append(items, fyne.NewMenuItem(locale.T("dock.editApp"), func() {
 			editApp(app, editor)
 		}))
 	}
@@ -401,7 +402,7 @@ func cloneRepo(src *appie.AppSource, path string, done func(error)) {
 
 	w := fyne.CurrentApp().Driver().(deskDriver.Driver).CreateSplashWindow()
 	w.SetContent(
-		container.NewBorder(nil, widget.NewLabel("Downloading..."), nil, nil,
+		container.NewBorder(nil, widget.NewLabel(locale.T("dock.downloading")), nil, nil,
 			container.NewStack(prop, spin)),
 	)
 	spin.Start()

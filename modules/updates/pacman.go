@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"fyshos.com/tyde/locale"
 )
 
 // pacmanBackend drives Arch Linux's pacman.
@@ -59,8 +61,7 @@ func (p *pacmanBackend) Check(ctx context.Context) (Result, error) {
 func (p *pacmanBackend) sync(ctx context.Context, db string) string {
 	fakeroot, err := exec.LookPath("fakeroot")
 	if err != nil {
-		return "Repository metadata could not be refreshed because fakeroot is not installed. " +
-			"Install the fakeroot package for an up-to-the-minute check."
+		return locale.T("updates.noFakeroot")
 	}
 
 	// --disable-sandbox is needed under fakeroot: pacman 7 drops to the 'alpm'
@@ -74,7 +75,7 @@ func (p *pacmanBackend) sync(ctx context.Context, db string) string {
 		out, err = p.runSync(ctx, fakeroot, base)
 	}
 	if err != nil {
-		return runError("could not refresh package databases", out, err).Error()
+		return runError(locale.T("updates.dbRefreshFailed"), out, err).Error()
 	}
 	return ""
 }
@@ -102,7 +103,7 @@ func (p *pacmanBackend) list(ctx context.Context, dbPath string) ([]Update, erro
 			strings.TrimSpace(string(exit.Stderr)) == "" {
 			return nil, nil
 		}
-		return nil, runError("could not list available updates", exitOutput(out, err), err)
+		return nil, runError(locale.T("updates.listFailed"), exitOutput(out, err), err)
 	}
 	return parsePacmanUpdates(string(out)), nil
 }
@@ -112,18 +113,18 @@ func (p *pacmanBackend) list(ctx context.Context, dbPath string) ([]Update, erro
 func (p *pacmanBackend) privateDB() (string, error) {
 	cache, err := os.UserCacheDir()
 	if err != nil {
-		return "", &backendError{what: "could not locate cache directory", detail: err.Error()}
+		return "", &backendError{what: locale.T("updates.noCacheDir"), detail: err.Error()}
 	}
 	db := filepath.Join(cache, "tyde", "pacman-db")
 	if err := os.MkdirAll(filepath.Join(db, "sync"), 0o755); err != nil {
-		return "", &backendError{what: "could not create update cache", detail: err.Error()}
+		return "", &backendError{what: locale.T("updates.cacheCreateFailed"), detail: err.Error()}
 	}
 
 	// The local database records what is installed; it is only ever read here.
 	local := filepath.Join(db, "local")
 	if _, err := os.Lstat(local); os.IsNotExist(err) {
 		if err := os.Symlink(filepath.Join(p.dbPath(), "local"), local); err != nil {
-			return "", &backendError{what: "could not prepare update cache", detail: err.Error()}
+			return "", &backendError{what: locale.T("updates.cachePrepareFailed"), detail: err.Error()}
 		}
 	}
 	return db, nil

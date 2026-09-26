@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sys/execabs"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 	wmtheme "fyshos.com/tyde/theme"
 	"fyshos.com/tyde/wm"
 )
@@ -85,9 +86,9 @@ func (f *fyles) Metadata() tyde.ModuleMetadata {
 func desktopListing() []fyne.URI {
 	home, _ := os.UserHomeDir()
 	u := storage.NewFileURI(filepath.Join(home, "Desktop"))
-	homeDir := newCustomURI("file://"+home, "Home", theme.FolderIcon())
-	settings := newCustomURI("settings://", "Settings", theme.SettingsIcon())
-	trash := newCustomURI("file://"+filepath.Join(home, ".local", "share", "Trash", "files"), "Trash", theme.DeleteIcon())
+	homeDir := newCustomURI("file://"+home, locale.T("fyles.home"), theme.FolderIcon())
+	settings := newCustomURI("settings://", locale.T("settings.settings"), theme.SettingsIcon())
+	trash := newCustomURI("file://"+filepath.Join(home, ".local", "share", "Trash", "files"), locale.T("fyles.trash"), theme.DeleteIcon())
 
 	list, err := storage.List(u)
 	if err != nil {

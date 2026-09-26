@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 	"fyshos.com/tyde/modules/notes"
 	wmtheme "fyshos.com/tyde/theme"
 	"fyshos.com/tyde/wlipc"
@@ -73,7 +74,7 @@ func (n *notesWindow) selectNote(id string) {
 
 func (n *notesWindow) addNote() {
 	n.saveCurrentNote()
-	note := n.store.Add("New note")
+	note := n.store.Add(locale.T("notes.newNote"))
 	n.refreshList()
 	n.selectNote(note.ID)
 	for i, id := range n.noteIDs {
@@ -106,7 +107,7 @@ func ShowNotesOverlay(store *notes.Store, onClose func()) {
 		return
 	}
 
-	win := fyne.CurrentApp().NewWindow("Notes")
+	win := fyne.CurrentApp().NewWindow(locale.T("notes.defaultTitle"))
 	win.SetPadded(true)
 
 	n := &notesWindow{
@@ -144,7 +145,7 @@ func ShowNotesOverlay(store *notes.Store, onClose func()) {
 				title = firstLine(note.Body)
 			}
 			if title == "" {
-				title = "(empty)"
+				title = locale.T("notes.empty")
 			}
 			done, total := countTodos(note.Body)
 			if total > 0 {
@@ -169,7 +170,7 @@ func ShowNotesOverlay(store *notes.Store, onClose func()) {
 
 	// Title entry
 	n.titleEnt = widget.NewEntry()
-	n.titleEnt.SetPlaceHolder("Title...")
+	n.titleEnt.SetPlaceHolder(locale.T("notes.titlePlaceholder"))
 	n.titleEnt.OnChanged = func(_ string) {
 		n.saveCurrentNote()
 		n.refreshList()
@@ -185,7 +186,7 @@ func ShowNotesOverlay(store *notes.Store, onClose func()) {
 
 	// Editor
 	n.editor = widget.NewMultiLineEntry()
-	n.editor.SetPlaceHolder("Write here...\n\nUse [ ] for todos, [x] for done")
+	n.editor.SetPlaceHolder(locale.T("notes.bodyPlaceholder"))
 	n.editor.Wrapping = fyne.TextWrapWord
 	n.editor.OnChanged = func(_ string) {
 		n.saveCurrentNote()
@@ -363,7 +364,7 @@ func buildNotesPanelContent(store *notes.Store, onTap func()) fyne.CanvasObject 
 		shown++
 	}
 	if len(items) == 0 {
-		items = append(items, widget.NewLabel("(empty)"))
+		items = append(items, widget.NewLabel(locale.T("notes.empty")))
 	}
 
 	body := container.NewVBox(items...)

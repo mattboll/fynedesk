@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 	"fyshos.com/tyde/wlipc"
 )
 
@@ -128,7 +128,7 @@ func ShowClipboardManager() {
 	// Search entry
 	entry := &clipboardSearchEntry{picker: p}
 	entry.ExtendBaseWidget(entry)
-	entry.SetPlaceHolder("Search clipboard...")
+	entry.SetPlaceHolder(locale.T("clipboard.search"))
 	entry.OnChanged = func(input string) {
 		p.filter(input)
 	}
@@ -183,7 +183,7 @@ func ShowClipboardManager() {
 	// Empty state
 	var content fyne.CanvasObject
 	if len(p.allEntries) == 0 {
-		emptyLabel := widget.NewLabel("Clipboard history is empty.\nCopy some text to see it here.")
+		emptyLabel := widget.NewLabel(locale.T("clipboard.empty"))
 		emptyLabel.Alignment = fyne.TextAlignCenter
 		content = container.NewBorder(header, nil, nil, nil, emptyLabel)
 	} else {
@@ -233,12 +233,12 @@ func clipRelativeTime(timestamp int64) string {
 	d := time.Since(t)
 	switch {
 	case d < time.Minute:
-		return "now"
+		return locale.T("clipboard.now")
 	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
+		return locale.Tf("clipboard.minutes", int(d.Minutes()))
 	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh", int(d.Hours()))
+		return locale.Tf("clipboard.hours", int(d.Hours()))
 	default:
-		return fmt.Sprintf("%dd", int(d.Hours()/24))
+		return locale.Tf("clipboard.days", int(d.Hours()/24))
 	}
 }

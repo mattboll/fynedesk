@@ -14,6 +14,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
+	"fyshos.com/tyde/locale"
 	"fyshos.com/tyde/modules/ai"
 	wmtheme "fyshos.com/tyde/theme"
 	"github.com/FyshOS/networks/pkg/netman"
@@ -267,32 +268,32 @@ func (w *welcome) refreshCardColor() {
 func (w *welcome) showHome() {
 	w.rebuild = w.showHome
 	fg := theme.Color(theme.ColorNameForeground)
-	hello := canvas.NewText("Welcome to ", fg)
+	hello := canvas.NewText(locale.T("welcome.hello"), fg)
 	hello.TextSize = 22
 	brand := canvas.NewText("FyshOS", fg)
 	brand.TextSize = 22
 	brand.TextStyle = fyne.TextStyle{Bold: true}
 	titleRow := container.NewHBox(layout.NewSpacer(), hello, brand, layout.NewSpacer())
 
-	subtitle := canvas.NewText("Let's get you set up!", theme.Color(theme.ColorNamePlaceHolder))
+	subtitle := canvas.NewText(locale.T("welcome.subtitle"), theme.Color(theme.ColorNamePlaceHolder))
 	subtitle.TextSize = theme.Size(theme.SizeNameSubHeadingText)
 	header := container.NewVBox(titleRow, container.NewCenter(subtitle))
 
 	rows := container.NewVBox(
-		newWelcomeRow(theme.ColorPaletteIcon(), "Customize Appearance",
-			"Choose your theme and colors", w.openAppearance),
-		newWelcomeRow(wmtheme.WifiIcon, "Connect to Wi-Fi",
-			"Setup a Wi-Fi network", w.openWifi),
-		newWelcomeRow(ai.Icon, "Set up AI",
-			"Turn on the AI assistant", w.openAI),
-		newWelcomeRow(theme.SettingsIcon(), "Additional Settings",
-			"Change system preferences", w.openFullSettings),
+		newWelcomeRow(theme.ColorPaletteIcon(), locale.T("welcome.appearance"),
+			locale.T("welcome.appearanceDesc"), w.openAppearance),
+		newWelcomeRow(wmtheme.WifiIcon, locale.T("welcome.wifi"),
+			locale.T("welcome.wifiDesc"), w.openWifi),
+		newWelcomeRow(ai.Icon, locale.T("welcome.ai"),
+			locale.T("welcome.aiDesc"), w.openAI),
+		newWelcomeRow(theme.SettingsIcon(), locale.T("welcome.settings"),
+			locale.T("welcome.settingsDesc"), w.openFullSettings),
 	)
 
-	getStarted := &widget.Button{Text: "Get Started", Importance: widget.HighImportance, OnTapped: func() {
+	getStarted := &widget.Button{Text: locale.T("welcome.getStarted"), Importance: widget.HighImportance, OnTapped: func() {
 		w.dismiss(true)
 	}}
-	skip := &widget.Button{Text: "Skip for now", Importance: widget.LowImportance, OnTapped: func() {
+	skip := &widget.Button{Text: locale.T("welcome.skip"), Importance: widget.LowImportance, OnTapped: func() {
 		w.dismiss(false)
 	}}
 	footer := container.NewCenter(container.NewPadded(container.NewHBox(skip, getStarted)))
@@ -306,7 +307,7 @@ func (w *welcome) showHome() {
 func (w *welcome) showScreen(title string, content fyne.CanvasObject) {
 	w.rebuild = func() { w.showScreen(title, content) }
 	back := &widget.Button{
-		Text: "Back", Icon: theme.NavigateBackIcon(),
+		Text: locale.T("wizard.back"), Icon: theme.NavigateBackIcon(),
 		Importance: widget.LowImportance, OnTapped: w.showHome,
 	}
 	head := container.NewBorder(nil, nil, back, nil,
@@ -320,13 +321,13 @@ func (w *welcome) setBody(o fyne.CanvasObject) {
 }
 
 func (w *welcome) openAppearance() {
-	w.showScreen("Customize Appearance", w.sui.loadAppearanceScreen())
+	w.showScreen(locale.T("welcome.appearance"), w.sui.loadAppearanceScreen())
 }
 
 // openAI shows the AI assistant setup screen, letting the user enable the
 // assistant and enter a provider token (or leave it turned off).
 func (w *welcome) openAI() {
-	w.showScreen("Set up AI", w.sui.loadAIScreen())
+	w.showScreen(locale.T("welcome.ai"), w.sui.loadAIScreen())
 }
 
 // openWifi shows Wi-Fi setup screen allowing user to pick a network from those found.
@@ -343,7 +344,7 @@ func (w *welcome) openWifi() {
 		w.conn, w.net = conn, nm
 	}
 
-	w.showScreen("Connect to Wi-Fi", w.net)
+	w.showScreen(locale.T("welcome.wifi"), w.net)
 }
 
 // newWifiNetworks loads the network browser from our networks repo.
@@ -360,8 +361,8 @@ func newWifiNetworks(win fyne.Window) (*netman.Networks, *dbus.Conn, error) {
 	handlePass := func(name string) string {
 		result := make(chan string, 1)
 		entry := widget.NewPasswordEntry()
-		d := dialog.NewForm("Connect to "+name, "Connect", "Cancel",
-			[]*widget.FormItem{widget.NewFormItem("Password", entry)},
+		d := dialog.NewForm(locale.Tf("wifi.connectTo", name), locale.T("wifi.connect"), locale.T("wifi.cancel"),
+			[]*widget.FormItem{widget.NewFormItem(locale.T("wifi.password"), entry)},
 			func(ok bool) {
 				if ok {
 					result <- entry.Text

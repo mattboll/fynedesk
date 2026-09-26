@@ -6,6 +6,7 @@ import (
 
 	"fyshos.com/tyde"
 	"fyshos.com/tyde/internal/icon"
+	"fyshos.com/tyde/locale"
 	wmTheme "fyshos.com/tyde/theme"
 
 	"fyne.io/fyne/v2"
@@ -91,7 +92,7 @@ func (c *Border) showMenu() {
 	}
 	title := fyne.NewMenuItem(name, func() {})
 	title.Disabled = true
-	max := fyne.NewMenuItem("Maximize", func() {
+	max := fyne.NewMenuItem(locale.T("menu.maximize"), func() {
 		if c.win.Maximized() {
 			c.win.Unmaximize()
 		} else {
@@ -111,14 +112,14 @@ func (c *Border) showMenu() {
 	menu := fyne.NewMenu("",
 		title,
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Minimize", func() {
+		fyne.NewMenuItem(locale.T("menu.minimize"), func() {
 			c.win.Iconify()
 		}),
 		max,
 		fyne.NewMenuItemSeparator(),
 		c.makeDesktopMenu(),
 		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Close", func() {
+		fyne.NewMenuItem(locale.T("menu.close"), func() {
 			c.win.Close()
 		}))
 
@@ -129,7 +130,7 @@ func (c *Border) makeDesktopMenu() *fyne.MenuItem {
 	desks := make([]*fyne.MenuItem, 4)
 	for i := 0; i < 4; i++ {
 		deskID := i
-		desks[i] = fyne.NewMenuItem(fmt.Sprintf("Desktop %d", i+1), func() {
+		desks[i] = fyne.NewMenuItem(fmt.Sprintf("%s%d", locale.T("desktops.prefix"), i+1), func() {
 			if c.win.Pinned() {
 				c.win.Unpin()
 			}
@@ -137,7 +138,7 @@ func (c *Border) makeDesktopMenu() *fyne.MenuItem {
 			c.win.SetDesktop(deskID)
 		})
 	}
-	pin := fyne.NewMenuItem("All Desktops", func() {
+	pin := fyne.NewMenuItem(locale.T("menu.allDesktops"), func() {
 		if c.win.Pinned() {
 			return
 		}
@@ -148,7 +149,7 @@ func (c *Border) makeDesktopMenu() *fyne.MenuItem {
 		pin.Checked = true
 	}
 
-	item := fyne.NewMenuItem("Move to Desktop...", nil)
+	item := fyne.NewMenuItem(locale.T("menu.moveToDesktop"), nil)
 	item.ChildMenu = fyne.NewMenu("", append(desks, pin)...)
 	return item
 }

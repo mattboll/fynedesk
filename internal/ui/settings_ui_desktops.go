@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 
+	"fyshos.com/tyde/locale"
 	"fyshos.com/tyde/wm"
 )
 
@@ -16,7 +17,7 @@ func (d *settingsUI) loadDesktopsScreen() fyne.CanvasObject {
 	currentNames := d.settings.DesktopNames()
 
 	// Desktop count selector (1-8)
-	countLabel := widget.NewLabelWithStyle("Number of Desktops", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	countLabel := widget.NewLabelWithStyle(locale.T("desktops.number"), fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 	countOptions := []string{"1", "2", "3", "4", "5", "6", "7", "8"}
 	countSelect := widget.NewSelect(countOptions, nil)
 	countSelect.SetSelected(strconv.Itoa(currentCount))
@@ -26,7 +27,7 @@ func (d *settingsUI) loadDesktopsScreen() fyne.CanvasObject {
 	nameRows := make([]fyne.CanvasObject, 8)
 	for i := range 8 {
 		entry := widget.NewEntry()
-		entry.SetPlaceHolder("Desktop " + strconv.Itoa(i+1))
+		entry.SetPlaceHolder(locale.T("desktops.prefix") + strconv.Itoa(i+1))
 		if i < len(currentNames) && currentNames[i] != "" {
 			entry.SetText(currentNames[i])
 		}
@@ -58,10 +59,10 @@ func (d *settingsUI) loadDesktopsScreen() fyne.CanvasObject {
 
 	countRow := container.NewBorder(nil, nil, countLabel, nil, countSelect)
 
-	namesLabel := widget.NewLabelWithStyle("Desktop Names", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	namesLabel := widget.NewLabelWithStyle(locale.T("desktops.name"), fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 
 	applyButton := container.NewHBox(layout.NewSpacer(),
-		&widget.Button{Text: "Apply", Importance: widget.HighImportance, OnTapped: func() {
+		&widget.Button{Text: locale.T("settings.apply"), Importance: widget.HighImportance, OnTapped: func() {
 			d.settings.beginBatch()
 
 			count, _ := strconv.Atoi(countSelect.Selected)
@@ -77,7 +78,7 @@ func (d *settingsUI) loadDesktopsScreen() fyne.CanvasObject {
 			d.settings.setDesktopNames(names)
 
 			d.settings.endBatch()
-			wm.SendNotification(wm.NewNotification("Settings", "Changes applied"))
+			wm.SendNotification(wm.NewNotification(locale.T("settings.settings"), locale.T("notif.applied")))
 		}})
 
 	return container.NewBorder(

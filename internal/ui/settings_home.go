@@ -11,6 +11,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
+	"fyshos.com/tyde/locale"
 	wmtheme "fyshos.com/tyde/theme"
 )
 
@@ -29,6 +30,7 @@ const (
 // lazily on first open and then cached so state (and any dbus/fprintd
 // connections it opens) survives navigating away and back.
 type settingsPanel struct {
+	id    string // untranslated name that ShowSettings can open the panel by, if it has one
 	title string
 	icon  fyne.Resource
 	build func() fyne.CanvasObject
@@ -134,7 +136,7 @@ func newSettingsNav(groups []settingsGroup, headerIcon fyne.Resource) *settingsN
 	n.detailIcon.SetMinSize(fyne.NewSquareSize(headerIconSize))
 	n.detailTitle = widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	n.detailTitle.SizeName = theme.SizeNameHeadingText
-	n.backButton = widget.NewButtonWithIcon("Back", theme.NavigateBackIcon(), n.close)
+	n.backButton = widget.NewButtonWithIcon(locale.T("settings.back"), theme.NavigateBackIcon(), n.close)
 	n.backButton.Importance = widget.LowImportance
 	n.detailContent = container.NewStack()
 
@@ -185,7 +187,7 @@ func (n *settingsNav) buildHome() fyne.CanvasObject {
 	homeIcon.FillMode = canvas.ImageFillContain
 	homeIcon.SetMinSize(fyne.NewSquareSize(headerIconSize))
 	iconSlot := container.NewGridWrap(fyne.NewSquareSize(headerIconSize), homeIcon)
-	title := widget.NewLabelWithStyle("Settings", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	title := widget.NewLabelWithStyle(locale.T("settings.settings"), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	title.SizeName = theme.SizeNameHeadingText
 	head := container.NewVBox(
 		container.NewBorder(nil, nil, container.NewHBox(iconSlot, title), nil),
@@ -270,7 +272,8 @@ func (n *settingsNav) loadDetail(p *settingsPanel) {
 	n.detailContent.Refresh()
 }
 
-// showPanel jumps straight to the named panel and reports whether the title matched.
+// showPanel jumps straight to the named panel (by id or displayed title) and
+// reports whether one matched.
 func (n *settingsNav) showPanel(title string) bool {
 	p := n.panelByTitle(title)
 	if p == nil {
@@ -287,11 +290,11 @@ func (n *settingsNav) showPanel(title string) bool {
 	return true
 }
 
-// panelByTitle finds a panel by its title across all groups.
+// panelByTitle finds a panel by its id or title across all groups.
 func (n *settingsNav) panelByTitle(title string) *settingsPanel {
 	for gi := range n.groups {
 		for _, p := range n.groups[gi].panels {
-			if p.title == title {
+			if (p.id != "" && p.id == title) || p.title == title {
 				return p
 			}
 		}

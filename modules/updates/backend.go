@@ -7,6 +7,8 @@ import (
 	"errors"
 	"os/exec"
 	"strings"
+
+	"fyshos.com/tyde/locale"
 )
 
 // Update describes a single package that has a newer version available.
@@ -97,5 +99,5 @@ type backendError struct {
 }
 
 func (e *backendError) Error() string {
-	return e.what + ": " + e.detail
+	return locale.Tf("common.labelValue", e.what, e.detail)
 }

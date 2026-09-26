@@ -11,6 +11,7 @@ import (
 	"github.com/godbus/dbus/v5"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 	wmtheme "fyshos.com/tyde/theme"
 )
 
@@ -110,11 +111,11 @@ func (p *powerProfile) iconForProfile(profile string) fyne.Resource {
 func profileDisplayName(profile string) string {
 	switch profile {
 	case profilePerformance:
-		return "Performance"
+		return locale.T("advanced.performance")
 	case profilePowerSaver:
-		return "Power Saver"
+		return locale.T("advanced.powerSaver")
 	default:
-		return "Balanced"
+		return locale.T("advanced.balanced")
 	}
 }
 

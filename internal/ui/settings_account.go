@@ -28,6 +28,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/creack/pty"
 
+	"fyshos.com/tyde/locale"
 	wmtheme "fyshos.com/tyde/theme"
 )
 
@@ -66,8 +67,8 @@ func (d *settingsUI) loadAccountScreen() fyne.CanvasObject {
 func (d *settingsUI) loadFingerprintCard() fyne.CanvasObject {
 	client, err := newFprintClient()
 	if err != nil {
-		return container.NewVBox(sectionHeading("Fingerprint", ""),
-			widget.NewLabel("No fingerprint sensor detected."))
+		return container.NewVBox(sectionHeading(locale.T("fprint.title"), ""),
+			widget.NewLabel(locale.T("fprint.noSensor")))
 	}
 	d.fprint = client // closed when the settings window closes
 
@@ -80,11 +81,11 @@ func (d *settingsUI) loadFingerprintCard() fyne.CanvasObject {
 	}
 	fingerSelect.SetSelectedIndex(0)
 
-	enroll := widget.NewButtonWithIcon("Enrol", theme.ContentAddIcon(), func() {
+	enroll := widget.NewButtonWithIcon(locale.T("fprint.enrol"), theme.ContentAddIcon(), func() {
 		d.startEnroll(fingerNames[fingerSelect.SelectedIndex()], enrolledBox)
 	})
 	enroll.Importance = widget.HighImportance
-	enrollRow := container.NewBorder(nil, nil, widget.NewLabel("Add a finger:"), enroll, fingerSelect)
+	enrollRow := container.NewBorder(nil, nil, widget.NewLabel(locale.T("fprint.addFinger")), enroll, fingerSelect)
 
 	content := container.NewVBox(
 		enrolledBox,
@@ -94,7 +95,7 @@ func (d *settingsUI) loadFingerprintCard() fyne.CanvasObject {
 		d.fingerprintLoginToggle(),
 	)
 	return container.NewVBox(
-		sectionHeading("Fingerprint", "Unlock the screen and log in with a fingerprint"),
+		sectionHeading(locale.T("fprint.title"), locale.T("fprint.subtitle")),
 		content,
 	)
 }
@@ -104,7 +105,7 @@ func (d *settingsUI) refreshEnrolled(box *fyne.Container) {
 	box.Objects = nil
 	fingers, err := d.fprint.listEnrolled()
 	if err != nil || len(fingers) == 0 {
-		box.Add(widget.NewLabel("No fingerprints enrolled."))
+		box.Add(widget.NewLabel(locale.T("fprint.noneEnrolled")))
 		box.Refresh()
 		return
 	}
@@ -122,8 +123,8 @@ func (d *settingsUI) refreshEnrolled(box *fyne.Container) {
 
 // deleteEnrolled removes all enrolled fingerprints after confirmation.
 func (d *settingsUI) deleteEnrolled(box *fyne.Container) {
-	dialog.ShowConfirm("Remove fingerprints",
-		"Remove all enrolled fingerprints for your account?", func(ok bool) {
+	dialog.ShowConfirm(locale.T("fprint.removeTitle"),
+		locale.T("fprint.removeBody"), func(ok bool) {
 			if !ok {
 				return
 			}
@@ -142,10 +143,10 @@ func (d *settingsUI) deleteEnrolled(box *fyne.Container) {
 // startEnroll runs an interactive enrollment for the chosen finger, showing live
 // scan progress in a dialog.
 func (d *settingsUI) startEnroll(finger string, enrolledBox *fyne.Container) {
-	status := widget.NewLabel("Touch the sensor with your " + fingerLabel(finger) + "...")
+	status := widget.NewLabel(locale.Tf("fprint.touchSensor", strings.ToLower(fingerLabel(finger))))
 	status.Wrapping = fyne.TextWrapWord
 	bar := widget.NewProgressBar()
-	prog := dialog.NewCustom("Enrolling "+fingerLabel(finger), "Cancel",
+	prog := dialog.NewCustom(locale.Tf("fprint.enrolling", fingerLabel(finger)), locale.T("settings.cancel"),
 		container.NewVBox(status, bar), d.win)
 	prog.Show()
 
@@ -179,7 +180,7 @@ func (d *settingsUI) startEnroll(finger string, enrolledBox *fyne.Container) {
 }
 
 func (d *settingsUI) fingerprintLoginToggle() fyne.CanvasObject {
-	check := widget.NewCheck("Use fingerprint to log in and unlock the screen", nil)
+	check := widget.NewCheck(locale.T("fprint.useForLogin"), nil)
 	check.SetChecked(fingerprintLoginEnabled())
 	check.OnChanged = func(on bool) {
 		check.Disable()
@@ -196,7 +197,7 @@ func (d *settingsUI) fingerprintLoginToggle() fyne.CanvasObject {
 	}
 
 	if !pamFprintdAvailable() {
-		warn := widget.NewLabel("Install the pam_fprintd module to enable this.")
+		warn := widget.NewLabel(locale.T("fprint.installPam"))
 		warn.Importance = widget.WarningImportance
 		return container.NewVBox(check, warn)
 	}
@@ -241,13 +242,13 @@ func (d *settingsUI) loadUserImageCard() fyne.CanvasObject {
 		pickDialog.SetLocation(dir)
 	}
 
-	change := widget.NewButtonWithIcon("Change Image...", theme.FolderOpenIcon(), func() {
+	change := widget.NewButtonWithIcon(locale.T("account.changeImage"), theme.FolderOpenIcon(), func() {
 		pickDialog.Show()
 	})
 
 	return container.NewBorder(nil, nil, container.NewCenter(avatar), nil,
 		container.NewVBox(
-			widget.NewLabel("Your picture is shown on the login screen."),
+			widget.NewLabel(locale.T("account.pictureHint")),
 			container.NewHBox(change, layout.NewSpacer()),
 		))
 }
@@ -255,25 +256,25 @@ func (d *settingsUI) loadUserImageCard() fyne.CanvasObject {
 // loadPasswordCard builds the change-password form.
 func (d *settingsUI) loadPasswordCard(name string) fyne.CanvasObject {
 	current := widget.NewPasswordEntry()
-	current.SetPlaceHolder("Current password")
+	current.SetPlaceHolder(locale.T("account.currentPassword"))
 	next := widget.NewPasswordEntry()
-	next.SetPlaceHolder("New password")
+	next.SetPlaceHolder(locale.T("account.newPassword"))
 	confirm := widget.NewPasswordEntry()
-	confirm.SetPlaceHolder("Confirm new password")
+	confirm.SetPlaceHolder(locale.T("account.confirmPassword"))
 
-	currentItem := widget.NewFormItem("Current", current)
+	currentItem := widget.NewFormItem(locale.T("account.current"), current)
 	currentItem.Required = true
-	nextItem := widget.NewFormItem("New", next)
+	nextItem := widget.NewFormItem(locale.T("account.new"), next)
 	nextItem.Required = true
-	confirmItem := widget.NewFormItem("Confirm", confirm)
+	confirmItem := widget.NewFormItem(locale.T("account.confirm"), confirm)
 	confirmItem.Required = true
 
 	form := &widget.Form{
 		Items:      []*widget.FormItem{currentItem, nextItem, confirmItem},
-		SubmitText: "Change Password",
+		SubmitText: locale.T("account.changePassword"),
 		Validator: func() error {
 			if next.Text != confirm.Text {
-				return errors.New("new passwords do not match")
+				return errors.New(locale.T("account.mismatch"))
 			}
 			return nil
 		},
@@ -293,14 +294,14 @@ func (d *settingsUI) loadPasswordCard(name string) fyne.CanvasObject {
 				current.SetText("")
 				next.SetText("")
 				confirm.SetText("")
-				dialog.ShowInformation("Password Changed",
-					"Your password was updated successfully.", d.win)
+				dialog.ShowInformation(locale.T("account.passwordChanged"),
+					locale.T("account.passwordChangedBody"), d.win)
 			})
 		}()
 	}
 
 	return container.NewVBox(
-		sectionHeading("Change Password", "Signed in as "+name),
+		sectionHeading(locale.T("account.changePassword"), locale.Tf("account.signedInAs", name)),
 		form,
 	)
 }
@@ -309,12 +310,12 @@ func (d *settingsUI) loadPasswordCard(name string) fyne.CanvasObject {
 func writeUserFace(src io.Reader) error {
 	img, _, err := image.Decode(src)
 	if err != nil {
-		return fmt.Errorf("unsupported image: %w", err)
+		return fmt.Errorf("%s: %w", locale.T("account.unsupportedImage"), err)
 	}
 
 	dst := facePath()
 	if dst == "" {
-		return errors.New("could not resolve home directory")
+		return errors.New(locale.T("account.noHome"))
 	}
 	out, err := os.Create(dst)
 	if err != nil {
@@ -341,7 +342,7 @@ func changePassword(oldPass, newPass string) error {
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C", "LANGUAGE=")
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		return fmt.Errorf("could not start passwd: %w", err)
+		return fmt.Errorf("%s: %w", locale.T("account.passwdFailed"), err)
 	}
 	defer func() { _ = ptmx.Close() }()
 
@@ -373,7 +374,7 @@ func changePassword(oldPass, newPass string) error {
 
 	if err := cmd.Wait(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return errors.New("changing password timed out")
+			return errors.New(locale.T("account.passwdTimeout"))
 		}
 		return errors.New(passwdError(transcript.String()))
 	}
@@ -392,5 +393,5 @@ func passwdError(out string) string {
 			return strings.TrimPrefix(line, "passwd: ")
 		}
 	}
-	return "password was not changed (incorrect current password?)"
+	return locale.T("account.notChanged")
 }

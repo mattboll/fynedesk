@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"fyshos.com/tyde/locale"
 	"fyshos.com/tyde/modules/launcher"
 	wmtheme "fyshos.com/tyde/theme"
 
@@ -54,7 +55,7 @@ func (c *chatUI) build() fyne.CanvasObject {
 	c.scroll = container.NewVScroll(c.log)
 
 	c.entry = widget.NewMultiLineEntry()
-	c.entry.SetPlaceHolder("Ask the assistant...")
+	c.entry.SetPlaceHolder(locale.T("ai.askAssistant"))
 	c.entry.Wrapping = fyne.TextWrapWord
 	c.entry.OnSubmitted = func(string) { c.submit() }
 
@@ -65,7 +66,7 @@ func (c *chatUI) build() fyne.CanvasObject {
 
 	// A compact reasoning toggle above the input makes it easy to trade speed for
 	// accuracy per question.
-	c.reasoning = widget.NewCheck("Reasoning", nil)
+	c.reasoning = widget.NewCheck(locale.T("ai.reasoning"), nil)
 
 	input := container.NewBorder(nil, nil, nil, c.send, c.entry)
 	controls := container.NewHBox(layout.NewSpacer(), c.reasoning)
@@ -208,7 +209,7 @@ func (c *chatUI) submit() {
 			case final != "":
 				shown := final
 				if truncated {
-					shown += " …\n\n*(reply truncated - ask to continue)*"
+					shown += " …\n\n" + locale.T("ai.truncated")
 				}
 				renderMarkdown(reply, shown)
 			}

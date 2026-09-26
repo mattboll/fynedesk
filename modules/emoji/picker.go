@@ -11,6 +11,7 @@ import (
 
 	"fyshos.com/tyde"
 	emojidata "fyshos.com/tyde/internal/emoji"
+	"fyshos.com/tyde/locale"
 	wmTheme "fyshos.com/tyde/theme"
 )
 
@@ -101,7 +102,7 @@ func (p *picker) size() fyne.Size {
 
 func (p *picker) build() {
 	p.entry = newSearchEntry()
-	p.entry.SetPlaceHolder("Search emoji...")
+	p.entry.SetPlaceHolder(locale.T("emoji.search"))
 	p.entry.OnChanged = func(s string) { p.search(s) }
 	p.entry.onEscape = p.hide
 	// Enter picks the top match, so a known emoji is three keystrokes away

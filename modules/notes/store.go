@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"fyshos.com/tyde/locale"
 )
 
 // Note is a single note with a title and body.
@@ -49,7 +51,7 @@ func NewStore() *Store {
 	if len(s.notes) == 0 {
 		s.notes = []Note{{
 			ID:        genID(),
-			Title:     "Notes",
+			Title:     locale.T("notes.defaultTitle"),
 			Body:      "",
 			CreatedAt: time.Now().UnixMilli(),
 			UpdatedAt: time.Now().UnixMilli(),

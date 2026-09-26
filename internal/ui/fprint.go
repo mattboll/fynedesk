@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/godbus/dbus/v5"
+
+	"fyshos.com/tyde/locale"
 )
 
 // This file is a small client for fprintd (net.reactivated.Fprint), the system
@@ -34,25 +36,25 @@ var fingerNames = []string{
 func fingerLabel(finger string) string {
 	switch finger {
 	case "right-index-finger":
-		return "Right index finger"
+		return locale.T("fprint.rightIndex")
 	case "right-thumb":
-		return "Right thumb"
+		return locale.T("fprint.rightThumb")
 	case "right-middle-finger":
-		return "Right middle finger"
+		return locale.T("fprint.rightMiddle")
 	case "right-ring-finger":
-		return "Right ring finger"
+		return locale.T("fprint.rightRing")
 	case "right-little-finger":
-		return "Right little finger"
+		return locale.T("fprint.rightLittle")
 	case "left-index-finger":
-		return "Left index finger"
+		return locale.T("fprint.leftIndex")
 	case "left-thumb":
-		return "Left thumb"
+		return locale.T("fprint.leftThumb")
 	case "left-middle-finger":
-		return "Left middle finger"
+		return locale.T("fprint.leftMiddle")
 	case "left-ring-finger":
-		return "Left ring finger"
+		return locale.T("fprint.leftRing")
 	case "left-little-finger":
-		return "Left little finger"
+		return locale.T("fprint.leftLittle")
 	}
 	return finger
 }
@@ -146,7 +148,7 @@ func (c *fprintClient) deleteEnrolled() error {
 func (c *fprintClient) enroll(finger string, progress func(msg string, done float64)) error {
 	user := currentUsername()
 	if call := c.device.Call(fprintDeviceIf+".Claim", 0, user); call.Err != nil {
-		return fmt.Errorf("could not access the sensor: %w", call.Err)
+		return fmt.Errorf("%s: %w", locale.T("fprint.noAccess"), call.Err)
 	}
 	defer c.device.Call(fprintDeviceIf+".Release", 0)
 
@@ -169,7 +171,7 @@ func (c *fprintClient) enroll(finger string, progress func(msg string, done floa
 	defer c.conn.RemoveSignal(signals)
 
 	if call := c.device.Call(fprintDeviceIf+".EnrollStart", 0, finger); call.Err != nil {
-		return fmt.Errorf("could not start enrollment: %w", call.Err)
+		return fmt.Errorf("%s: %w", locale.T("fprint.startFailed"), call.Err)
 	}
 	defer c.device.Call(fprintDeviceIf+".EnrollStop", 0)
 
@@ -189,17 +191,17 @@ func (c *fprintClient) enroll(finger string, progress func(msg string, done floa
 
 			switch result {
 			case "enroll-completed":
-				progress("Fingerprint saved.", 1)
+				progress(locale.T("fprint.saved"), 1)
 				return nil
 			case "enroll-failed":
-				return errors.New("enrollment failed, please try again")
+				return errors.New(locale.T("fprint.failed"))
 			case "enroll-stage-passed":
 				passed++
 				frac := float64(passed) / float64(stages)
 				if frac > 1 {
 					frac = 1
 				}
-				progress("Scan received, lift and touch again...", frac)
+				progress(locale.T("fprint.scanReceived"), frac)
 			default:
 				// Retry hints such as enroll-retry-scan / enroll-swipe-too-short.
 				progress(enrollHint(result), float64(passed)/float64(stages))
@@ -208,7 +210,7 @@ func (c *fprintClient) enroll(finger string, progress func(msg string, done floa
 				return errors.New(enrollHint(result))
 			}
 		case <-timeout.C:
-			return errors.New("enrollment timed out")
+			return errors.New(locale.T("fprint.timedOut"))
 		}
 	}
 }
@@ -217,17 +219,17 @@ func (c *fprintClient) enroll(finger string, progress func(msg string, done floa
 func enrollHint(result string) string {
 	switch result {
 	case "enroll-retry-scan":
-		return "Scan was not clear, please try again..."
+		return locale.T("fprint.retryScan")
 	case "enroll-swipe-too-short":
-		return "Swipe was too short, please try again..."
+		return locale.T("fprint.swipeTooShort")
 	case "enroll-finger-not-centered":
-		return "Center your finger on the sensor and try again..."
+		return locale.T("fprint.notCentered")
 	case "enroll-remove-and-retry":
-		return "Remove your finger and touch the sensor again..."
+		return locale.T("fprint.removeAndRetry")
 	case "enroll-data-full":
-		return "The sensor storage is full."
+		return locale.T("fprint.dataFull")
 	case "enroll-disconnected":
-		return "The fingerprint sensor was disconnected."
+		return locale.T("fprint.disconnected")
 	}
-	return "Please try again..."
+	return locale.T("fprint.tryAgain")
 }

@@ -8,6 +8,7 @@ import (
 	wmTheme "fyshos.com/tyde/theme"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 )
 
 // promptPreviewLen is the number of runes of launcher input shown in a
@@ -49,7 +50,7 @@ func (s *searchItem) Icon() fyne.Resource {
 }
 
 func (s *searchItem) Title() string {
-	return "Search Web: " + TruncatePrompt(s.text)
+	return locale.Tf("launcher.searchWeb", TruncatePrompt(s.text))
 }
 
 func (s *searchItem) Launch() {

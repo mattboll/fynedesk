@@ -9,6 +9,7 @@ import (
 	"codeberg.org/sdassow/unyts/units"
 	"fyne.io/fyne/v2"
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 )
 
 var unytsMeta = tyde.ModuleMetadata{
@@ -80,7 +81,7 @@ func (r *unytResult) Title() string {
 	lookup := units.FuncMapForAbbr(unit.Abbr)
 	conv, ok := lookup[parts[2]]
 	if !ok {
-		return "Cannot convert " + unit.Abbr + " to " + parts[2]
+		return locale.Tf("launcher.cannotConvert", unit.Abbr, parts[2])
 	}
 
 	return r.conversion + " = " + strconv.FormatFloat(conv(src), 'f', 1, 64)

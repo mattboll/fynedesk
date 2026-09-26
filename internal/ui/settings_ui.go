@@ -79,7 +79,7 @@ func (d *settingsUI) loadNetworkScreen() fyne.CanvasObject {
 
 	nm, conn, err := newWifiNetworks(d.win)
 	if err != nil {
-		msg := widget.NewLabel("Wi-Fi management is unavailable.\n\n" + err.Error())
+		msg := widget.NewLabel(locale.T("settings.wifiUnavailable") + "\n\n" + err.Error())
 		msg.Wrapping = fyne.TextWrapWord
 		return container.NewCenter(msg)
 	}
@@ -126,16 +126,16 @@ func (d *settingsUI) loadModulesScreen() fyne.CanvasObject {
 		}
 	}
 	return container.NewGridWithColumns(2,
-		container.NewBorder(sectionHeading("Modules", ""), nil, nil, nil,
+		container.NewBorder(sectionHeading(locale.T("settings.modules"), ""), nil, nil, nil,
 			container.NewVScroll(container.NewVBox(modules...))),
-		container.NewBorder(sectionHeading("Launchers", ""), nil, nil, nil,
+		container.NewBorder(sectionHeading(locale.T("settings.launchers"), ""), nil, nil, nil,
 			container.NewVScroll(container.NewVBox(launchers...))))
 }
 
 // loadAIScreen builds the AI assistant setup: an enable toggle (wired into the
 // module enable/disable machinery) above the module's own provider/token panel.
 func (d *settingsUI) loadAIScreen() fyne.CanvasObject {
-	enable := widget.NewCheck("Enable AI Assistant", nil)
+	enable := widget.NewCheck(locale.T("settings.enableAI"), nil)
 	enable.SetChecked(isModuleEnabled(ai.ModuleName, d.settings))
 	enable.OnChanged = func(on bool) {
 		names := d.settings.ModuleNames()
@@ -175,7 +175,7 @@ func (w *widgetPanel) showSettings(panel string) {
 		panel:         w,
 	}
 
-	win := fyne.CurrentApp().NewWindow("Tyde Settings")
+	win := fyne.CurrentApp().NewWindow(locale.T("settings.title"))
 	ui.win = win
 
 	scale := ui.makeScaleGroup(win)
@@ -189,7 +189,7 @@ func (w *widgetPanel) showSettings(panel string) {
 		}
 		screens = screenmanager.New(win)
 		screens.OnConfigurationChanged = w.desk.Screens().RefreshScreens
-		screenui := container.NewBorder(sectionHeading("Screens", ""), nil, nil, nil, screens)
+		screenui := container.NewBorder(sectionHeading(locale.T("screens.title"), ""), nil, nil, nil, screens)
 		return container.NewBorder(scale, nil, nil, nil, screenui)
 	}
 
@@ -199,19 +199,19 @@ func (w *widgetPanel) showSettings(panel string) {
 			{title: locale.T("appearance.background"), icon: wmtheme.WallpaperIcon, build: ui.loadBackgroundScreen},
 			{title: locale.T("settings.colorScheme"), icon: theme.ColorPaletteIcon(), build: ui.loadThemeScreen},
 		}},
-		{title: "Desktop", panels: []*settingsPanel{
+		{title: locale.T("settings.desktop"), panels: []*settingsPanel{
 			{title: locale.T("settings.dock"), icon: dockIcon, build: ui.loadBarScreen},
 			{title: locale.T("settings.desktops"), icon: wmtheme.DisplayIcon, build: ui.loadDesktopsScreen},
 			{title: locale.T("settings.keyboard"), icon: wmtheme.KeyboardIcon, build: ui.loadKeyboardScreen},
 			{title: locale.T("settings.windowRules"), icon: windowRulesIcon, build: ui.loadWindowRulesScreen},
-			{title: "Modules", icon: theme.GridIcon(), build: ui.loadModulesScreen},
-			{title: "AI", icon: ai.Icon, build: ui.loadAIScreen},
+			{title: locale.T("settings.modules"), icon: theme.GridIcon(), build: ui.loadModulesScreen},
+			{title: locale.T("settings.ai"), icon: ai.Icon, build: ui.loadAIScreen},
 		}},
-		{title: "System", panels: []*settingsPanel{
-			{title: "Account", icon: wmtheme.UserIcon, build: ui.loadAccountScreen},
-			{title: "Display", icon: wmtheme.ScreensIcon, build: displayPanel},
-			{title: "Network", icon: wmtheme.WifiIcon, build: ui.loadNetworkScreen},
-			{title: "Time/Date", icon: wmtheme.ClockIcon, build: ui.loadTimeScreen},
+		{title: locale.T("settings.system"), panels: []*settingsPanel{
+			{title: locale.T("settings.account"), icon: wmtheme.UserIcon, build: ui.loadAccountScreen},
+			{title: locale.T("settings.display"), icon: wmtheme.ScreensIcon, build: displayPanel},
+			{id: "Network", title: locale.T("settings.network"), icon: wmtheme.WifiIcon, build: ui.loadNetworkScreen},
+			{title: locale.T("settings.timeDate"), icon: wmtheme.ClockIcon, build: ui.loadTimeScreen},
 			{title: locale.T("settings.power"), icon: wmtheme.BatteryIcon, build: ui.loadPowerScreen},
 			{title: locale.T("settings.calendar"), icon: theme.CalendarIcon(), build: ui.loadCalendarScreen},
 			{title: locale.T("settings.advanced"), icon: tuneIcon, build: ui.loadAdvancedScreen},
@@ -225,7 +225,7 @@ func (w *widgetPanel) showSettings(panel string) {
 
 		if isModuleEnabled(mod.Name, w.desk.Settings()) {
 			groups[2].panels = append(groups[2].panels,
-				&settingsPanel{title: "Updates", icon: wmtheme.UpdateIcon, build: updates.SettingsContent},
+				&settingsPanel{id: "Updates", title: locale.T("settings.updates"), icon: wmtheme.UpdateIcon, build: updates.SettingsContent},
 			)
 		}
 		break
