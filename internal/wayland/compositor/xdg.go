@@ -646,7 +646,10 @@ func (s *server) positionNewXdgWindow(v *xdgView, winWidth, winHeight int) {
 	}
 
 	// Calculate cascade position (per-output)
-	outName := s.getActiveOutput().output.Name()
+	outName := ""
+	if out := s.getActiveOutput(); out != nil {
+		outName = out.output.Name()
+	}
 	if s.cascadeOffsets == nil {
 		s.cascadeOffsets = map[string]int{}
 	}

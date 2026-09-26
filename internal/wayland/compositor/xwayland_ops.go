@@ -19,8 +19,11 @@ func (s *server) positionNewXwayWindow(v *xwayView) {
 	// origin (often the secondary). Let them fall through to content-area
 	// placement; positionOverlay will move them to the IPC-requested spot
 	// once the title arrives.
+	// (The view starts at a default position, so the client's own is read
+	// from the X11 window.)
 	isPopup := winWidth < 400 || winHeight < 300
-	if isPopup && (v.x != 0 || v.y != 0) {
+	if reqX, reqY := v.surface.X(), v.surface.Y(); isPopup && (reqX != 0 || reqY != 0) {
+		v.x, v.y = float64(reqX), float64(reqY)
 		v.surface.Configure(int16(v.x), int16(v.y), uint16(winWidth), uint16(winHeight))
 		return
 	}
@@ -41,7 +44,10 @@ func (s *server) positionNewXwayWindow(v *xwayView) {
 	}
 
 	// Calculate cascade position (per-output)
-	outName := s.getActiveOutput().output.Name()
+	outName := ""
+	if out := s.getActiveOutput(); out != nil {
+		outName = out.output.Name()
+	}
 	if s.cascadeOffsets == nil {
 		s.cascadeOffsets = map[string]int{}
 	}
