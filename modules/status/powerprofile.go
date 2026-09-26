@@ -1,18 +1,17 @@
 package status
 
 import (
-	"strings"
-	"sync/atomic"
-	"time"
+	"fmt"
+	"sync"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"github.com/godbus/dbus/v5"
 
 	"fyshos.com/tyde"
 	wmtheme "fyshos.com/tyde/theme"
-	"fyshos.com/tyde/wm"
 )
 
 var powerProfileMeta = tyde.ModuleMetadata{
@@ -29,8 +28,9 @@ const (
 type powerProfile struct {
 	btn     *widget.Button
 	label   *widget.Label
-	current string
-	done    atomic.Bool
+	current string // Fyne thread
+	daemon  *profileDaemon
+	stop    func() // stops watching the daemon
 }
 
 func (p *powerProfile) Metadata() tyde.ModuleMetadata {
@@ -38,15 +38,22 @@ func (p *powerProfile) Metadata() tyde.ModuleMetadata {
 }
 
 func (p *powerProfile) Destroy() {
-	p.done.Store(true)
+	if p.stop != nil {
+		p.stop()
+		p.stop = nil
+	}
 }
 
 func (p *powerProfile) StatusAreaWidget() fyne.CanvasObject {
-	cur, err := getProfile()
+	d, err := findProfileDaemon()
 	if err != nil {
 		return nil // power-profiles-daemon not available
 	}
-	p.current = cur
+	cur, err := d.get()
+	if err != nil {
+		return nil
+	}
+	p.daemon, p.current = d, cur
 
 	p.label = widget.NewLabel(profileDisplayName(p.current))
 	p.btn = widget.NewButtonWithIcon("", p.iconForProfile(p.current), func() {
@@ -54,11 +61,23 @@ func (p *powerProfile) StatusAreaWidget() fyne.CanvasObject {
 	})
 	p.btn.Importance = widget.LowImportance
 
-	go p.watchProfile()
+	// The daemon says when the profile changes (it used to be asked through
+	// powerprofilesctl, a Python script, every 5 s).
+	p.stop = d.watch(func(profile string) {
+		fyne.Do(func() { p.show(profile) })
+	})
 
 	return container.New(&handleNarrow{}, p.btn, p.label)
 }
 
+// show shows a profile. Fyne thread.
+func (p *powerProfile) show(profile string) {
+	p.current = profile
+	p.btn.SetIcon(p.iconForProfile(profile))
+	p.label.SetText(profileDisplayName(profile))
+}
+
+// cycleProfile moves to the next profile. Fyne thread.
 func (p *powerProfile) cycleProfile() {
 	var next string
 	switch p.current {
@@ -70,34 +89,11 @@ func (p *powerProfile) cycleProfile() {
 		next = profilePerformance
 	}
 
-	if err := setProfile(next); err != nil {
+	if err := p.daemon.set(next); err != nil {
 		fyne.LogError("Failed to set power profile", err)
 		return
 	}
-	p.current = next
-	fyne.Do(func() {
-		p.btn.SetIcon(p.iconForProfile(next))
-		p.label.SetText(profileDisplayName(next))
-	})
-}
-
-func (p *powerProfile) watchProfile() {
-	tick := time.NewTicker(5 * time.Second)
-	defer tick.Stop()
-	for !p.done.Load() {
-		<-tick.C
-		cur, err := getProfile()
-		if err != nil {
-			continue
-		}
-		if cur != p.current {
-			p.current = cur
-			fyne.Do(func() {
-				p.btn.SetIcon(p.iconForProfile(cur))
-				p.label.SetText(profileDisplayName(cur))
-			})
-		}
-	}
+	p.show(next)
 }
 
 func (p *powerProfile) iconForProfile(profile string) fyne.Resource {
@@ -122,16 +118,96 @@ func profileDisplayName(profile string) string {
 	}
 }
 
-func getProfile() (string, error) {
-	out, err := wm.ExecOutput("powerprofilesctl", "get")
+// profileDaemon is power-profiles-daemon on the system bus.
+type profileDaemon struct {
+	conn *dbus.Conn
+	name string // bus name, which is also the interface
+	path dbus.ObjectPath
+}
+
+// profileBus is the bus of the daemon (replaced in tests).
+var profileBus = dbus.SystemBus
+
+// findProfileDaemon finds power-profiles-daemon under its current name, or
+// the one it had before 0.20.
+func findProfileDaemon() (*profileDaemon, error) {
+	conn, err := profileBus()
+	if err != nil {
+		return nil, err
+	}
+	var lastErr error
+	for _, d := range []profileDaemon{
+		{conn: conn, name: "org.freedesktop.UPower.PowerProfiles", path: "/org/freedesktop/UPower/PowerProfiles"},
+		{conn: conn, name: "net.hadess.PowerProfiles", path: "/net/hadess/PowerProfiles"},
+	} {
+		if _, err := d.get(); err == nil {
+			return &d, nil
+		} else {
+			lastErr = err
+		}
+	}
+	return nil, lastErr
+}
+
+func (d *profileDaemon) obj() dbus.BusObject { return d.conn.Object(d.name, d.path) }
+
+func (d *profileDaemon) get() (string, error) {
+	v, err := d.obj().GetProperty(d.name + ".ActiveProfile")
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(out)), nil
+	profile, ok := v.Value().(string)
+	if !ok {
+		return "", fmt.Errorf("ActiveProfile is a %T", v.Value())
+	}
+	return profile, nil
 }
 
-func setProfile(profile string) error {
-	return wm.ExecRun("powerprofilesctl", "set", profile)
+func (d *profileDaemon) set(profile string) error {
+	return d.obj().SetProperty(d.name+".ActiveProfile", dbus.MakeVariant(profile))
+}
+
+// watch calls changed with the new profile whenever it changes, until the
+// returned function is called.
+func (d *profileDaemon) watch(changed func(string)) (stop func()) {
+	opts := []dbus.MatchOption{
+		dbus.WithMatchObjectPath(d.path),
+		dbus.WithMatchInterface("org.freedesktop.DBus.Properties"),
+		dbus.WithMatchMember("PropertiesChanged"),
+	}
+	if err := d.conn.AddMatchSignal(opts...); err != nil {
+		return func() {}
+	}
+	signals := make(chan *dbus.Signal, 8)
+	d.conn.Signal(signals)
+	done := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case sig := <-signals:
+				if sig == nil || sig.Path != d.path || len(sig.Body) < 2 {
+					continue
+				}
+				if props, ok := sig.Body[1].(map[string]dbus.Variant); ok {
+					if v, ok := props["ActiveProfile"]; ok {
+						if profile, ok := v.Value().(string); ok {
+							changed(profile)
+						}
+					}
+				}
+			}
+		}
+	}()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			d.conn.RemoveSignal(signals)
+			_ = d.conn.RemoveMatchSignal(opts...)
+			close(done)
+		})
+	}
 }
 
 func newPowerProfile() tyde.Module {
