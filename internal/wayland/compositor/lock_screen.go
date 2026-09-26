@@ -361,6 +361,34 @@ func (s *server) createLockBackground() *image.NRGBA {
 	return nrgba
 }
 
+// drawLockPassword draws a dot per typed character at height dotsY, and
+// below them the error or the invitation to type.
+func (s *server) drawLockPassword(img *image.NRGBA, textFace font.Face, centerX, dotsY int) {
+	dotR := 5
+	dotGap := 14
+	nDots := len(s.builtinLock.password)
+	if nDots > 0 {
+		totalW := nDots*dotR*2 + (nDots-1)*dotGap
+		startX := centerX - totalW/2 + dotR
+		dotColor := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+		for i := 0; i < nDots; i++ {
+			cx := startX + i*(dotR*2+dotGap)
+			drawFilledCircle(img, cx, dotsY, dotR, dotColor)
+		}
+	}
+
+	if textFace != nil {
+		statusY := dotsY + 30
+		if s.builtinLock.showError && s.builtinLock.errorMsg != "" {
+			drawCenteredText(img, textFace, s.builtinLock.errorMsg, centerX, statusY,
+				color.NRGBA{R: 0xff, G: 0x66, B: 0x66, A: 0xff})
+		} else if nDots == 0 {
+			drawCenteredText(img, textFace, "Type password to unlock", centerX, statusY,
+				color.NRGBA{R: 0x99, G: 0x99, B: 0x99, A: 0xff})
+		}
+	}
+}
+
 // updateBuiltinLockScene composites the lock screen as a full-screen NRGBA image
 // and updates the scene buffer in lockTree.
 func (s *server) updateBuiltinLockScene() {
@@ -439,30 +467,7 @@ func (s *server) updateBuiltinLockScene() {
 	if dateFace != nil {
 		dotsY = avatarCY + avatarR + 56
 	}
-	dotR := 5
-	dotGap := 14
-	nDots := len(s.builtinLock.password)
-	if nDots > 0 {
-		totalW := nDots*dotR*2 + (nDots-1)*dotGap
-		startX := centerX - totalW/2 + dotR
-		dotColor := color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
-		for i := 0; i < nDots; i++ {
-			cx := startX + i*(dotR*2+dotGap)
-			drawFilledCircle(img, cx, dotsY, dotR, dotColor)
-		}
-	}
-
-	// --- Status text ---
-	if textFace != nil {
-		statusY := dotsY + 30
-		if s.builtinLock.showError && s.builtinLock.errorMsg != "" {
-			drawCenteredText(img, textFace, s.builtinLock.errorMsg, centerX, statusY,
-				color.NRGBA{R: 0xff, G: 0x66, B: 0x66, A: 0xff})
-		} else if nDots == 0 {
-			drawCenteredText(img, textFace, "Type password to unlock", centerX, statusY,
-				color.NRGBA{R: 0x99, G: 0x99, B: 0x99, A: 0xff})
-		}
-	}
+	s.drawLockPassword(img, textFace, centerX, dotsY)
 
 	// --- Custom label from settings ---
 	if textFace != nil && s.lockLabel != "" {
@@ -521,8 +526,7 @@ func (s *server) handleBuiltinLockKey(sym xkb.KeySym, mods uint32) {
 	}
 
 	switch {
-	case sym == symReturn ||
-		sym == symKPEnter:
+	case sym == symReturn || sym == symKPEnter:
 		// Submit password — one attempt at a time, or they would get past
 		// the delay PAM puts after a wrong password.
 		if len(s.builtinLock.password) == 0 || s.builtinLock.checking {

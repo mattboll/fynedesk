@@ -214,22 +214,6 @@ func WatchBrightnessEvent(callback func(), done <-chan struct{}) {
 	}()
 }
 
-// NotifyVolumeEvent signals the panel that volume changed.
-func NotifyVolumeEvent() error {
-	evt := struct {
-		Timestamp int64 `json:"timestamp"`
-	}{Timestamp: time.Now().UnixMilli()}
-	broadcastIfServer(EventVolumeChange, evt)
-
-	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0o700)
-	data, err := json.Marshal(evt)
-	if err != nil {
-		return err
-	}
-	return atomicWriteFile(filepath.Join(configDir, "volume-event.json"), data)
-}
-
 // WatchVolumeEvent watches for volume events and calls callback.
 // Close the done channel to stop the watcher goroutine.
 // Prefers socket IPC when available, falls back to file polling.
@@ -295,20 +279,6 @@ func NotifySettingsChanged() error {
 type ScreenshotEvent struct {
 	FilePath  string `json:"file_path"`
 	Timestamp int64  `json:"timestamp"`
-}
-
-// NotifyScreenshot writes a screenshot event for the panel
-func NotifyScreenshot(filePath string) error {
-	evt := ScreenshotEvent{FilePath: filePath, Timestamp: time.Now().UnixMilli()}
-	broadcastIfServer(EventScreenshot, evt)
-
-	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0o700)
-	data, err := json.Marshal(evt)
-	if err != nil {
-		return err
-	}
-	return atomicWriteFile(filepath.Join(configDir, "screenshot-event.json"), data)
 }
 
 // WatchScreenshotEvent watches for screenshot events from compositor.
@@ -501,19 +471,6 @@ func WriteAccentColor(hex string) error {
 	dir := getConfigDir()
 	os.MkdirAll(dir, 0o700)
 	return atomicWriteFile(filepath.Join(dir, "accent-color.json"), data)
-}
-
-// ReadAccentColor reads the current accent color from the IPC file.
-func ReadAccentColor() (*AccentColor, error) {
-	data, err := os.ReadFile(filepath.Join(getConfigDir(), "accent-color.json"))
-	if err != nil {
-		return nil, err
-	}
-	var ac AccentColor
-	if err := json.Unmarshal(data, &ac); err != nil {
-		return nil, err
-	}
-	return &ac, nil
 }
 
 // WatchAccentColor watches for accent color changes from the compositor.

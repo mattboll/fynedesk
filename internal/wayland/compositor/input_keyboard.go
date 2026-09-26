@@ -12,21 +12,6 @@ import (
 )
 
 func (s *server) handleNewInput(device wlr.InputDevice) {
-	typeName := "unknown"
-	switch device.Type() {
-	case wlr.InputDeviceTypeKeyboard:
-		typeName = "keyboard"
-	case wlr.InputDeviceTypePointer:
-		typeName = "pointer"
-	case wlr.InputDeviceTypeTouch:
-		typeName = "touch"
-	case wlr.InputDeviceTypeTablet:
-		typeName = "tablet"
-	case wlr.InputDeviceTypeTabletPad:
-		typeName = "tablet_pad"
-	}
-	_ = typeName
-
 	switch device.Type() {
 	case wlr.InputDeviceTypeKeyboard:
 		s.setupKeyboard(device)

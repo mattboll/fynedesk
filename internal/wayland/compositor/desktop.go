@@ -32,9 +32,6 @@ static void setup_wakeup_fd(struct wl_display *display, struct wlr_output *outpu
     wl_event_loop_add_fd(loop, fd, WL_EVENT_READABLE, wakeup_handler, NULL);
 }
 
-static void keyboard_clear_focus(struct wlr_seat *seat) {
-    wlr_seat_keyboard_clear_focus(seat);
-}
 static void scene_node_raise_to_top(struct wlr_scene_node *node) {
     wlr_scene_node_raise_to_top(node);
 }
@@ -68,7 +65,6 @@ import (
 	"runtime"
 	"sort"
 	"time"
-	"unsafe"
 
 	"fyshos.com/tyde/internal/wayland/wlr"
 	"golang.org/x/sys/unix"
@@ -423,19 +419,6 @@ func (s *server) focusXdgView(v *xdgView) {
 	s.handleTextInputFocusChange(surfacePtr(surface))
 
 	s.writeWindowsState()
-}
-
-// setSceneEnabled enables or disables a scene tree node.
-// Safe to call with nil sceneTree.
-func (s *server) setSceneEnabled(sceneTree unsafe.Pointer, enabled bool) {
-	if sceneTree == nil {
-		return
-	}
-	val := C.int(0)
-	if enabled {
-		val = 1
-	}
-	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(sceneTree).node, val)
 }
 
 // focusPanelKeyboard sends keyboard focus to the panel surface without

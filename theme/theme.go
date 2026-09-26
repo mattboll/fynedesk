@@ -276,21 +276,6 @@ func SectionLabelColor() color.Color {
 	return deskColor(ColorNameSectionLabel, color.NRGBA{R: 120, G: 140, B: 180, A: 255})
 }
 
-// TitlebarActive returns the active window titlebar background color.
-func TitlebarActive() color.Color {
-	return deskColor(ColorNameTitlebarActive, color.NRGBA{R: 0x18, G: 0x1d, B: 0x25, A: 0xff})
-}
-
-// TitlebarInactive returns the inactive window titlebar background color.
-func TitlebarInactive() color.Color {
-	return deskColor(ColorNameTitlebarInactive, color.NRGBA{R: 0x28, G: 0x29, B: 0x2e, A: 0xff})
-}
-
-// TitlebarTextColor returns the titlebar text color.
-func TitlebarTextColor() color.Color {
-	return deskColor(ColorNameTitlebarText, color.NRGBA{R: 0xf3, G: 0xf3, B: 0xf3, A: 0xff})
-}
-
 // BadgeColor returns the notification badge dot color.
 func BadgeColor() color.Color {
 	return deskColor(ColorNameBadge, color.NRGBA{R: 220, G: 40, B: 40, A: 255})

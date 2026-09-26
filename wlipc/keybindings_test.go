@@ -59,49 +59,6 @@ func TestMergeWithDefaults_UserOverride(t *testing.T) {
 	}
 }
 
-func TestBindingToString(t *testing.T) {
-	tests := []struct {
-		name     string
-		binding  KeyBinding
-		expected string
-	}{
-		{
-			name:     "single mod + key",
-			binding:  KeyBinding{Key: "Tab", Mods: []string{"WM"}},
-			expected: "WM+Tab",
-		},
-		{
-			name:     "multiple mods",
-			binding:  KeyBinding{Key: "Tab", Mods: []string{"WM", "Shift"}},
-			expected: "WM+Shift+Tab",
-		},
-		{
-			name:     "key only",
-			binding:  KeyBinding{Key: "F11", Mods: nil},
-			expected: "F11",
-		},
-		{
-			name:     "grave key",
-			binding:  KeyBinding{Key: "grave", Mods: []string{"WM"}},
-			expected: "WM+`",
-		},
-		{
-			name:     "volume key",
-			binding:  KeyBinding{Key: "XF86AudioRaiseVolume"},
-			expected: "Vol+",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := BindingToString(tt.binding)
-			if result != tt.expected {
-				t.Errorf("got %q, want %q", result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestParseBindingsJSON_Empty(t *testing.T) {
 	bindings, err := ParseBindingsJSON("")
 	if err != nil {

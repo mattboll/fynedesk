@@ -241,17 +241,6 @@ func (s *server) stopMirror(m *mirrorState, sourceAlive, targetAlive bool) {
 	s.writeCompositorState()
 }
 
-// stopMirrorOf ends the mirror shown on the named output, if any, and reports
-// whether there was one.
-func (s *server) stopMirrorOf(name string) bool {
-	m := s.mirrors[name]
-	if m == nil {
-		return false
-	}
-	s.stopMirror(m, true, true)
-	return true
-}
-
 // startPendingMirrors mirrors a newly added output on the outputs whose saved
 // layout asks for it: they may have been connected before it.
 func (s *server) startPendingMirrors(source *outputState) {

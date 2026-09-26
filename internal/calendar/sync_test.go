@@ -15,7 +15,7 @@ type fakeProvider struct {
 	onEvents func() // called while listing events: the user acts meanwhile
 }
 
-func (p *fakeProvider) Name() string                                   { return "fake" }
+func (p *fakeProvider) Name() string                                    { return "fake" }
 func (p *fakeProvider) ListAccounts(context.Context) ([]Account, error) { return nil, nil }
 
 func (p *fakeProvider) ListCalendars(context.Context, Account) ([]Calendar, error) {

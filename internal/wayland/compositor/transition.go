@@ -33,7 +33,6 @@ import "C"
 import (
 	"image"
 	"image/color"
-	"math"
 	"math/rand"
 	"time"
 	"unsafe"
@@ -111,83 +110,17 @@ func (s *server) startSlideTransition() {
 	s.transitionStart = time.Now()
 }
 
-// startTransition begins an iris-circle reveal animation after a desktop switch.
-// A fullscreen opaque black overlay is placed above all windows, then each frame
-// a growing circle is punched through it (transparent alpha) to reveal the new
-// desktop beneath.
-func (s *server) startTransition() {
-	if s.reduceMotion {
-		return // Skip iris reveal animation
-	}
-	out := s.primaryOutput()
-	if out == nil {
-		return
-	}
-	w, h := out.width, out.height
-	if w <= 0 || h <= 0 {
-		return
-	}
-
-	// If already transitioning, reset the image and restart the timer
-	if s.transitionActive && s.transitionImg != nil &&
-		s.transitionImg.Bounds().Dx() == w && s.transitionImg.Bounds().Dy() == h {
-		pix := s.transitionImg.Pix
-		for i := 0; i < len(pix); i += 4 {
-			pix[i] = 0
-			pix[i+1] = 0
-			pix[i+2] = 0
-			pix[i+3] = 0xFF
-		}
-		s.transitionStart = time.Now()
-		return
-	}
-
-	// Clean up previous transition if any
-	s.endTransition()
-
-	// Create opaque black NRGBA image
-	img := image.NewNRGBA(image.Rect(0, 0, w, h))
-	pix := img.Pix
-	for i := 3; i < len(pix); i += 4 {
-		pix[i] = 0xFF
-	}
-
-	pixBuf := C.pixel_buffer_create(C.int(w), C.int(h))
-	if pixBuf == nil {
-		return
-	}
-	C.pixel_buffer_update(pixBuf, unsafe.Pointer(&pix[0]), C.int(w), C.int(h))
-
-	ovTree := (*C.struct_wlr_scene_tree)(s.overlayTree)
-	sceneBuf := C.scene_buffer_create(ovTree, &pixBuf.base)
-	if sceneBuf == nil {
-		C.pixel_buffer_release(pixBuf)
-		return
-	}
-	C.scene_buffer_set_dest_size(sceneBuf, C.int(w), C.int(h))
-	C.scene_node_set_position(&sceneBuf.node, C.int(out.layoutX), C.int(out.layoutY))
-
-	s.transitionBuf = unsafe.Pointer(sceneBuf)
-	s.transitionPixBuf = unsafe.Pointer(pixBuf)
-	s.transitionImg = img
-	s.transitionActive = true
-	s.transitionStart = time.Now()
-}
-
-// tickTransition advances the desktop transition animation (slide, iris, or matrix).
+// tickTransition advances the desktop transition animation (slide or matrix).
 // Returns true if the animation is still running (caller should schedule a frame).
 func (s *server) tickTransition() bool {
 	if !s.transitionActive {
 		return false
 	}
 
-	if s.backgroundType == "matrix" && s.slideDirection != 0 {
+	if s.backgroundType == "matrix" {
 		return s.tickMatrixTransition()
 	}
-	if s.slideDirection != 0 {
-		return s.tickSlideTransition()
-	}
-	return s.tickIrisTransition()
+	return s.tickSlideTransition()
 }
 
 // tickSlideTransition moves the overlay off-screen in the slide direction with
@@ -228,66 +161,6 @@ func (s *server) tickSlideTransition() bool {
 	// (The spring can overshoot: wlroots asserts 0 <= opacity <= 1.)
 	C.scene_buffer_set_opacity_t(sceneBuf, C.float(min(max(1-progress, 0), 1)))
 	C.scene_node_set_position(&sceneBuf.node, C.int(out.layoutX+offsetX), C.int(out.layoutY))
-
-	return true
-}
-
-// tickIrisTransition advances the iris-circle reveal animation.
-func (s *server) tickIrisTransition() bool {
-	elapsed := time.Since(s.transitionStart)
-	if elapsed >= transitionDuration {
-		s.endTransition()
-		return false
-	}
-
-	progress := easeOutCubic(float64(elapsed) / float64(transitionDuration))
-
-	out := s.primaryOutput()
-	if out == nil {
-		s.endTransition()
-		return false
-	}
-
-	w, h := out.width, out.height
-	cx, cy := float64(w)/2, float64(h)/2
-	maxRadius := math.Sqrt(cx*cx + cy*cy)
-	radius := maxRadius * progress
-	r2 := radius * radius
-
-	img := s.transitionImg
-	pix := img.Pix
-	stride := img.Stride
-
-	// Set alpha to 0 (transparent) for all pixels inside the growing circle.
-	// Per-row optimization: compute x-range from the circle equation instead
-	// of per-pixel distance checks, reducing work to O(h) sqrts.
-	for y := 0; y < h; y++ {
-		dy := float64(y) - cy
-		dy2 := dy * dy
-		if dy2 > r2 {
-			continue // entire row outside circle
-		}
-		xRange := math.Sqrt(r2 - dy2)
-		xMin := int(cx - xRange)
-		if xMin < 0 {
-			xMin = 0
-		}
-		xMax := int(cx + xRange)
-		if xMax >= w {
-			xMax = w - 1
-		}
-		off := y*stride + xMin*4 + 3 // +3 to point at alpha byte
-		for x := xMin; x <= xMax; x++ {
-			pix[off] = 0
-			off += 4
-		}
-	}
-
-	// Push updated pixels to scene buffer
-	pixBuf := (*C.struct_pixel_buffer)(s.transitionPixBuf)
-	C.pixel_buffer_update(pixBuf, unsafe.Pointer(&pix[0]), C.int(w), C.int(h))
-	sceneBuf := (*C.struct_wlr_scene_buffer)(s.transitionBuf)
-	C.scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
 
 	return true
 }

@@ -409,9 +409,6 @@ static struct wlr_scene_rect *sw_scene_rect_create(struct wlr_scene_tree *parent
 static void sw_scene_rect_set_color(struct wlr_scene_rect *rect, const float color[4]) {
     wlr_scene_rect_set_color(rect, color);
 }
-static void sw_scene_node_set_enabled(struct wlr_scene_node *node, int enabled) {
-    wlr_scene_node_set_enabled(node, enabled);
-}
 */
 import "C"
 

@@ -32,24 +32,6 @@ static void scene_node_place_below(struct wlr_scene_node *node, struct wlr_scene
     wlr_scene_node_place_below(node, sibling);
 }
 
-// Debug: check surface opaque region and format
-static void debug_surface_info(struct wlr_surface *surface, const char *label) {
-    if (!surface) {
-        printf("[SURFACE-DEBUG] %s: surface=NULL\n", label);
-        fflush(stdout);
-        return;
-    }
-    pixman_region32_t *opaque = &surface->opaque_region;
-    int n = 0;
-    pixman_box32_t *boxes = pixman_region32_rectangles(opaque, &n);
-    printf("[SURFACE-DEBUG] %s: opaque_rects=%d", label, n);
-    for (int i = 0; i < n && i < 3; i++) {
-        printf(" rect[%d]=(%d,%d,%d,%d)", i, boxes[i].x1, boxes[i].y1, boxes[i].x2, boxes[i].y2);
-    }
-    printf(" current_w=%d current_h=%d\n", surface->current.width, surface->current.height);
-    fflush(stdout);
-}
-
 // Debug: dump scene tree child order
 static void dump_scene_children(struct wlr_scene_tree *root, const char *label) {
     printf("[SCENE-DEBUG] %s children order (bottom→top):\n", label);
@@ -993,8 +975,4 @@ func (s *server) dumpSceneOrder(label string) {
 	cLabel := C.CString(label)
 	defer C.free(unsafe.Pointer(cLabel))
 	C.dump_scene_children(sceneTree, cLabel)
-}
-
-func xwaySurfacePtr(s wlr.XwaylandSurface) *C.struct_wlr_xwayland_surface {
-	return (*C.struct_wlr_xwayland_surface)(s.Ptr())
 }

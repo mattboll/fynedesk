@@ -16,9 +16,6 @@ static struct wlr_scene_buffer *oa_scene_buffer_create(struct wlr_scene_tree *pa
 static void oa_scene_buffer_set_buffer(struct wlr_scene_buffer *buf, struct wlr_buffer *buffer) {
 	wlr_scene_buffer_set_buffer(buf, buffer);
 }
-static void oa_scene_buffer_set_dest_size(struct wlr_scene_buffer *buf, int w, int h) {
-	wlr_scene_buffer_set_dest_size(buf, w, h);
-}
 static void oa_scene_node_set_position(struct wlr_scene_node *node, int x, int y) {
 	wlr_scene_node_set_position(node, x, y);
 }

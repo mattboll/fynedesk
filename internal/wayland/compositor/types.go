@@ -484,7 +484,7 @@ type server struct {
 	transitionBuf    unsafe.Pointer // *C.struct_wlr_scene_buffer
 	transitionPixBuf unsafe.Pointer // *C.struct_pixel_buffer
 	transitionImg    *image.NRGBA
-	slideDirection   int // -1 = slide left, +1 = slide right, 0 = iris
+	slideDirection   int // -1 = slide left, +1 = slide right
 
 	// Boot sequence animation
 	bootActive bool

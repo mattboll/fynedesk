@@ -228,12 +228,3 @@ func ParseKeyboardLayoutPref(pref string) []KeyboardLayout {
 	}
 	return layouts
 }
-
-// FormatKeyboardLayoutPref formats a slice of KeyboardLayout as a pipe-separated preference string.
-func FormatKeyboardLayoutPref(layouts []KeyboardLayout) string {
-	var parts []string
-	for _, l := range layouts {
-		parts = append(parts, l.Layout+":"+l.Variant)
-	}
-	return strings.Join(parts, "|")
-}

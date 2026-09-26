@@ -192,10 +192,6 @@ static void scene_node_destroy_c(struct wlr_scene_node *node) {
 	wlr_scene_node_destroy(node);
 }
 
-static void scene_rect_set_size_c(struct wlr_scene_rect *rect, int w, int h) {
-	wlr_scene_rect_set_size(rect, w, h);
-}
-
 static void keyboard_clear_focus_c(struct wlr_seat *seat) {
 	wlr_seat_keyboard_clear_focus(seat);
 }

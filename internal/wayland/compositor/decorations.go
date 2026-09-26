@@ -41,9 +41,6 @@ static void scene_buffer_set_dest_size(struct wlr_scene_buffer *buf, int w, int 
 static void scene_buffer_set_opacity(struct wlr_scene_buffer *buf, float opacity) {
     wlr_scene_buffer_set_opacity(buf, opacity);
 }
-static void scene_node_lower_to_bottom(struct wlr_scene_node *node) {
-    wlr_scene_node_lower_to_bottom(node);
-}
 static void scene_node_place_below(struct wlr_scene_node *node, struct wlr_scene_node *sibling) {
     wlr_scene_node_place_below(node, sibling);
 }
@@ -233,27 +230,6 @@ func (s *server) updateDecoBorders(v interface{}, width, height int, active bool
 	C.scene_rect_set_size(bB, C.int(bottomW), C.int(borderWidth))
 	C.scene_rect_set_color(bB, &bc[0])
 	C.scene_node_set_position(&bB.node, C.int(-borderWidth+cornerRadius), C.int(titlebarHeight+height))
-}
-
-// createTitlebarBuffer creates a pixel_buffer + scene_buffer for the titlebar composite.
-func (s *server) createTitlebarBuffer(parent *C.struct_wlr_scene_tree, width int, title, appID string, active bool, hoverBtn decoZone) (unsafe.Pointer, unsafe.Pointer) {
-	img := s.renderDecoTitlebar(width, title, 0, active, hoverBtn)
-	if img == nil {
-		return nil, nil
-	}
-
-	pixBuf := C.pixel_buffer_create(C.int(img.Bounds().Dx()), C.int(img.Bounds().Dy()))
-	if pixBuf == nil {
-		return nil, nil
-	}
-	C.pixel_buffer_update(pixBuf, unsafe.Pointer(&img.Pix[0]), C.int(img.Bounds().Dx()), C.int(img.Bounds().Dy()))
-
-	sceneBuf := C.scene_buffer_create(parent, &pixBuf.base)
-	// Scale down the 2x image to 1x display size, over the side borders too
-	C.scene_buffer_set_dest_size(sceneBuf, C.int(width+2*borderWidth), C.int(titlebarHeight))
-	C.scene_node_set_position(&sceneBuf.node, C.int(-borderWidth), 0)
-
-	return unsafe.Pointer(sceneBuf), unsafe.Pointer(pixBuf)
 }
 
 // updateTitlebarBuffer updates an existing titlebar scene buffer with new content.

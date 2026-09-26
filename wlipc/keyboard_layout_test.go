@@ -82,36 +82,3 @@ func TestParseKeyboardLayoutPref_NoColon(t *testing.T) {
 		t.Errorf("variant: got %q, want empty", result[0].Variant)
 	}
 }
-
-func TestFormatKeyboardLayoutPref(t *testing.T) {
-	layouts := []KeyboardLayout{
-		{Layout: "us", Variant: ""},
-		{Layout: "fr", Variant: "bepo_afnor"},
-	}
-
-	result := FormatKeyboardLayoutPref(layouts)
-	expected := "us:|fr:bepo_afnor"
-	if result != expected {
-		t.Errorf("got %q, want %q", result, expected)
-	}
-}
-
-func TestKeyboardLayoutPref_RoundTrip(t *testing.T) {
-	original := []KeyboardLayout{
-		{Layout: "de", Variant: "dvorak"},
-		{Layout: "us", Variant: ""},
-	}
-
-	formatted := FormatKeyboardLayoutPref(original)
-	parsed := ParseKeyboardLayoutPref(formatted)
-
-	if len(parsed) != len(original) {
-		t.Fatalf("round-trip: expected %d layouts, got %d", len(original), len(parsed))
-	}
-	for i := range original {
-		if parsed[i].Layout != original[i].Layout || parsed[i].Variant != original[i].Variant {
-			t.Errorf("round-trip layout %d: got %s:%s, want %s:%s",
-				i, parsed[i].Layout, parsed[i].Variant, original[i].Layout, original[i].Variant)
-		}
-	}
-}

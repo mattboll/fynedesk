@@ -44,9 +44,6 @@ static void attention_part_place(struct wlr_scene_buffer *part, int x, int y, in
 static void attention_tree_destroy(struct wlr_scene_tree *tree) {
     wlr_scene_node_destroy(&tree->node);
 }
-static void attention_tree_set_enabled(struct wlr_scene_tree *tree, bool on) {
-    wlr_scene_node_set_enabled(&tree->node, on);
-}
 */
 import "C"
 
@@ -236,11 +233,6 @@ func newGlow(tree unsafe.Pointer, parts *glowParts, still bool) *glow {
 // destroy removes the halo from its view tree.
 func (g *glow) destroy() {
 	C.attention_tree_destroy(g.tree)
-}
-
-// setVisible shows or hides the halo.
-func (g *glow) setVisible(on bool) {
-	C.attention_tree_set_enabled(g.tree, C.bool(on))
 }
 
 // setWindowAttention makes the windows with a title call for attention.

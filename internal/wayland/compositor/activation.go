@@ -45,10 +45,6 @@ static struct wlr_surface *activation_event_token_surface(struct wlr_xdg_activat
 	return NULL;
 }
 
-static struct wlr_seat *activation_event_token_seat(struct wlr_xdg_activation_v1_request_activate_event *ev) {
-	if (ev->token) return ev->token->seat;
-	return NULL;
-}
 */
 import "C"
 

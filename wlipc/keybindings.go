@@ -288,43 +288,6 @@ func ProtectedActions() []string {
 	}
 }
 
-// BindingToString formats a KeyBinding for display (e.g. "Alt+Tab", "WM+T").
-func BindingToString(b KeyBinding) string {
-	s := ""
-	for i, mod := range b.Mods {
-		if i > 0 {
-			s += "+"
-		}
-		s += mod
-	}
-	if len(b.Mods) > 0 {
-		s += "+"
-	}
-	s += keyDisplayName(b.Key)
-	return s
-}
-
-// keyDisplayName returns a human-readable name for an XKB key name.
-func keyDisplayName(key string) string {
-	display := map[string]string{
-		"grave":                 "`",
-		"space":                 "Space",
-		"Return":                "Enter",
-		"BackSpace":             "Backspace",
-		"Print":                 "PrtSc",
-		"XF86AudioRaiseVolume":  "Vol+",
-		"XF86AudioLowerVolume":  "Vol-",
-		"XF86AudioMute":         "Mute",
-		"XF86MonBrightnessUp":   "Bright+",
-		"XF86MonBrightnessDown": "Bright-",
-		"XF86Calculator":        "Calc",
-	}
-	if d, ok := display[key]; ok {
-		return d
-	}
-	return key
-}
-
 // ParseBindingsJSON parses a JSON string into ActionBindings.
 func ParseBindingsJSON(data string) (ActionBindings, error) {
 	if data == "" {

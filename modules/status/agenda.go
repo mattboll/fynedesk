@@ -130,23 +130,17 @@ func (a *agendaSidebar) refresh() {
 		events = events[:maxRows]
 	}
 
-	colors := agendaColorMap(svc.Store())
-
 	header := widget.NewLabelWithStyle(locale.T("cal.today"),
 		fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	rows := make([]fyne.CanvasObject, 0, len(events)+1)
 	rows = append(rows, header)
 	for _, ev := range events {
-		rows = append(rows, agendaRow(ev, colors[ev.CalendarID]))
+		rows = append(rows, agendaRow(ev))
 	}
 
 	body := container.NewVBox(rows...)
 	bg := canvas.NewRectangle(theme.Color(theme.ColorNameInputBackground))
 	bg.CornerRadius = 6
-
-	pad := canvas.NewRectangle(fyne.CurrentApp().Settings().Theme().
-		Color(theme.ColorNameSeparator, fyne.CurrentApp().Settings().ThemeVariant()))
-	pad.SetMinSize(fyne.NewSize(0, 1))
 
 	a.wrapper.Objects = []fyne.CanvasObject{
 		container.NewBorder(nil, nil, nil, nil,
@@ -162,7 +156,7 @@ func (a *agendaSidebar) refresh() {
 	a.wrapper.Resize(fyne.NewSize(width, body.MinSize().Height+12))
 }
 
-func agendaRow(ev cal.Event, _ string) fyne.CanvasObject {
+func agendaRow(ev cal.Event) fyne.CanvasObject {
 	timeText := agendaRowTime(ev)
 	timeLbl := widget.NewLabelWithStyle(timeText, fyne.TextAlignLeading,
 		fyne.TextStyle{Monospace: true})
@@ -190,18 +184,4 @@ func agendaRowTime(ev cal.Event) string {
 		return locale.T("cal.allDay")
 	}
 	return ev.Start.Format("15:04")
-}
-
-// agendaColorMap returns calendarID → ColorHex string. Kept simple here
-// because the row background doesn't currently render the color (room
-// for a 3-px coloured bar later); the map is wired so we can light up
-// the row consistently with the popup once we settle the visual.
-func agendaColorMap(store *cal.Store) map[string]string {
-	out := map[string]string{}
-	for _, acc := range store.Accounts() {
-		for _, c := range store.CalendarsFor(acc.ID) {
-			out[c.ID] = c.ColorHex
-		}
-	}
-	return out
 }
