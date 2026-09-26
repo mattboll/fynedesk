@@ -30,6 +30,12 @@ const (
 	KeySymw            KeySym = C.XKB_KEY_w
 )
 
+// Rune returns the character a keysym types, or 0 for one that types none
+// (a modifier, a function key).
+func (k KeySym) Rune() rune {
+	return rune(C.xkb_keysym_to_utf32(C.xkb_keysym_t(k)))
+}
+
 // KeySymFlags mirrors enum xkb_keysym_flags.
 type KeySymFlags uint32
 

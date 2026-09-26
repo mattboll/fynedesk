@@ -310,6 +310,7 @@ func (s *server) handleSessionLockNewLock(lock *C.struct_wlr_session_lock_v1) {
 	log.Println("[LOCK] New lock session requested")
 
 	s.locked.Store(true)
+	s.lockCount++
 	s.lockedSent = false         // Reset for each new lock session
 	s.suspendLockPending = false // Lock acquired — allow normal idle reset
 	s.currentLock = unsafe.Pointer(lock)

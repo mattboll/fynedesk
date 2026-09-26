@@ -348,18 +348,11 @@ func (s *server) checkIdle() {
 
 // performSuspendAction calls systemctl with the given action (suspend/hibernate/hybrid-sleep).
 func (s *server) performSuspendAction(action string) {
-	// Lock screen first if not already locked
-	if !s.idleLocked {
-		s.mainThreadActions <- func() {
-			s.idleLocked = true
-		}
-		s.triggerWakeup()
-		s.lockScreen()
-		// Small delay to let lock screen start before suspend
-		time.Sleep(500 * time.Millisecond)
-	}
-
+	// No lock here: logind announces the sleep (PrepareForSleep) and waits,
+	// thanks to the delay inhibitor, until the session is locked
+	// (watchSuspendResume).
 	cmd := exec.Command(findBinary("systemctl"), action)
+	cmd.Env = safeEnv()
 	if err := cmd.Run(); err != nil {
 		log.Printf("[POWER] systemctl %s failed: %v\n", action, err)
 	}
@@ -395,64 +388,58 @@ func (s *server) setDisplayBlanked(blank bool) {
 }
 
 func (s *server) lockScreen() {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("[LOCK] panic recovered in lockScreen: %v\n", r)
-		}
-	}()
+	// Decided on the main thread: the lock state and the chosen lock live there.
+	_ = s.enqueueAction(s.startLock)
+}
 
-	// If user selected FyshOS (built-in) screensaver, use it directly
+// lockers are the Wayland screen lockers tried, in this order, before the
+// built-in lock.
+var lockers = [][]string{
+	{"swaylock", "-f"}, // swaylock (sway's locker, works with wlroots)
+	{"waylock"},
+	{"gtklock"},
+}
+
+// lockClientGrace is how long a lock client has to lock the session before
+// the built-in lock takes over.
+const lockClientGrace = 10 * time.Second
+
+// startLock locks the session with the chosen lock: the built-in one, or the
+// first screen locker found. Main thread.
+func (s *server) startLock() {
+	if s.locked.Load() {
+		return // already locked
+	}
 	if s.lockScreenType == "FyshOS" {
 		log.Println("Using built-in lock screen (FyshOS screensaver setting)")
-		s.mainThreadActions <- func() { s.activateBuiltinLock() }
-		s.triggerWakeup()
+		s.activateBuiltinLock()
 		return
 	}
-
-	// Try common Wayland screen lockers
-	lockers := [][]string{
-		{"swaylock", "-f"}, // swaylock (sway's locker, works with wlroots)
-		{"waylock"},        // waylock
-		{"gtklock"},        // GTK-based locker
-	}
-
 	for _, locker := range lockers {
 		cmd := exec.Command(findBinary(locker[0]), locker[1:]...)
 		cmd.Env = safeEnv()
-		if err := cmd.Start(); err == nil {
-			log.Printf("Screen locked with %s\n", locker[0])
-
-			// Safety timeout: if the lock client doesn't connect within 10 seconds,
-			// it may have crashed silently (e.g. swaylock -f forks and the child dies).
-			// In that case, force-unlock to prevent a permanent black screen.
-			// Route through mainThreadActions to avoid data race on idleLocked/locked.
-			go func() {
-				select {
-				case <-s.shutdown:
-					return
-				case <-time.After(10 * time.Second):
-				}
-				if s.shuttingDown.Load() {
-					return
-				}
-				select {
-				case s.mainThreadActions <- func() {
-					if s.idleLocked && !s.locked.Load() {
-						log.Println("[LOCK] Lock client launched but never connected — clearing idle lock")
-						s.idleLocked = false
-					}
-				}:
-					s.triggerWakeup()
-				case <-s.shutdown:
-				}
-			}()
-			return
+		if err := cmd.Start(); err != nil {
+			continue
 		}
+		go func() { _ = cmd.Wait() }()
+		log.Printf("Screen locked with %s\n", locker[0])
+		// A locker that dies before locking (swaylock -f forks, and its
+		// child may fail) must not leave the session open: the built-in lock
+		// takes over — unless the session locked meanwhile, even if it was
+		// unlocked since.
+		count := s.lockCount
+		time.AfterFunc(lockClientGrace, func() {
+			_ = s.enqueueAction(func() {
+				if s.lockCount == count && !s.locked.Load() && !s.shuttingDown.Load() {
+					log.Printf("[LOCK] %s never locked the session — using the built-in lock", locker[0])
+					s.activateBuiltinLock()
+				}
+			})
+		})
+		return
 	}
-	// No external locker found — fallback to built-in lock screen
 	log.Println("No external locker found — using built-in lock screen")
-	s.mainThreadActions <- func() { s.activateBuiltinLock() }
-	s.triggerWakeup()
+	s.activateBuiltinLock()
 }
 
 func (s *server) adjustVolume(delta int) {

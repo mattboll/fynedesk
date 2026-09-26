@@ -299,7 +299,8 @@ type server struct {
 	// suspend watcher) and written from the main thread — atomic.Bool keeps the
 	// hot path lock-free while satisfying the race detector.
 	locked            atomic.Bool
-	lockedSent        bool // true after send_locked; prevents double-send crash
+	lockCount         uint64 // how many times the session locked (main thread)
+	lockedSent        bool   // true after send_locked; prevents double-send crash
 	lockSurfaceStates map[string]*lockSurfaceState
 	lockBlackRects    map[string]unsafe.Pointer
 	currentLock       unsafe.Pointer    // *C.struct_wlr_session_lock_v1

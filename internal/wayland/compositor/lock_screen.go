@@ -4,6 +4,7 @@ package compositor
 #cgo LDFLAGS: -lpam
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <security/pam_appl.h>
 #include <wlr/types/wlr_scene.h>
 #include <wlr/interfaces/wlr_buffer.h>
@@ -51,6 +52,20 @@ static int pam_conv_func(int num_msg, const struct pam_message **msg,
 	return PAM_SUCCESS;
 }
 
+// pam_service picks the PAM service: "swaylock" (auth only, no account
+// management that needs root) when it is installed, "login" otherwise.
+// pam_start succeeds even for a service with no file (it falls back to
+// "other", often pam_deny): the files are what tells.
+static const char *pam_service(void) {
+	const char *files[] = { "/etc/pam.d/swaylock", "/usr/lib/pam.d/swaylock", "/usr/share/pam.d/swaylock" };
+	for (int i = 0; i < 3; i++) {
+		if (access(files[i], R_OK) == 0) {
+			return "swaylock";
+		}
+	}
+	return "login";
+}
+
 // pam_auth authenticates the given username/password. Returns 0 on success.
 static int pam_auth(const char *username, const char *password) {
 	struct pam_conv_data conv_data;
@@ -60,21 +75,23 @@ static int pam_auth(const char *username, const char *password) {
 		.appdata_ptr = &conv_data,
 	};
 	pam_handle_t *pamh = NULL;
-	// Use "swaylock" PAM service (auth-only, no account mgmt that requires root).
-	// Falls back to "login" if "swaylock" is not available.
-	int ret = pam_start("swaylock", username, &conv, &pamh);
-	if (ret != PAM_SUCCESS) {
-		ret = pam_start("login", username, &conv, &pamh);
-		if (ret != PAM_SUCCESS) return ret;
-	}
+	int ret = pam_start(pam_service(), username, &conv, &pamh);
+	if (ret != PAM_SUCCESS) return ret;
 	ret = pam_authenticate(pamh, 0);
 	pam_end(pamh, ret);
 	return ret;
+}
+
+// wipe overwrites memory that held a password, in a way the compiler keeps.
+static void wipe(void *p, size_t n) {
+	volatile unsigned char *b = p;
+	while (n--) *b++ = 0;
 }
 */
 import "C"
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	_ "image/jpeg"
@@ -85,6 +102,7 @@ import (
 	"os/user"
 	"strings"
 	"time"
+	"unicode/utf8"
 	"unsafe"
 
 	"fyshos.com/tyde/internal/wayland/wlr/xkb"
@@ -107,6 +125,7 @@ type builtinLockState struct {
 	clockTicker *time.Ticker
 	clockDone   chan struct{} // closed by deactivateBuiltinLock to terminate the clock goroutine
 	blurredBg   *image.NRGBA
+	checking    bool // a password is being checked: one attempt at a time
 }
 
 // zeroPassword overwrites a password rune slice with zeros before discarding.
@@ -221,6 +240,7 @@ func (s *server) activateBuiltinLock() {
 
 	// Set locked state
 	s.locked.Store(true)
+	s.lockCount++
 	s.suspendLockPending = false // Lock acquired
 	s.markLocked()
 
@@ -467,12 +487,17 @@ func (s *server) handleBuiltinLockKey(sym xkb.KeySym, mods uint32) {
 	switch {
 	case sym == xkb.SymFromName("Return", xkb.KeySymNoFlags) ||
 		sym == xkb.SymFromName("KP_Enter", xkb.KeySymNoFlags):
-		// Submit password
-		if len(s.builtinLock.password) == 0 {
+		// Submit password — one attempt at a time, or they would get past
+		// the delay PAM puts after a wrong password.
+		if len(s.builtinLock.password) == 0 || s.builtinLock.checking {
 			return
 		}
-		pw := string(s.builtinLock.password)
-		go s.tryBuiltinLockAuth(pw)
+		s.builtinLock.checking = true
+		secret := make([]byte, 0, len(s.builtinLock.password)*utf8.UTFMax+1)
+		for _, r := range s.builtinLock.password {
+			secret = utf8.AppendRune(secret, r)
+		}
+		go s.tryBuiltinLockAuth(secret)
 
 	case sym == xkb.SymFromName("BackSpace", xkb.KeySymNoFlags):
 		if len(s.builtinLock.password) > 0 {
@@ -502,51 +527,51 @@ func (s *server) handleBuiltinLockKey(sym xkb.KeySym, mods uint32) {
 	}
 }
 
-// tryBuiltinLockAuth attempts PAM authentication in a goroutine.
-func (s *server) tryBuiltinLockAuth(password string) {
+// tryBuiltinLockAuth checks the password with PAM, off the main thread. The
+// password (UTF-8) is wiped from memory as soon as PAM has it.
+func (s *server) tryBuiltinLockAuth(secret []byte) {
+	ok, why := checkPassword(secret)
+	_ = s.enqueueAction(func() {
+		if s.builtinLock == nil || !s.builtinLock.active {
+			return
+		}
+		s.builtinLock.checking = false
+		if ok {
+			log.Println("[LOCK] PAM authentication successful")
+			s.deactivateBuiltinLock()
+			return
+		}
+		log.Printf("[LOCK] PAM authentication failed: %s\n", why)
+		s.builtinLock.errorMsg = "Incorrect password"
+		if why == "unknown user" {
+			s.builtinLock.errorMsg = "Cannot determine user"
+		}
+		s.builtinLock.showError = true
+		zeroPassword(s.builtinLock.password)
+		s.builtinLock.password = nil
+		s.updateBuiltinLockScene()
+	})
+}
+
+// checkPassword asks PAM whether secret is the user's password; it wipes
+// secret, and the copy handed to C.
+func checkPassword(secret []byte) (bool, string) {
+	defer clear(secret)
 	u, err := user.Current()
 	if err != nil {
-		s.mainThreadActions <- func() {
-			if s.builtinLock == nil || !s.builtinLock.active {
-				return
-			}
-			s.builtinLock.errorMsg = "Cannot determine user"
-			s.builtinLock.showError = true
-			zeroPassword(s.builtinLock.password)
-			s.builtinLock.password = nil
-			s.updateBuiltinLockScene()
-		}
-		s.triggerWakeup()
-		return
+		return false, "unknown user"
 	}
-
-	username := u.Username
-	cUser := C.CString(username)
-	cPass := C.CString(password)
-	ret := C.pam_auth(cUser, cPass)
-	C.free(unsafe.Pointer(cUser))
-	C.free(unsafe.Pointer(cPass))
-
-	if ret == C.PAM_SUCCESS {
-		log.Println("[LOCK] PAM authentication successful")
-		s.mainThreadActions <- func() {
-			s.deactivateBuiltinLock()
-		}
-		s.triggerWakeup()
-	} else {
-		log.Printf("[LOCK] PAM authentication failed (code %d)\n", ret)
-		s.mainThreadActions <- func() {
-			if s.builtinLock == nil || !s.builtinLock.active {
-				return
-			}
-			s.builtinLock.errorMsg = "Incorrect password"
-			s.builtinLock.showError = true
-			zeroPassword(s.builtinLock.password)
-			s.builtinLock.password = nil
-			s.updateBuiltinLockScene()
-		}
-		s.triggerWakeup()
+	cUser := C.CString(u.Username)
+	defer C.free(unsafe.Pointer(cUser))
+	cPass := (*C.char)(C.CBytes(append(secret, 0)))
+	defer func() {
+		C.wipe(unsafe.Pointer(cPass), C.size_t(len(secret)+1))
+		C.free(unsafe.Pointer(cPass))
+	}()
+	if ret := C.pam_auth(cUser, cPass); ret != C.PAM_SUCCESS {
+		return false, fmt.Sprintf("code %d", int(ret))
 	}
+	return true, ""
 }
 
 // deactivateBuiltinLock cleans up the built-in lock screen and unlocks.
@@ -666,47 +691,10 @@ func getInitials(name string) string {
 // keysymToRune converts an XKB keysym to a Unicode rune.
 // Returns 0 for non-printable keys.
 func keysymToRune(sym xkb.KeySym) rune {
-	val := uint32(sym)
-
-	// Latin-1 range (keysym 0x0020..0x007e and 0x00a0..0x00ff map directly)
-	if val >= 0x0020 && val <= 0x007e {
-		return rune(val)
+	// libxkbcommon knows every keysym: Latin-2 and 3, €, œ, Cyrillic…
+	r := sym.Rune()
+	if r < 0x20 || r == 0x7f {
+		return 0 // control characters (Return, BackSpace…) are keys, not text
 	}
-	if val >= 0x00a0 && val <= 0x00ff {
-		return rune(val)
-	}
-
-	// Unicode keysyms: 0x01000000 + unicode codepoint
-	if val >= 0x01000000 && val <= 0x0110ffff {
-		return rune(val - 0x01000000)
-	}
-
-	// XKB special Latin keysyms (accented characters etc.)
-	// These are in the range 0x0100..0x0fff and map to Unicode via xkb_keysym_to_utf32
-	// We handle common ones used in European keyboards
-	if val >= 0x0100 && val <= 0x0fff {
-		// Use a lookup or approximate — XKB keysym to Unicode mapping
-		// Most keysyms in 0x0100-0x0fff match Unicode directly for Latin chars
-		r := xkbLatinToUnicode(val)
-		if r != 0 {
-			return r
-		}
-	}
-
-	return 0
-}
-
-// xkbLatinToUnicode converts XKB Latin keysyms (0x0100-0x0fff) to Unicode.
-// This covers the most common European accented characters.
-func xkbLatinToUnicode(sym uint32) rune {
-	// Most XKB Latin keysyms match their Unicode codepoint
-	// Exception: some keysyms need special mapping
-	switch {
-	case sym >= 0x0100 && sym <= 0x024f:
-		return rune(sym) // Latin Extended-A/B — direct mapping
-	case sym >= 0x0250 && sym <= 0x02af:
-		return rune(sym) // IPA Extensions
-	default:
-		return 0
-	}
+	return r
 }
