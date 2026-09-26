@@ -140,26 +140,8 @@ func connectWifi(ssid, password, security string) error {
 	// Delete any stale profile for this SSID so we start fresh.
 	_ = wm.ExecRun("nmcli", "connection", "delete", ssid)
 
-	// Create a new connection profile with explicit key-mgmt.
-	err := runNmcli("connection", "add",
-		"type", "wifi",
-		"ifname", dev,
-		"con-name", ssid,
-		"ssid", ssid,
-		"wifi-sec.key-mgmt", keyMgmt,
-		"wifi-sec.psk", password,
-	)
-	if err != nil {
-		return err
-	}
-
-	// Activate the newly created profile.
-	if err := runNmcli("connection", "up", ssid); err != nil {
-		// Clean up on failure.
-		_ = wm.ExecRun("nmcli", "connection", "delete", ssid)
-		return err
-	}
-	return nil
+	// Create and activate a new profile with explicit key-mgmt.
+	return addWifiProfile(dev, ssid, keyMgmt, password)
 }
 
 // runNmcli executes an nmcli command and returns a user-friendly error.
