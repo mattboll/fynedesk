@@ -406,6 +406,7 @@ func Run() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	srv := newServer()
+	srv.useOwnSocketWhenNested()
 	srv.initBackend()
 	srv.initScene()
 	srv.initProtocols()

@@ -20,7 +20,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -100,6 +99,9 @@ type DesktopSwitchRequest struct {
 
 // SocketPath returns the UNIX socket path for the IPC server.
 func SocketPath() string {
+	if p := os.Getenv(SocketEnv); p != "" {
+		return p
+	}
 	runDir := os.Getenv("XDG_RUNTIME_DIR")
 	if runDir == "" {
 		runDir = filepath.Join("/run/user", fmt.Sprintf("%d", os.Getuid()))
@@ -107,15 +109,25 @@ func SocketPath() string {
 	return filepath.Join(runDir, "tyde-compositor.sock")
 }
 
+// SocketEnv names the socket to use instead of the default one. A nested
+// compositor sets it for itself and the programs it starts, so that it
+// never touches the socket of the session it runs in.
+const SocketEnv = "TYDE_IPC_SOCKET"
+
 // --- Server ---
 
 // IPCServer manages the UNIX socket server and connected clients.
 type IPCServer struct {
 	listener net.Listener
-	mu       sync.RWMutex
-	clients  map[*ipcClient]struct{}
-	handler  RequestHandler
-	done     chan struct{}
+	path     string      // where it listens
+	file     os.FileInfo // the socket file it made, to remove only that one
+
+	closeOnce sync.Once
+
+	mu      sync.RWMutex
+	clients map[*ipcClient]struct{}
+	handler RequestHandler
+	done    chan struct{}
 }
 
 // RequestHandler processes incoming requests from clients.
@@ -136,26 +148,41 @@ type ipcClient struct {
 // blocking the broadcast loop for everyone.
 const broadcastBufferSize = 16
 
+// SocketServed reports whether a compositor answers on the socket.
+func SocketServed() bool {
+	c, err := net.DialTimeout("unix", SocketPath(), 200*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	c.Close()
+	return true
+}
+
 // NewIPCServer creates and starts the IPC server.
 func NewIPCServer(handler RequestHandler) (*IPCServer, error) {
 	sockPath := SocketPath()
 
-	// Remove stale socket
-	os.Remove(sockPath)
+	// A socket another compositor answers on is not ours to replace.
+	if SocketServed() {
+		return nil, fmt.Errorf("%s: another compositor is serving it", sockPath)
+	}
+	os.Remove(sockPath) // stale
 
-	// Set a tight umask before bind so the socket is created mode 0700
-	// instead of being briefly world-accessible between Listen and Chmod.
-	prevMask := syscall.Umask(0o077)
+	// The runtime directory is private (0700), so the socket is never
+	// reachable by others between Listen and Chmod.
 	listener, err := net.Listen("unix", sockPath)
-	syscall.Umask(prevMask)
 	if err != nil {
 		return nil, fmt.Errorf("listen %s: %w", sockPath, err)
 	}
-	// Belt-and-braces: enforce 0700 even if the umask path didn't take.
+	// Close removes the file itself, only if it is still ours.
+	listener.(*net.UnixListener).SetUnlinkOnClose(false)
 	os.Chmod(sockPath, 0o700)
+	file, _ := os.Stat(sockPath)
 
 	srv := &IPCServer{
 		listener: listener,
+		path:     sockPath,
+		file:     file,
 		clients:  make(map[*ipcClient]struct{}),
 		handler:  handler,
 		done:     make(chan struct{}),
@@ -167,8 +194,12 @@ func NewIPCServer(handler RequestHandler) (*IPCServer, error) {
 	return srv, nil
 }
 
-// Close shuts down the server and all connections.
+// Close shuts down the server and all connections; later calls do nothing.
 func (s *IPCServer) Close() {
+	s.closeOnce.Do(s.close)
+}
+
+func (s *IPCServer) close() {
 	close(s.done)
 	s.listener.Close()
 
@@ -179,7 +210,9 @@ func (s *IPCServer) Close() {
 	s.clients = nil
 	s.mu.Unlock()
 
-	os.Remove(SocketPath())
+	if cur, err := os.Stat(s.path); err == nil && s.file != nil && os.SameFile(cur, s.file) {
+		os.Remove(s.path)
+	}
 }
 
 // Broadcast sends an event to all clients subscribed to the given event name,

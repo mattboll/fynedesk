@@ -6,7 +6,7 @@ Tyde uses a hybrid IPC system for communication between the compositor (`tyde_co
 
 ### 1. Socket IPC (primary)
 
-**Path**: `/run/user/$UID/tyde-compositor.sock` (UNIX domain socket)
+**Path**: `$XDG_RUNTIME_DIR/tyde-compositor.sock` (UNIX domain socket), or `$TYDE_IPC_SOCKET` when set. A compositor nested in a Tyde session uses `tyde-compositor-<pid>.sock` and sets `TYDE_IPC_SOCKET` for the programs it starts.
 
 **Protocol**: JSON-line — each message is a JSON object terminated by `\n`.
 

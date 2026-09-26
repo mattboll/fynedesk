@@ -6,11 +6,24 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"fyshos.com/tyde/wlipc"
 )
+
+// useOwnSocketWhenNested gives a nested compositor a socket of its own, for
+// itself and the programs it starts (the panel, tyde_wmctl), when the
+// default one is served by the session it runs in.
+func (s *server) useOwnSocketWhenNested() {
+	if !s.nestedMode || os.Getenv(wlipc.SocketEnv) != "" || !wlipc.SocketServed() {
+		return
+	}
+	path := filepath.Join(filepath.Dir(wlipc.SocketPath()), fmt.Sprintf("tyde-compositor-%d.sock", os.Getpid()))
+	os.Setenv(wlipc.SocketEnv, path)
+	log.Printf("[IPC] Nested: own socket %s\n", path)
+}
 
 // startSocketIPC starts the UNIX socket IPC server alongside the existing
 // file-based IPC. Socket clients get real-time events via subscription.

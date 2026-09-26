@@ -420,3 +420,35 @@ func TestSocketPath(t *testing.T) {
 		t.Errorf("expected %s, got %s", expected, path)
 	}
 }
+
+func TestIPCServerKeepsOthersSocket(t *testing.T) {
+	first, _ := testServer(t, func(*Message) (json.RawMessage, error) { return nil, nil })
+	sock := SocketPath()
+	if _, err := NewIPCServer(func(*Message) (json.RawMessage, error) { return nil, nil }); err == nil {
+		t.Fatal("a second server took the socket of a running one")
+	}
+	if _, err := os.Stat(sock); err != nil {
+		t.Fatal("the running server's socket is gone")
+	}
+
+	// The file is replaced (another instance, after this one): closing
+	// this one leaves it.
+	first.listener.Close()
+	os.Remove(sock)
+	second, err := NewIPCServer(func(*Message) (json.RawMessage, error) { return nil, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	first.Close()
+	if _, err := os.Stat(sock); err != nil {
+		t.Error("closing a server removed the socket of another")
+	}
+}
+
+func TestSocketEnv(t *testing.T) {
+	t.Setenv(SocketEnv, "/tmp/elsewhere.sock")
+	if got := SocketPath(); got != "/tmp/elsewhere.sock" {
+		t.Errorf("SocketPath() = %q", got)
+	}
+}
