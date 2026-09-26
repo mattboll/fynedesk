@@ -4,6 +4,9 @@ import (
 	"math"
 
 	"fyne.io/fyne/v2"
+	// The only public way to reach a widget's (cached) renderer: Fyne keeps
+	// its object walkers internal. The X11 frames, the sole users, draw with
+	// driver/software, which is built on this package anyway.
 	"fyne.io/fyne/v2/test"
 )
 
