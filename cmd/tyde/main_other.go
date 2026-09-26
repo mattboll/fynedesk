@@ -9,12 +9,13 @@ import (
 
 	"fyne.io/fyne/v2"
 
+	"github.com/FyshOS/appie"
+
 	"fyshos.com/tyde"
-	"fyshos.com/tyde/internal"
 	"fyshos.com/tyde/internal/ui"
 )
 
 func setupDesktop(a fyne.App) tyde.Desktop {
 	log.Println("Full desktop not possible on", runtime.GOOS)
-	return ui.NewEmbeddedDesktop(a, internal.NewFDOIconProvider())
+	return ui.NewEmbeddedDesktop(a, appie.NewFDOProvider())
 }
