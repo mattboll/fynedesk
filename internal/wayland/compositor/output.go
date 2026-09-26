@@ -1235,9 +1235,8 @@ func (s *server) updateAnimatedWallpaper(out *outputState) bool {
 		C.pixel_buffer_update(pixBuf, unsafe.Pointer(&out.animBuf.Pix[0]), C.int(animW), C.int(animH))
 		if out.wallpaperBuf != nil {
 			sceneBuf := (*C.struct_wlr_scene_buffer)(out.wallpaperBuf)
-			// Must clear then set to force damage — wlr_scene skips
-			// scene_buffer_set_buffer when the pointer hasn't changed.
-			C.scene_buffer_set_buffer(sceneBuf, nil)
+			// Setting the same buffer drops the scene's texture of it and
+			// damages it whole: the new pixels are shown.
 			C.scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
 		}
 	}

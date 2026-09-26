@@ -730,13 +730,13 @@ func (s *server) renderOutput(output wlr.Output) {
 		}
 	}
 
-	// Tick animated wallpaper (before scene commit so pixels are fresh).
-	animWallpaperActive := false
-	if outState != nil && outState.animWallpaper != nil {
-		if !s.isOutputOccludedByFullscreen(outState) {
-			s.updateAnimatedWallpaper(outState)
-		}
-		animWallpaperActive = true
+	// Tick animated wallpaper (before scene commit so pixels are fresh). It
+	// changes at 24 fps: it asks for its next frame then, not at every vblank,
+	// and not at all while a fullscreen window hides it (leaving fullscreen
+	// damages the screen, which brings the frames back).
+	if outState != nil && outState.animWallpaper != nil && !s.isOutputOccludedByFullscreen(outState) {
+		s.updateAnimatedWallpaper(outState)
+		s.scheduleAnimWakeup(outState.lastAnimTick)
 	}
 
 	// Find the scene output for this output
@@ -789,8 +789,10 @@ func (s *server) renderOutput(output wlr.Output) {
 	// rendering. For idle desktops, the scene's damage tracking sets
 	// output->needs_frame when clients commit new buffers, which triggers the
 	// next frame callback via the DRM backend automatically.
-	if animActive || animWallpaperActive || s.switcherActive || s.overviewActive ||
-		s.transitionActive || s.bootActive || s.regionSelectActive {
+	// (Alt-Tab, the overview and the region selection need no frame while
+	// they stand still: their animations report themselves, and the pointer
+	// or the windows damage the screen when something changes.)
+	if animActive || s.transitionActive || s.bootActive {
 		C.schedule_output_frame(outputPtr(output))
 	}
 
