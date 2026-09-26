@@ -302,21 +302,18 @@ func (s *server) unsnapXway(v *xwayView, x, y float64) {
 	v.maximized = false
 }
 
-// reSnapAllWindows re-applies snap geometry for all snapped windows,
-// used when gap settings change at runtime.
+// reSnapAllWindows re-applies snap geometry for all snapped windows, when
+// the gaps or the outputs change. The zone is set again as it is: the
+// geometry kept for the restore stays the one of before the snap.
 func (s *server) reSnapAllWindows() {
 	for _, v := range s.xdgViews {
 		if v.snapped != snapNone && v.mapped {
-			zone := v.snapped
-			v.snapped = snapNone // prevent toggle-restore in snapXdgWindow
-			s.snapXdgWindow(v, zone)
+			s.setXdgZone(v, s.getOutputGeoForView(v.x, v.y), v.snapped)
 		}
 	}
 	for _, v := range s.xwayViews {
 		if v.snapped != snapNone && v.mapped {
-			zone := v.snapped
-			v.snapped = snapNone // prevent toggle-restore in snapXwayWindow
-			s.snapXwayWindow(v, zone)
+			s.setXwayZone(v, s.getOutputGeoForView(v.x, v.y), v.snapped)
 		}
 	}
 }
