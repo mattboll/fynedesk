@@ -58,7 +58,7 @@ func (x *x11WM) handleActiveWin(ev xproto.ClientMessageEvent) {
 		}
 
 		// ask for focus, when it is lost return to root window
-		xproto.SetInputFocus(x.x.Conn(), 1, ev.Window, xproto.TimeCurrentTime).Check()
+		xproto.SetInputFocus(x.x.Conn(), xproto.InputFocusPointerRoot, ev.Window, xproto.TimeCurrentTime)
 	}
 	if notifyFocus {
 		protocolAtm, err := xprop.Atm(x.x, "WM_PROTOCOLS")

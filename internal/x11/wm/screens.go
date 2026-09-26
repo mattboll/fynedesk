@@ -20,7 +20,7 @@ type x11ScreensProvider struct {
 	screens []*tyde.Screen
 	active  *tyde.Screen
 	primary *tyde.Screen
-	single  bool
+	noRandr bool // randr could not be used: one screen, the size of the X screen
 	x       *x11WM
 
 	onChange []func()
@@ -33,6 +33,8 @@ func NewX11ScreensProvider(mgr tyde.WindowManager) tyde.ScreenList {
 	err := randr.Init(screensProvider.x.x.Conn())
 	if err != nil {
 		fyne.LogError("Could not initialize randr", err)
+		screensProvider.noRandr = true
+		screensProvider.setupSingleScreen() // there always is a screen
 		return screensProvider
 	}
 	randr.SelectInput(screensProvider.x.x.Conn(), screensProvider.x.x.RootWin(), randr.NotifyMaskScreenChange)
@@ -58,7 +60,9 @@ func (xsp *x11ScreensProvider) Primary() *tyde.Screen {
 }
 
 func (xsp *x11ScreensProvider) RefreshScreens() {
-	if xsp.single {
+	// Without randr there is the X screen; with it, a failed query falls
+	// back to the X screen this time only.
+	if xsp.noRandr {
 		xsp.setupSingleScreen()
 	} else {
 		xsp.setupScreens()
@@ -249,11 +253,11 @@ func (xsp *x11ScreensProvider) setupScreens() {
 }
 
 func (xsp *x11ScreensProvider) setupSingleScreen() {
-	xsp.single = true
+	root := xwindow.RootGeometry(xsp.x.x)
 	xsp.screens = []*tyde.Screen{{
 		Name: "Screen0",
-		X:    xwindow.RootGeometry(xsp.x.x).X(), Y: xwindow.RootGeometry(xsp.x.x).Y(),
-		Width: xwindow.RootGeometry(xsp.x.x).Width(), Height: xwindow.RootGeometry(xsp.x.x).Height(),
+		X:    root.X(), Y: root.Y(),
+		Width: root.Width(), Height: root.Height(),
 		Scale: 1.0,
 	}}
 	xsp.primary = xsp.screens[0]

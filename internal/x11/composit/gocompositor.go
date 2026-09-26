@@ -225,6 +225,7 @@ func Run(done chan struct{}, screenComps []ui.ScreenCompositors) error {
 	// Let modules' window accessories (e.g. desktop pets) be re-assembled onto
 	// the compositor. Invoked on the main thread by Desktop.RefreshWindowAccessories.
 	ui.AccessoryRefresher = func() { rebuildAccessories(ws) }
+	defer func() { ui.AccessoryRefresher = nil }()
 
 	// Set up visual move callback for fast drag repositioning. It is called
 	// on the Fyne thread and from a frame's configure loop: it only touches
@@ -235,6 +236,7 @@ func Run(done chan struct{}, screenComps []ui.ScreenCompositors) error {
 		screens := ws.list()
 		fyne.Do(func() { moveWindowImages(ws, screens, winID, absX, absY, width, height) })
 	}
+	defer func() { x11.VisualMoveCallback = nil }()
 
 	err = setup(conn)
 	if err != nil {
@@ -270,7 +272,7 @@ func Run(done chan struct{}, screenComps []ui.ScreenCompositors) error {
 		if c.skipped || c.attributes.MapState != xproto.MapStateViewable {
 			continue
 		}
-		if isFullscreenClient(c) {
+		if checkFullscreen(c) {
 			updateFullscreen(conn, ws, c)
 		} else {
 			ensureWindowOnScreens(ws, c)
@@ -515,7 +517,7 @@ func (ws *widgets) applyPending(conn *xgb.Conn) bool {
 		if c.skipped || c.attributes.MapState != xproto.MapStateViewable {
 			continue
 		}
-		if isFullscreenClient(c) {
+		if checkFullscreen(c) {
 			updateFullscreen(conn, ws, c)
 		} else {
 			ensureWindowOnScreens(ws, c)
@@ -529,10 +531,6 @@ func (ws *widgets) applyPending(conn *xgb.Conn) bool {
 }
 
 // targetFor returns the appropriate widget type name for a client based on fullscreen state.
-func isFullscreenClient(c *client) bool {
-	return checkFullscreen(c)
-}
-
 // screensForClient returns the screen widgets whose screens overlap the client's geometry.
 func (ws *widgets) screensForClient(c *client) []*screenWidgets {
 	var result []*screenWidgets
@@ -689,7 +687,7 @@ func updateFullscreen(conn *xgb.Conn, ws *widgets, c *client) {
 	}
 
 	winID := uint32(c.win)
-	isFS := isFullscreenClient(c)
+	isFS := checkFullscreen(c)
 
 	if isFS && !c.fullscreened {
 		// Unredirect: let X11 display the window directly, bypassing compositing.
@@ -736,7 +734,7 @@ func syncOrder(ws *widgets) {
 // ensureWindowOnScreens adds a window to all screen widgets that overlap its geometry.
 func ensureWindowOnScreens(ws *widgets, c *client) {
 	winID := uint32(c.win)
-	isFS := isFullscreenClient(c)
+	isFS := checkFullscreen(c)
 	for _, sw := range ws.screensForClient(c) {
 		var wi *ui.WindowImage
 		if isFS {
@@ -994,7 +992,7 @@ func snapshotWindows(conn *xgb.Conn, screen *tyde.Screen, offsetY int) image.Ima
 
 func checkPending(c *client, ws *widgets) (uint32, bool, bool) {
 	winID := uint32(c.win)
-	isFS := isFullscreenClient(c)
+	isFS := checkFullscreen(c)
 	pending := c.pending
 	if pending {
 		// Check if the renderer has consumed the previous frame.
@@ -1303,7 +1301,7 @@ func configureClient(conn *xgb.Conn, ws *widgets, e xproto.ConfigureNotifyEvent)
 	// Update screen membership: remove from screens the window no longer overlaps,
 	// add to screens it now overlaps.
 	winID := uint32(client.win)
-	isFS := isFullscreenClient(client)
+	isFS := checkFullscreen(client)
 	overlapping := ws.screensForClient(client)
 	screenChanged := false
 	for i := range ws.screens {

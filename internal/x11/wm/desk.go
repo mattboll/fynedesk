@@ -9,7 +9,6 @@ import (
 	"maps"
 	"math"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -213,13 +212,11 @@ func (x *x11WM) RemoveStackListener(l tyde.StackListener) {
 }
 
 func (x *x11WM) Blank() {
-	go func() {
-		time.Sleep(time.Second / 3)
-		err := exec.Command("xset", "-display", os.Getenv("DISPLAY"), "dpms", "force", "off").Start()
-		if err != nil {
+	time.AfterFunc(time.Second/3, func() {
+		if err := wm.StartDetached("xset", "-display", os.Getenv("DISPLAY"), "dpms", "force", "off"); err != nil {
 			fyne.LogError("", err)
 		}
-	}()
+	})
 }
 
 // Close asks every window to close, and ends the session once they have,
@@ -1242,10 +1239,10 @@ func (x *x11WM) updatedBackgroundImage(w, h int) image.Image {
 			fyne.LogError("Failed to open background image", err)
 		} else {
 			img, _, err := image.Decode(file)
+			_ = file.Close()
 			if err != nil {
 				fyne.LogError("Failed to read background image", err)
 			} else {
-				_ = file.Close()
 				dst := image.NewRGBA(image.Rect(0, 0, w, h))
 				wallpaper.Draw(dst, img, settings.BackgroundFill(),
 					ui.ParseHexColor(settings.BackgroundColor()), draw.CatmullRom)
@@ -1263,7 +1260,13 @@ func (x *x11WM) updatedBackgroundImage(w, h int) image.Image {
 	return c.Capture()
 }
 
+// bgMu makes the background updates, started from several goroutines, one
+// at a time: they share the root pixmap and oldRoot.
+var bgMu sync.Mutex
+
 func (x *x11WM) updateBackgrounds() {
+	bgMu.Lock()
+	defer bgMu.Unlock()
 	geom, err := xproto.GetGeometry(x.x.Conn(), xproto.Drawable(x.x.RootWin())).Reply()
 	if err != nil {
 		fyne.LogError("Unable to look up root geometry", err)
@@ -1272,12 +1275,7 @@ func (x *x11WM) updateBackgrounds() {
 	root := xgraphics.New(x.x, image.Rect(0, 0, int(geom.Width), int(geom.Height)))
 
 	for _, screen := range tyde.Instance().Screens().Screens() {
-		scaled := x.updatedBackgroundImage(screen.Width, screen.Height)
-		for y := screen.Y; y < screen.Y+screen.Height; y++ {
-			for x := screen.X; x < screen.X+screen.Width; x++ {
-				root.Set(x, y, scaled.At(x-screen.X, y-screen.Y))
-			}
-		}
+		blitToRoot(root, x.updatedBackgroundImage(screen.Width, screen.Height), screen.X, screen.Y)
 	}
 
 	err = root.XSurfaceSet(x.x.RootWin())
@@ -1303,6 +1301,29 @@ func (x *x11WM) updateBackgrounds() {
 
 	// save root so we can free it later if not needed
 	x.oldRoot = root
+}
+
+// blitToRoot copies img into root (BGRA) at (ox, oy), clipped to root, a row
+// at a time: setting each pixel through the image interfaces was millions
+// of calls per background.
+func blitToRoot(root *xgraphics.Image, img image.Image, ox, oy int) {
+	src, ok := img.(*image.RGBA)
+	if !ok {
+		src = image.NewRGBA(img.Bounds())
+		draw.Draw(src, src.Bounds(), img, img.Bounds().Min, draw.Src)
+	}
+	b := src.Bounds()
+	area := b.Sub(b.Min).Add(image.Pt(ox, oy)).Intersect(root.Rect)
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		si := src.PixOffset(b.Min.X+area.Min.X-ox, b.Min.Y+y-oy)
+		di := root.PixOffset(area.Min.X, y)
+		for i := 0; i < area.Dx(); i++ {
+			root.Pix[di], root.Pix[di+1], root.Pix[di+2], root.Pix[di+3] =
+				src.Pix[si+2], src.Pix[si+1], src.Pix[si], src.Pix[si+3]
+			si += 4
+			di += 4
+		}
+	}
 }
 
 func max(a, b int) int {
