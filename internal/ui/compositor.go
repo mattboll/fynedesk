@@ -3,6 +3,7 @@ package ui
 import (
 	"image"
 	"image/color"
+	"math"
 	"sync"
 	"sync/atomic"
 
@@ -25,19 +26,67 @@ import (
 // after consuming the frame. The compositor should skip capture while
 // Pending is true to avoid wasteful work.
 type WindowImage struct {
-	ID   uint32
-	Img  *canvas.Image
+	ID  uint32
+	Img *canvas.Image // Fyne thread only
+	// Where the window goes: set with SetGeometry from other goroutines.
 	X, Y int16
 	W, H uint16
 
-	// Shadow is set for a managed window, which is drawn over a drop shadow;
-	// Active deepens that shadow for the window that has focus.
-	Shadow, Active bool
+	// shadowed is set for a managed window, which is drawn over a drop
+	// shadow; active deepens that shadow for the window that has focus.
+	// translucency is applied to Img by Refresh. See SetLook.
+	shadowed, active atomic.Bool
+	translucency     atomic.Uint64 // math.Float64bits
 
 	Back    atomic.Value // image.Image — latest frame from compositor
 	Pending atomic.Bool  // true = refresh requested, not yet rendered
 
-	shadow *canvas.Rectangle // drawn beneath Img when Shadow is set
+	shadow *canvas.Rectangle // drawn beneath Img when shadowed
+}
+
+// SetLook sets how a window image is drawn, from any goroutine, and reports
+// whether that changed: its translucency, and whether it has a shadow,
+// deepened when active. Refresh applies it.
+func (wi *WindowImage) SetLook(translucency float64, shadowed, active bool) bool {
+	changed := wi.Translucency() != translucency ||
+		wi.shadowed.Load() != shadowed || wi.active.Load() != active
+	wi.translucency.Store(math.Float64bits(translucency))
+	wi.shadowed.Store(shadowed)
+	wi.active.Store(active)
+	return changed
+}
+
+// SetTranslucency sets the translucency of a window image, from any
+// goroutine. Refresh applies it.
+func (wi *WindowImage) SetTranslucency(translucency float64) {
+	wi.translucency.Store(math.Float64bits(translucency))
+}
+
+// Translucency returns the translucency set for a window image.
+func (wi *WindowImage) Translucency() float64 {
+	return math.Float64frombits(wi.translucency.Load())
+}
+
+// SetGeometry sets where a window image goes, from any goroutine; PlaceWindow
+// or Refresh lays it out.
+func (cw *CompositorWidget) SetGeometry(wi *WindowImage, x, y int16, w, h uint16) {
+	cw.mu.Lock()
+	wi.X, wi.Y, wi.W, wi.H = x, y, w, h
+	cw.mu.Unlock()
+}
+
+// SetPosition moves a window image, from any goroutine.
+func (cw *CompositorWidget) SetPosition(wi *WindowImage, x, y int16) {
+	cw.mu.Lock()
+	wi.X, wi.Y = x, y
+	cw.mu.Unlock()
+}
+
+// Placed reports whether a window image has been given a size.
+func (cw *CompositorWidget) Placed(wi *WindowImage) bool {
+	cw.mu.RLock()
+	defer cw.mu.RUnlock()
+	return wi.W != 0
 }
 
 // CompositorWidget is a Fyne widget that displays composited window images.
@@ -151,14 +200,14 @@ func (cw *CompositorWidget) placeWindow(wi *WindowImage) {
 
 	wi.Img.Move(pos)
 	wi.Img.Resize(size)
-	if wi.Shadow {
+	if wi.shadowed.Load() {
 		if wi.shadow == nil {
 			wi.shadow = canvas.NewRectangle(color.Transparent)
 		}
 		wi.shadow.Move(pos)
 		wi.shadow.Resize(size)
 		wi.shadow.CornerRadius = theme.Size(theme.SizeNameInnerWindowRadius)
-		if shadow := wmTheme.WindowShadow(wi.Active); wi.shadow.Shadow != shadow {
+		if shadow := wmTheme.WindowShadow(wi.active.Load()); wi.shadow.Shadow != shadow {
 			wi.shadow.Shadow = shadow
 			wi.shadow.Refresh()
 		}
@@ -255,6 +304,11 @@ func (r *compositorRenderer) Refresh() {
 			wi.Pending.Store(false)
 		}
 
+		if t := wi.Translucency(); wi.Img.Translucency != t {
+			wi.Img.Translucency = t
+			swapped = true // repaint with it
+		}
+
 		before := wi.Img.Size()
 		r.widget.placeWindow(wi)
 		// Only an image with new content or a new size needs its texture
@@ -263,7 +317,7 @@ func (r *compositorRenderer) Refresh() {
 		if swapped || wi.Img.Size() != before {
 			wi.Img.Refresh()
 		}
-		if wi.Shadow {
+		if wi.shadowed.Load() {
 			objs = append(objs, wi.shadow)
 		}
 		objs = append(objs, wi.Img)

@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -44,9 +45,12 @@ type client struct {
 	damaged      bool
 	skipped      bool // desktop root window or other skipped windows
 	fullscreened bool // unredirected for fullscreen bypass
-	visualMoving bool // position being managed by VisualMoveCallback (drag/animation)
 	pending      bool // true = a refresh was requested, awaiting render
 	priority     bool // newly mapped: capture and paint ahead of the bulk re-capture
+	// noDim: a window above others that does not dim them (skip-taskbar,
+	// tooltips, menus). Read on map and when those properties change,
+	// not for each window below it on each frame.
+	noDim bool
 
 	geom       xproto.GetGeometryReply
 	attributes xproto.GetWindowAttributesReply
@@ -67,16 +71,18 @@ var (
 	rootWidth     uint16
 	rootHeight    uint16
 	allDamage     bool
-	clients       []*client
+	// clients lists the windows top first. The event loop owns it, and
+	// changes the list with clientsMu held so that snapshotWindows, on the
+	// Fyne thread, can copy it.
+	clients   []*client
+	clientsMu sync.RWMutex
 
-	opacityAtom    xproto.Atom
-	decorationAtom xproto.Atom
-	netWmNameAtom  xproto.Atom
-	netWmStateAtom xproto.Atom
-	utf8StringAtom xproto.Atom
-	atomAtom       xproto.Atom
-	wmNameAtom     xproto.Atom
-	stringAtom     xproto.Atom
+	opacityAtom     xproto.Atom
+	decorationAtom  xproto.Atom
+	netWmNameAtom   xproto.Atom
+	netWmStateAtom  xproto.Atom
+	utf8StringAtom  xproto.Atom
+	skipTaskbarAtom xproto.Atom
 
 	windowTypeAtom xproto.Atom
 	tooltipAtom    xproto.Atom
@@ -148,31 +154,19 @@ func setup(conn *xgb.Conn) error {
 		return err
 	}
 
-	name := "_NET_WM_WINDOW_OPACITY"
-	opacityAtomReply, err := xproto.InternAtom(conn, false, uint16(len(name)), name).Reply()
-	if err != nil {
-		return err
-	}
-	opacityAtom = opacityAtomReply.Atom
-
-	decorationAtomReply, err := xproto.InternAtom(conn, false, uint16(len(x11.DecorationProperty)), x11.DecorationProperty).Reply()
-	if err != nil {
-		return err
-	}
-	decorationAtom = decorationAtomReply.Atom
-
-	stateAtomName := "_NET_WM_STATE"
-	stateAtomReply, err := xproto.InternAtom(conn, false, uint16(len(stateAtomName)), stateAtomName).Reply()
-	if err != nil {
-		return err
-	}
-	netWmStateAtom = stateAtomReply.Atom
-
-	// Cache window type atoms for overlay detection (tooltips, popups, etc.)
+	// The atoms the compositor reads, interned once. ATOM, STRING and
+	// WM_NAME are predefined.
 	typeNames := []struct {
 		name string
 		dest *xproto.Atom
 	}{
+		{"_NET_WM_WINDOW_OPACITY", &opacityAtom},
+		{x11.DecorationProperty, &decorationAtom},
+		{"_NET_WM_STATE", &netWmStateAtom},
+		{"_NET_WM_STATE_SKIP_TASKBAR", &skipTaskbarAtom},
+		{"_NET_WM_NAME", &netWmNameAtom},
+		{"UTF8_STRING", &utf8StringAtom},
+		// window types, for overlay detection (tooltips, popups, etc.)
 		{"_NET_WM_WINDOW_TYPE", &windowTypeAtom},
 		{"_NET_WM_WINDOW_TYPE_TOOLTIP", &tooltipAtom},
 		{"_NET_WM_WINDOW_TYPE_POPUP_MENU", &popupMenuAtom},
@@ -205,6 +199,7 @@ func Run(done chan struct{}, screenComps []ui.ScreenCompositors) error {
 
 	conn := c.Conn()
 	defer conn.Close()
+	watchCornerRadius()
 
 	ws := &widgets{}
 	for _, sc := range screenComps {
@@ -231,60 +226,14 @@ func Run(done chan struct{}, screenComps []ui.ScreenCompositors) error {
 	// the compositor. Invoked on the main thread by Desktop.RefreshWindowAccessories.
 	ui.AccessoryRefresher = func() { rebuildAccessories(ws) }
 
-	// Set up visual move callback for fast drag repositioning.
-	// Called from the main thread (fyne.Do context) so no additional queueing needed.
+	// Set up visual move callback for fast drag repositioning. It is called
+	// on the Fyne thread and from a frame's configure loop: it only touches
+	// the widgets, on the Fyne thread, and marks the window through
+	// visualMoving rather than the event loop's clients.
 	x11.VisualMoveCallback = func(winID uint32, absX, absY int16, width, height uint16) {
-		win := xproto.Window(winID)
-
-		// Mark the client as visually moving so refreshWindows skips recapture
-		if c := getClientFromWindow(win); c != nil {
-			c.visualMoving = true
-		}
-
-		// Update position on all screens that have a cached entry, and
-		// add to new screens if the window now overlaps them.
-		for i := range ws.screens {
-			sw := &ws.screens[i]
-			localX := absX - int16(sw.screen.X)
-			localY := absY - int16(sw.screen.Y)
-
-			// Always update position for existing cached entries so
-			// windows animate smoothly even as they leave the screen.
-			for _, target := range []*ui.CompositorWidget{sw.normal, sw.overlay} {
-				wi := target.GetWindow(winID)
-				if wi == nil {
-					continue
-				}
-				wi.X = localX
-				wi.Y = localY
-				wi.W = width
-				wi.H = height
-				target.PlaceWindow(wi) // carries the window's accessories along
-				// A cached entry can be blank: it was created before this window had been
-				// captured on any screen.
-				if wi.Img.Image == nil {
-					copyImageFromOtherScreen(ws, winID, wi, sw)
-					if wi.Img.Image != nil {
-						wi.Img.Refresh()
-						target.Refresh()
-					}
-				}
-			}
-
-			// If the window newly overlaps this screen and has no entry, create one.
-			if intersectsScreen(absX, absY, width, height, sw.screen) {
-				if sw.normal.GetWindow(winID) == nil && sw.overlay.GetWindow(winID) == nil {
-					wi := sw.normal.EnsureWindow(winID)
-					copyImageFromOtherScreen(ws, winID, wi, sw)
-					wi.X = localX
-					wi.Y = localY
-					wi.W = width
-					wi.H = height
-					sw.normal.PlaceWindow(wi)
-					sw.normal.Refresh()
-				}
-			}
-		}
+		visualMoving.Store(xproto.Window(winID), true) // refreshWindows skips recapturing it
+		screens := ws.list()
+		fyne.Do(func() { moveWindowImages(ws, screens, winID, absX, absY, width, height) })
 	}
 
 	err = setup(conn)
@@ -412,6 +361,12 @@ func Run(done chan struct{}, screenComps []ui.ScreenCompositors) error {
 					if e.Atom == netWmStateAtom {
 						if cl := getClientFromWindow(e.Window); cl != nil {
 							updateFullscreen(conn, ws, cl)
+							updateNoDim(conn, cl)
+						}
+					}
+					if e.Atom == windowTypeAtom {
+						if cl := getClientFromWindow(e.Window); cl != nil {
+							updateNoDim(conn, cl)
 						}
 					}
 				case damage.NotifyEvent:
@@ -546,7 +501,9 @@ func (ws *widgets) applyPending(conn *xgb.Conn) bool {
 			added = append(added, &next[len(next)-1])
 		}
 	}
+	ws.mu.Lock()
 	ws.screens = next
+	ws.mu.Unlock()
 
 	if len(added) == 0 {
 		return true
@@ -603,12 +560,21 @@ func (ws *widgets) screensForClient(c *client) []*screenWidgets {
 	return result
 }
 
+// list returns the screen widgets, for another goroutine than the event
+// loop, which is the one that replaces them (with ws.mu held).
+func (ws *widgets) list() []screenWidgets {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+	return ws.screens
+}
+
 // refreshAll refreshes all screen widgets via fyne.Do.
 func (ws *widgets) refreshAll() {
+	screens := ws.screens
 	fyne.Do(func() {
-		for i := range ws.screens {
-			ws.screens[i].normal.Refresh()
-			ws.screens[i].overlay.Refresh()
+		for i := range screens {
+			screens[i].normal.Refresh()
+			screens[i].overlay.Refresh()
 		}
 	})
 }
@@ -648,8 +614,9 @@ func rebuildAccessories(ws *widgets) {
 	if p := inst.Screens().Primary(); p != nil {
 		primaryName = p.Name
 	}
-	for i := range ws.screens {
-		sw := &ws.screens[i]
+	screens := ws.list() // the Fyne thread: the event loop may replace them
+	for i := range screens {
+		sw := &screens[i]
 		if sw.screen != nil && sw.screen.Name == primaryName {
 			sw.normal.SetAccessories(byWindow, top)
 			sw.normal.Refresh()
@@ -667,12 +634,14 @@ func intersectsScreen(x, y int16, w, h uint16, screen *tyde.Screen) bool {
 		int(y)+int(h) > screen.Y
 }
 
-// copyImageFromOtherScreen copies the canvas.Image data from another screen's
-// widget entry for the same window ID into the target WindowImage.
-func copyImageFromOtherScreen(ws *widgets, winID uint32, target *ui.WindowImage, exclude *screenWidgets) {
-	for i := range ws.screens {
-		sw := &ws.screens[i]
-		if sw == exclude {
+// copyImageFromOtherScreen gives target the latest frame of the same window
+// on another screen, and reports whether there was one. It only goes
+// through what is safe from any goroutine: the frame reaches Img on the
+// next Refresh.
+func copyImageFromOtherScreen(screens []screenWidgets, winID uint32, target *ui.WindowImage, exclude *screenWidgets) bool {
+	for i := range screens {
+		sw := &screens[i]
+		if sw.screen == exclude.screen {
 			continue
 		}
 		for _, w := range []*ui.CompositorWidget{sw.normal, sw.overlay} {
@@ -680,20 +649,15 @@ func copyImageFromOtherScreen(ws *widgets, winID uint32, target *ui.WindowImage,
 			if src == nil {
 				continue
 			}
-			// Prefer the displayed image, but fall back to the latest captured buffer.
-			img := src.Img.Image
-			if img == nil {
-				if back := src.Back.Load(); back != nil {
-					img, _ = back.(image.Image)
-				}
-			}
-			if img != nil {
-				target.Img.Image = img
-				target.Img.Translucency = src.Img.Translucency
-				return
+			if back := src.Back.Load(); back != nil {
+				target.Back.Store(back)
+				target.SetTranslucency(src.Translucency())
+				target.Pending.Store(true)
+				return true
 			}
 		}
 	}
+	return false
 }
 
 // wmWindow returns the WM's Window for a compositor client, or nil.
@@ -782,8 +746,8 @@ func ensureWindowOnScreens(ws *widgets, c *client) {
 		}
 		// A freshly created entry has no image yet. Seed it from a screen that
 		// already shows this window.
-		if wi != nil && wi.Img.Image == nil {
-			copyImageFromOtherScreen(ws, winID, wi, sw)
+		if wi != nil && wi.Back.Load() == nil {
+			copyImageFromOtherScreen(ws.screens, winID, wi, sw)
 		}
 	}
 }
@@ -834,7 +798,7 @@ func refreshWindows(conn *xgb.Conn, ws *widgets) {
 // the affected compositor widgets for refresh (via flushRefresh). It returns
 // whether a capture happened.
 func captureClient(conn *xgb.Conn, ws *widgets, c *client, refreshed map[*ui.CompositorWidget]bool) bool {
-	if !c.damaged || c.skipped || c.fullscreened || c.visualMoving {
+	if !c.damaged || c.skipped || c.fullscreened || isVisualMoving(c.win) {
 		return false
 	}
 	if c.attributes.MapState != xproto.MapStateViewable {
@@ -884,10 +848,7 @@ func captureClient(conn *xgb.Conn, ws *widgets, c *client, refreshed map[*ui.Com
 	if xw, ok := w.(x11.XWin); ok {
 		xw.Decorate(img) // the WM paints the frame over its own border pixels
 	}
-	radius := float32(0)
-	fyne.DoAndWait(func() {
-		radius = theme.Size(theme.SizeNameInnerWindowRadius)
-	})
+	radius := windowRadius()
 	if w == nil || (!w.Fullscreened() && !w.Maximized()) {
 		scale := float32(1)
 		if len(ws.screens) > 0 {
@@ -896,7 +857,7 @@ func captureClient(conn *xgb.Conn, ws *widgets, c *client, refreshed map[*ui.Com
 		roundCorners(img, int(radius*scale))
 	}
 
-	translucency := computeTranslucency(conn, c)
+	translucency := computeTranslucency(c)
 
 	// Push to back buffer on all screen widgets for this window.
 	// The renderer will swap Back→Img.Image on its next Refresh.
@@ -913,16 +874,13 @@ func captureClient(conn *xgb.Conn, ws *widgets, c *client, refreshed map[*ui.Com
 		}
 
 		wi.Back.Store(img)
-		wi.Img.Translucency = translucency
+		wi.SetTranslucency(translucency)
 
 		localX := c.geom.X - int16(sw.screen.X)
 		localY := c.geom.Y - int16(sw.screen.Y)
 
-		if wi.W == 0 {
-			wi.X = localX
-			wi.Y = localY
-			wi.W = totalW
-			wi.H = totalH
+		if !target.Placed(wi) {
+			target.SetGeometry(wi, localX, localY, totalW, totalH)
 			fyne.Do(func() {
 				target.PlaceWindow(wi)
 			})
@@ -972,16 +930,18 @@ func flushRefresh(refreshed map[*ui.CompositorWidget]bool) {
 // caller's concern; this returns windows on a transparent background.
 //
 // Called on the Fyne main goroutine via the ui.CompositorWindowSnapshot hook.
-// The clients slice is copied first so a concurrent add/remove in the event
-// loop can't corrupt the iteration; reads of per-client geometry remain
-// best-effort, matching the existing main-thread access in VisualMoveCallback.
+// The clients slice is copied under clientsMu so a concurrent add/remove in
+// the event loop can't corrupt the iteration; reads of per-client geometry
+// remain best-effort (a window moving meanwhile is drawn where it was).
 func snapshotWindows(conn *xgb.Conn, screen *tyde.Screen, offsetY int) image.Image {
 	if conn == nil || screen == nil || screen.Width <= 0 || screen.Height <= 0 {
 		return nil
 	}
 
+	clientsMu.RLock()
 	cs := make([]*client, len(clients))
 	copy(cs, clients)
+	clientsMu.RUnlock()
 
 	out := image.NewRGBA(image.Rect(0, 0, screen.Width, screen.Height))
 	scale := screen.CanvasScale()
@@ -1002,20 +962,18 @@ func snapshotWindows(conn *xgb.Conn, screen *tyde.Screen, offsetY int) image.Ima
 			off = 0 // pinned windows appear on every desktop
 		}
 
-		if c.pixmap == 0 {
-			pixmap, err := xproto.NewPixmapId(conn)
-			if err != nil {
-				continue
-			}
-			if err = composite.NameWindowPixmapChecked(conn, c.win, pixmap).Check(); err != nil {
-				continue
-			}
-			c.pixmap = pixmap
+		// A pixmap of its own: c.pixmap belongs to the event loop.
+		pixmap, err := xproto.NewPixmapId(conn)
+		if err != nil {
+			continue
 		}
-
+		if err = composite.NameWindowPixmapChecked(conn, c.win, pixmap).Check(); err != nil {
+			continue
+		}
 		totalW := c.geom.Width + c.geom.BorderWidth*2
 		totalH := c.geom.Height + c.geom.BorderWidth*2
-		img := capturePixmap(conn, xproto.Drawable(c.pixmap), totalW, totalH, c.opaqueType == argb, nil)
+		img := capturePixmap(conn, xproto.Drawable(pixmap), totalW, totalH, c.opaqueType == argb, nil)
+		xproto.FreePixmap(conn, pixmap)
 		if img == nil {
 			continue
 		}
@@ -1069,7 +1027,7 @@ func refreshTranslucency(conn *xgb.Conn, ws *widgets) {
 			continue
 		}
 		winID := uint32(c.win)
-		translucency := computeTranslucency(conn, c)
+		translucency := computeTranslucency(c)
 		managed, _ := wmWindow(c).(x11.XWin) // menus and the like cast no shadow
 		active := managed != nil && managed.ChildID() == activeWin
 
@@ -1080,12 +1038,7 @@ func refreshTranslucency(conn *xgb.Conn, ws *widgets) {
 				if wi == nil {
 					continue
 				}
-				if wi.Img.Translucency != translucency {
-					wi.Img.Translucency = translucency
-					changed = true
-				}
-				if wi.Shadow != (managed != nil) || wi.Active != active {
-					wi.Shadow, wi.Active = managed != nil, active
+				if wi.SetLook(translucency, managed != nil, active) {
 					changed = true
 				}
 			}
@@ -1097,7 +1050,13 @@ func refreshTranslucency(conn *xgb.Conn, ws *widgets) {
 	}
 }
 
-func computeTranslucency(conn *xgb.Conn, c *client) float64 {
+// updateNoDim reads whether a window leaves those below it undimmed.
+func updateNoDim(conn *xgb.Conn, c *client) {
+	skip, err := windowSkipped(conn, c.win)
+	c.noDim = (err == nil && skip) || isOverlayWindow(conn, c.win)
+}
+
+func computeTranslucency(c *client) float64 {
 	// Check if this is the top visible window
 	isTop := true
 	idx := -1
@@ -1113,13 +1072,7 @@ func computeTranslucency(conn *xgb.Conn, c *client) float64 {
 			if above.skipped {
 				continue
 			}
-			if above.attributes.OverrideRedirect {
-				continue
-			}
-			if ok, err := windowSkipped(conn, above.win); err == nil && ok {
-				continue
-			}
-			if isOverlayWindow(conn, above.win) {
+			if above.attributes.OverrideRedirect || above.noDim {
 				continue
 			}
 			if above.attributes.MapState == xproto.MapStateViewable {
@@ -1211,7 +1164,9 @@ func addClient(conn *xgb.Conn, window xproto.Window) error {
 		}
 	}
 
+	clientsMu.Lock()
 	clients = append([]*client{c}, clients...)
+	clientsMu.Unlock()
 	if c.attributes.MapState == xproto.MapStateViewable {
 		return mapWin(conn, nil, window)
 	}
@@ -1231,6 +1186,7 @@ func mapWin(conn *xgb.Conn, ws *widgets, window xproto.Window) error {
 	c.damaged = true
 	c.priority = true // a just-mapped window is what the user is waiting to see
 	updateOpacity(conn, 1, c)
+	updateNoDim(conn, c)
 
 	if !c.skipped {
 		name, _ := windowTitle(conn, c.win)
@@ -1296,7 +1252,9 @@ found:
 		ws.refreshAll()
 	}
 
+	clientsMu.Lock()
 	clients = append(clients[:i], clients[i+1:]...)
+	clientsMu.Unlock()
 	allDamage = true
 }
 
@@ -1317,7 +1275,7 @@ func configureClient(conn *xgb.Conn, ws *widgets, e xproto.ConfigureNotifyEvent)
 		return nil
 	}
 
-	client.visualMoving = false // X11 position synced, drag/animation ended
+	visualMoving.Delete(client.win) // X11 position synced, drag/animation ended
 
 	resized := client.geom.Width != e.Width || client.geom.Height != e.Height
 	if resized {
@@ -1361,7 +1319,7 @@ func configureClient(conn *xgb.Conn, ws *widgets, e xproto.ConfigureNotifyEvent)
 			} else {
 				wi = sw.normal.EnsureWindow(winID)
 			}
-			copyImageFromOtherScreen(ws, winID, wi, sw)
+			copyImageFromOtherScreen(ws.screens, winID, wi, sw)
 			screenChanged = true
 		}
 	}
@@ -1394,18 +1352,12 @@ func configureClient(conn *xgb.Conn, ws *widgets, e xproto.ConfigureNotifyEvent)
 		localY := client.geom.Y - int16(sw.screen.Y)
 
 		if resized || screenChanged {
-			fyne.Do(func() {
-				wi.X = localX
-				wi.Y = localY
-				wi.W = totalW
-				wi.H = totalH
-				target.Refresh()
-			})
+			target.SetGeometry(wi, localX, localY, totalW, totalH)
+			fyne.Do(target.Refresh)
 			client.damaged = true
 			allDamage = true
 		} else {
-			wi.X = localX
-			wi.Y = localY
+			target.SetPosition(wi, localX, localY)
 			fyne.Do(func() {
 				target.PlaceWindow(wi)
 			})
@@ -1416,6 +1368,8 @@ func configureClient(conn *xgb.Conn, ws *widgets, e xproto.ConfigureNotifyEvent)
 }
 
 func restackClientOnly(window, target xproto.Window) {
+	clientsMu.Lock()
+	defer clientsMu.Unlock()
 	i := -1
 	for idx, c := range clients {
 		if c.win == window {
@@ -1461,14 +1415,97 @@ func circulateClient(ws *widgets, e xproto.CirculateNotifyEvent) {
 	if client == nil {
 		return
 	}
-	var target xproto.Window
 	if e.Place == xproto.PlaceOnTop {
-		target = clients[0].win
-	} else if e.Place == xproto.PlaceOnBottom {
-		target = 0
+		raiseClientOnly(client.win)
+		if ws != nil {
+			syncOrder(ws)
+			ws.refreshAll()
+		}
+	} else {
+		restackWin(ws, client.win, 0) // the bottom
 	}
-	restackWin(ws, client.win, target)
 	allDamage = true
+}
+
+// raiseClientOnly puts a window first in clients, which lists them top
+// first. (Restacking it above the first one did not find the first one when
+// it was the window itself, and sent it to the bottom.)
+func raiseClientOnly(window xproto.Window) {
+	clientsMu.Lock()
+	defer clientsMu.Unlock()
+	for i, c := range clients {
+		if c.win == window {
+			copy(clients[1:i+1], clients[:i])
+			clients[0] = c
+			return
+		}
+	}
+}
+
+// cornerRadius is the theme's inner window radius, which windows are drawn
+// with: read on the Fyne thread when the settings change, not for each
+// captured frame.
+var cornerRadius atomic.Uint32 // math.Float32bits
+
+// watchCornerRadius keeps cornerRadius up to date.
+func watchCornerRadius() {
+	update := func() {
+		cornerRadius.Store(math.Float32bits(theme.Size(theme.SizeNameInnerWindowRadius)))
+	}
+	fyne.DoAndWait(func() {
+		update()
+		fyne.CurrentApp().Settings().AddListener(func(fyne.Settings) { update() })
+	})
+}
+
+func windowRadius() float32 {
+	return math.Float32frombits(cornerRadius.Load())
+}
+
+// visualMoving holds the windows whose position VisualMoveCallback manages
+// (drag, animation) until the X window is configured to it.
+var visualMoving sync.Map // xproto.Window → true
+
+func isVisualMoving(win xproto.Window) bool {
+	_, ok := visualMoving.Load(win)
+	return ok
+}
+
+// moveWindowImages shows a window at (absX, absY) on the screens: the entries
+// it has move, and a screen it newly overlaps gets one. Fyne thread.
+func moveWindowImages(ws *widgets, screens []screenWidgets, winID uint32, absX, absY int16, width, height uint16) {
+	for i := range screens {
+		sw := &screens[i]
+		localX := absX - int16(sw.screen.X)
+		localY := absY - int16(sw.screen.Y)
+
+		// Always update position for existing cached entries so
+		// windows animate smoothly even as they leave the screen.
+		for _, target := range []*ui.CompositorWidget{sw.normal, sw.overlay} {
+			wi := target.GetWindow(winID)
+			if wi == nil {
+				continue
+			}
+			target.SetGeometry(wi, localX, localY, width, height)
+			target.PlaceWindow(wi) // carries the window's accessories along
+			// A cached entry can be blank: it was created before this window had been
+			// captured on any screen.
+			if wi.Img.Image == nil && copyImageFromOtherScreen(screens, winID, wi, sw) {
+				target.Refresh()
+			}
+		}
+
+		// If the window newly overlaps this screen and has no entry, create one.
+		if intersectsScreen(absX, absY, width, height, sw.screen) {
+			if sw.normal.GetWindow(winID) == nil && sw.overlay.GetWindow(winID) == nil {
+				wi := sw.normal.EnsureWindow(winID)
+				copyImageFromOtherScreen(screens, winID, wi, sw)
+				sw.normal.SetGeometry(wi, localX, localY, width, height)
+				sw.normal.PlaceWindow(wi)
+				sw.normal.Refresh()
+			}
+		}
+	}
 }
 
 func damageClient(conn *xgb.Conn, e *damage.NotifyEvent) error {
@@ -1477,9 +1514,7 @@ func damageClient(conn *xgb.Conn, e *damage.NotifyEvent) error {
 		return nil
 	}
 
-	if err := damage.SubtractChecked(conn, client.damage, 0, 0).Check(); err != nil {
-		return err
-	}
+	damage.Subtract(conn, client.damage, 0, 0) // no need to wait for it
 
 	client.damaged = true
 	allDamage = true
@@ -1507,89 +1542,30 @@ func updateOpacity(conn *xgb.Conn, fallback float32, c *client) {
 }
 
 func windowTitle(conn *xgb.Conn, window xproto.Window) (string, error) {
-	if netWmNameAtom == 0 {
-		a := "_NET_WM_NAME"
-		atom, err := xproto.InternAtom(conn, false, uint16(len(a)), a).Reply()
-		if err != nil {
-			return "", err
-		}
-		netWmNameAtom = atom.Atom
-	}
-
-	if utf8StringAtom == 0 {
-		b := "UTF8_STRING"
-		atom, err := xproto.InternAtom(conn, false, uint16(len(b)), b).Reply()
-		if err != nil {
-			return "", err
-		}
-		utf8StringAtom = atom.Atom
-	}
-
 	prop, err := xproto.GetProperty(conn, false, window, netWmNameAtom, utf8StringAtom, 0, 1024).Reply()
 	if err == nil && prop.Type == utf8StringAtom && len(prop.Value) > 0 {
 		return string(prop.Value), nil
 	}
 
-	if wmNameAtom == 0 {
-		c := "WM_NAME"
-		atom, err := xproto.InternAtom(conn, false, uint16(len(c)), c).Reply()
-		if err != nil {
-			return "", err
-		}
-		wmNameAtom = atom.Atom
-	}
-
-	if stringAtom == 0 {
-		d := "STRING"
-		atom, err := xproto.InternAtom(conn, false, uint16(len(d)), d).Reply()
-		if err != nil {
-			return "", fmt.Errorf("failed to intern STRING atom: %v", err)
-		}
-		stringAtom = atom.Atom
-	}
-
-	prop, err = xproto.GetProperty(conn, false, window, wmNameAtom, stringAtom, 0, 1024).Reply()
-	if err == nil && prop.Type == stringAtom && len(prop.Value) > 0 {
+	prop, err = xproto.GetProperty(conn, false, window, xproto.AtomWmName, xproto.AtomString, 0, 1024).Reply()
+	if err == nil && prop.Type == xproto.AtomString && len(prop.Value) > 0 {
 		return string(prop.Value), nil
 	}
 	return "Unnamed", nil
 }
 
 func windowSkipped(conn *xgb.Conn, window xproto.Window) (bool, error) {
-	if netWmStateAtom == 0 {
-		a := "_NET_WM_STATE"
-		atom, err := xproto.InternAtom(conn, false, uint16(len(a)), a).Reply()
-		if err != nil {
-			return false, err
-		}
-		netWmStateAtom = atom.Atom
+	// Any of the states can be the one: the first was the only one read.
+	prop, err := xproto.GetProperty(conn, false, window, netWmStateAtom, xproto.AtomAtom, 0, 1024).Reply()
+	if err != nil || prop.Type != xproto.AtomAtom {
+		return false, err
 	}
-
-	if atomAtom == 0 {
-		b := "ATOM"
-		atom, err := xproto.InternAtom(conn, false, uint16(len(b)), b).Reply()
-		if err != nil {
-			return false, err
-		}
-		atomAtom = atom.Atom
-	}
-
-	prop, err := xproto.GetProperty(conn, false, window, netWmStateAtom, atomAtom, 0, 1024).Reply()
-	if err == nil && prop.Type == atomAtom && len(prop.Value) > 0 {
-		aid := xproto.Atom(xgb.Get32(prop.Value))
-		reply, err := xproto.GetAtomName(conn, aid).Reply()
-		if err != nil {
-			return false, fmt.Errorf("AtomName: Error fetching name for ATOM "+
-				"id '%d': %s", aid, err)
-		}
-		if reply.Name == "_NET_WM_STATE_SKIP_TASKBAR" {
+	for v := prop.Value; len(v) >= 4; v = v[4:] {
+		if xproto.Atom(xgb.Get32(v)) == skipTaskbarAtom {
 			return true, nil
 		}
-
-		return false, nil
 	}
-
-	return false, err
+	return false, nil
 }
 
 // isOverlayWindow returns true if the window is a tooltip, popup menu, dropdown,
@@ -1612,15 +1588,6 @@ func isOverlayWindow(conn *xgb.Conn, window xproto.Window) bool {
 }
 
 func getOpacity(conn *xgb.Conn, window xproto.Window) (uint32, error) {
-	if opacityAtom == 0 {
-		name := "_NET_WM_WINDOW_OPACITY"
-		opacityAtomReply, err := xproto.InternAtom(conn, false, uint16(len(name)), name).Reply()
-		if err != nil {
-			return opaque, err
-		}
-		opacityAtom = opacityAtomReply.Atom
-	}
-
 	reply, err := xproto.GetProperty(conn, false, window, opacityAtom, xproto.GetPropertyTypeAny, 0, (1<<32)-1).Reply()
 	if err != nil {
 		return opaque, err

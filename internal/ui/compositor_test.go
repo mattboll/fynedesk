@@ -120,7 +120,7 @@ func TestCompositorShadowBeneathManagedWindow(t *testing.T) {
 	cw := NewCompositorWidget(nil) // no screen => canvas scale of 1
 	plain := cw.EnsureWindow(1)
 	win := cw.EnsureWindow(2)
-	win.Shadow, win.Active = true, true
+	win.SetLook(0, true, true)
 	win.X, win.Y, win.W, win.H = 100, 200, 400, 300
 
 	r := cw.CreateRenderer().(*compositorRenderer)
@@ -137,7 +137,7 @@ func TestCompositorShadowBeneathManagedWindow(t *testing.T) {
 		t.Fatal("focused window should have the active shadow")
 	}
 
-	win.Active = false
+	win.SetLook(0, true, false)
 	r.Refresh()
 	if win.shadow.Shadow != wmTheme.WindowShadow(false) {
 		t.Fatal("unfocused window should have the inactive shadow")
