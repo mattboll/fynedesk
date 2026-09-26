@@ -463,14 +463,18 @@ func (b *bar) updateTaskbar() {
 		return
 	}
 	b.disableTaskbar = disableTaskbar
-	if disableTaskbar {
-		return
-	}
-	b.appendSeparator()
 
-	for _, win := range b.desk.WindowManager().Windows() {
-		b.WindowAdded(win)
+	// Rebuilt: turning the taskbar off left its icons and separator, and
+	// turning it on again added a second separator.
+	b.icons = nil
+	b.children = nil
+	b.appendLauncherIcons() // with the separator when the taskbar is on
+	if !disableTaskbar {
+		for _, win := range b.desk.WindowManager().Windows() {
+			b.WindowAdded(win)
+		}
 	}
+	b.Refresh()
 }
 
 func (b *bar) updateIconOrder() {

@@ -260,3 +260,25 @@ func TestIconTaskbarDisabled(t *testing.T) {
 	}
 	assert.Equal(t, true, taskbarIconTest)
 }
+
+func TestTaskbarToggleKeepsOneSeparator(t *testing.T) {
+	testBar := testBar(nil)
+	settings := testBar.desk.Settings().(*wmTest.Settings)
+	separators := func() int {
+		n := 0
+		for _, c := range testBar.children {
+			if _, ok := c.(*canvas.Rectangle); ok {
+				n++
+			}
+		}
+		return n
+	}
+	for i := 0; i < 3; i++ {
+		settings.SetLauncherDisableTaskbar(true)
+		testBar.updateTaskbar()
+		assert.Equal(t, 0, separators(), "taskbar off")
+		settings.SetLauncherDisableTaskbar(false)
+		testBar.updateTaskbar()
+		assert.Equal(t, 1, separators(), "taskbar on")
+	}
+}
