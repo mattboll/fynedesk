@@ -689,6 +689,7 @@ func (s *server) renderOutput(output wlr.Output) {
 		}
 	}
 	s.lastFrameTime.Store(frameStart.UnixNano())
+	s.lastLoopTime.Store(frameStart.UnixNano())
 
 	// Execute pending actions from goroutines on the main thread (wlroots is not thread-safe)
 	s.drainMainThreadActions()

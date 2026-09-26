@@ -37,14 +37,17 @@ func (s *server) watchdogRecovery() {
 	var wakeupsSent int
 
 	for {
+		// The main loop's pulse: a quiet desktop renders no frame, so the
+		// watchdog wakes the loop itself and checks it ran.
+		s.triggerWakeup()
 		time.Sleep(checkInterval)
 		if s.shuttingDown.Load() {
 			return
 		}
 
-		lastFrame := s.lastFrameTime.Load()
+		lastFrame := s.lastLoopTime.Load()
 		if lastFrame == 0 {
-			continue // Not yet rendering
+			continue // Not yet running
 		}
 
 		// Don't trigger restart while locked or display blanked — no frames

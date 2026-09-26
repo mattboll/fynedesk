@@ -80,6 +80,11 @@ func truncateIPCTitle(s string, maxLen int) string {
 // writeWindowsState marks the windows state as dirty. The actual write
 // happens once per frame in renderOutput, batching rapid successive changes.
 func (s *server) writeWindowsState() {
+	if !s.windowsStateDirty {
+		// It is written on the next frame: make sure there is one (a quiet
+		// desktop renders none).
+		s.scheduleAllOutputFrames()
+	}
 	s.windowsStateDirty = true
 	s.windowsMoved()
 }

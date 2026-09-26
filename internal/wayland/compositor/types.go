@@ -331,6 +331,7 @@ type server struct {
 	lastHotspotCheck    time.Time            // throttle: last time checkPanelHotspot() ran
 	revealRestoreScale  float32              // output scale to restore when hiding panel (0 = no restore)
 	lastFrameTime       atomic.Int64         // UnixNano of the last renderOutput call, read by the watchdog
+	lastLoopTime        atomic.Int64         // UnixNano the main loop last ran (wakeup or frame), read by the watchdog
 	animTimerPending    atomic.Bool          // true = animation wakeup timer already scheduled
 
 	// Hot corners

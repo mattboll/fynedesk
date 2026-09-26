@@ -50,7 +50,7 @@ static void scene_buffer_set_dest_size(struct wlr_scene_buffer *buf, int w, int 
 // A single static listener would be moved to the last output on each
 // wl_signal_add call, leaving earlier outputs with no frame callbacks.
 extern void goOnFrame(struct wlr_output *output);
-extern void goOnFrameAll(void);
+extern int goOnFrameAll(void);
 
 // Frame-pacing watchdog: catches stalls in the page-flip → frame → render →
 // commit → frame_done chain. When the chain breaks (kernel missed a page
@@ -59,66 +59,86 @@ extern void goOnFrameAll(void);
 // until something external — cursor movement, an animation tick — wakes the
 // render loop. Mouse-idle video playback hits this regularly.
 //
-// Every real backend frame event defers the watchdog FRAME_WATCHDOG_MS into
-// the future. If another real frame arrives within that window the watchdog
-// never fires (zero overhead when the chain is healthy). If not, the watchdog
-// fires goOnFrameAll() and re-arms — clients stay unblocked at ~30 FPS floor
-// even when the chain is fully broken.
+// When an output needs a frame, the watchdog is armed FRAME_WATCHDOG_MS
+// ahead; the frame that answers disarms it. If none comes, the watchdog
+// renders anyway (goOnFrameAll), and keeps doing so at ~30 Hz while an output
+// still needs a frame — clients stay unblocked even when the chain is fully
+// broken, and nothing wakes up on a quiet desktop.
 //
 // 32ms gives roughly a 30Hz floor, which is well below the freeze-perception
-// threshold for video while still letting the CPU enter mid-depth idle states
-// on a quiet desktop. Mutter/KWin run a similar clock at native refresh rate,
+// threshold for video. Mutter/KWin run a similar clock at native refresh rate,
 // using presentation feedback to predict vblank — that's the next refinement
 // if 30Hz turns out to be visibly choppy under a fully broken backend.
 #define FRAME_WATCHDOG_MS 32
 
+// The watchdog is armed when an output needs a frame (damage, a frame
+// callback, a scheduled frame) and disarmed by the frame that answers: a
+// quiet desktop wakes up for nothing (it used to fire 30 times a second).
 static struct wl_event_source *frame_timer = NULL;
+
+// frame_listeners are the listeners of one output.
+struct frame_listeners {
+    struct wl_listener frame;
+    struct wl_listener needs_frame;
+};
 
 static void handle_frame(struct wl_listener *listener, void *data) {
     struct wlr_output *output = data;
-    // Real backend frame event arrived — defer the watchdog. As long as
-    // backend frames keep arriving on cadence, this update keeps pushing
-    // the deadline out and the watchdog never fires.
+    // A real frame answered: nothing to watch until a frame is needed again.
     if (frame_timer) {
-        wl_event_source_timer_update(frame_timer, FRAME_WATCHDOG_MS);
+        wl_event_source_timer_update(frame_timer, 0);
     }
     goOnFrame(output);
 }
 
+static void handle_needs_frame(struct wl_listener *listener, void *data) {
+    // A frame is wanted: if the backend does not deliver one in time, the
+    // watchdog renders anyway, so clients waiting on frame_done go on.
+    if (frame_timer) {
+        wl_event_source_timer_update(frame_timer, FRAME_WATCHDOG_MS);
+    }
+}
+
 static int frame_timer_handler(void *data) {
-    // No backend frame in FRAME_WATCHDOG_MS — assume the chain stalled and
-    // force a render so any client waiting on frame_done gets unblocked.
-    // Re-arm so we keep watching: if the backend resumes, handle_frame will
-    // defer the next firing further out.
-    goOnFrameAll();
-    wl_event_source_timer_update(frame_timer, FRAME_WATCHDOG_MS);
+    // No backend frame in FRAME_WATCHDOG_MS although one was needed: the
+    // chain stalled; render so that waiting clients are unblocked. While an
+    // output still needs a frame (its commit failed: a page flip still in
+    // flight, or lost across suspend), keep trying, so the failure streak
+    // that triggers the recovery modeset can build up.
+    if (goOnFrameAll()) {
+        wl_event_source_timer_update(frame_timer, FRAME_WATCHDOG_MS);
+    }
     return 0;
 }
 
-// Allocate a per-output frame listener and connect it to output.events.frame.
-// The returned pointer must be freed with destroy_frame_listener on output destroy.
+// Allocate the listeners of an output and connect them to its frame and
+// needs_frame events. The returned pointer must be freed with
+// destroy_frame_listener on output destroy.
 static struct wl_listener *create_frame_listener(struct wl_display *display, struct wlr_output *output) {
-    struct wl_listener *listener = calloc(1, sizeof(struct wl_listener));
-    if (!listener) return NULL;
-    listener->notify = handle_frame;
-    wl_signal_add(&output->events.frame, listener);
-    output->needs_frame = true;
+    struct frame_listeners *l = calloc(1, sizeof(*l));
+    if (!l) return NULL;
+    l->frame.notify = handle_frame;
+    wl_signal_add(&output->events.frame, &l->frame);
+    l->needs_frame.notify = handle_needs_frame;
+    wl_signal_add(&output->events.needs_frame, &l->needs_frame);
 
-    // One global watchdog for all outputs. 500ms initial delay lets the
-    // backend deliver real frame events first on healthy startup — if any
-    // arrive, they push the deadline forward and the watchdog stays quiet.
+    // One global watchdog for all outputs, first armed a while after start
+    // so the backend can deliver its first frames.
     if (!frame_timer) {
         struct wl_event_loop *loop = wl_display_get_event_loop(display);
         frame_timer = wl_event_loop_add_timer(loop, frame_timer_handler, NULL);
         wl_event_source_timer_update(frame_timer, 500);
     }
-    return listener;
+    wlr_output_schedule_frame(output);
+    return &l->frame;
 }
 
 static void destroy_frame_listener(struct wl_listener *listener) {
     if (!listener) return;
-    wl_list_remove(&listener->link);
-    free(listener);
+    struct frame_listeners *l = wl_container_of(listener, l, frame);
+    wl_list_remove(&l->frame.link);
+    wl_list_remove(&l->needs_frame.link);
+    free(l);
 }
 
 // Fractional scaling: create the manager so clients can query precise scale
