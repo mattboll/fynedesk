@@ -33,12 +33,11 @@ static bool output_set_gamma(struct wlr_output *output,
 import "C"
 
 import (
-	"encoding/json"
 	"log"
 	"math"
-	"os"
-	"path/filepath"
 	"unsafe"
+
+	"fyshos.com/tyde/wlipc"
 )
 
 // nightLightState tracks the current night light configuration.
@@ -92,8 +91,9 @@ func (s *server) applyNightLightToOutput(out *outputState) {
 	}
 }
 
-// toggleNightLight flips the night light on/off, applies gamma, and persists
-// the setting via Fyne preferences so the panel stays in sync.
+// toggleNightLight flips the night light on/off and applies it at once;
+// the panel, which owns config.toml, is told to save it (with no panel the
+// change lasts until the settings are read again).
 func (s *server) toggleNightLight() {
 	s.nightLight.enabled = !s.nightLight.enabled
 	s.applyNightLight()
@@ -102,35 +102,9 @@ func (s *server) toggleNightLight() {
 	} else {
 		log.Println("[nightlight] disabled")
 	}
-	s.persistNightLight()
-}
-
-// persistNightLight writes the current night light state to Fyne preferences JSON
-// so the panel sidebar checkbox stays in sync and the setting survives restarts.
-func (s *server) persistNightLight() {
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		return
+	if s.ipcServer != nil {
+		s.ipcServer.Broadcast(wlipc.EventNightLight, wlipc.NightLightEvent{Enabled: s.nightLight.enabled})
 	}
-	prefsPath := filepath.Join(configDir, "fyne", "com.fyshos.tyde", "preferences.json")
-
-	data, err := os.ReadFile(prefsPath)
-	if err != nil {
-		return
-	}
-	var prefs map[string]interface{}
-	if err := json.Unmarshal(data, &prefs); err != nil {
-		return
-	}
-
-	prefs["nightlightenabled"] = s.nightLight.enabled
-	prefs["nightlighttemperature"] = float64(s.nightLight.temperature)
-
-	out, err := json.MarshalIndent(prefs, "", "  ")
-	if err != nil {
-		return
-	}
-	writeAtomic(prefsPath, out)
 }
 
 // colorTempToRGB converts a color temperature in Kelvin to RGB multipliers (0.0-1.0).

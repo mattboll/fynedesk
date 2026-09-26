@@ -224,6 +224,7 @@ func (e *embededWM) startIPCWatcher() {
 			wlipc.EventNextAgent,
 			wlipc.EventOverview,
 			wlipc.EventPanelHotspot,
+			wlipc.EventNightLight,
 		); err == nil {
 			log.Println("[panel] Connected to compositor via socket IPC")
 			e.setupSocketEventHandlers(client)
@@ -316,6 +317,17 @@ func (e *embededWM) setupSocketEventHandlers(client *wlipc.IPCClient) {
 	})
 	client.OnEvent(wlipc.EventSidebar, func(data json.RawMessage) {
 		fyne.Do(func() { ToggleSidebar() })
+	})
+	client.OnEvent(wlipc.EventNightLight, func(data json.RawMessage) {
+		var evt wlipc.NightLightEvent
+		if json.Unmarshal(data, &evt) != nil {
+			return
+		}
+		fyne.Do(func() {
+			if ds, ok := tyde.Instance().Settings().(*deskSettings); ok && ds.NightLightEnabled() != evt.Enabled {
+				ds.setNightLightEnabled(evt.Enabled) // saved in config.toml
+			}
+		})
 	})
 	client.OnEvent(wlipc.EventPanelHotspot, func(data json.RawMessage) {
 		var evt wlipc.PanelHotspotEvent

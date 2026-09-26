@@ -711,6 +711,9 @@ func (s *server) addOutputToDesktop(out *outputState, config *OutputLayoutConfig
 
 	// Load wallpaper for this output if settings are already loaded
 	s.loadWallpaperForNewOutput(out)
+	if s.nightLight.enabled {
+		s.applyNightLightToOutput(out) // a screen plugged in at night
+	}
 
 	// Start boot sequence animation on first output
 	if len(s.outputs) == 1 {
@@ -943,15 +946,7 @@ func (s *server) handleOutputReconfigured(out *outputState) {
 		return
 	}
 	log.Printf("Output %s reconfigured: %dx%d -> %dx%d\n", out.output.Name(), out.width, out.height, w, h)
-	out.width, out.height = w, h
-	s.normalizeOutputPositions()
-	s.writeCompositorState()
-	s.loadWallpaperForNewOutput(out)
-	if out == s.primaryOutput() {
-		s.restartPanel()
-	}
-	s.repositionSecondaryPanels()
-	s.refitWindowsToOutputs()
+	s.outputResized(out, true)
 }
 
 // handleOutputDestroy removes a disconnected output from the server.

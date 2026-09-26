@@ -59,6 +59,7 @@ Clients subscribe via the `subscribe` request. Events are pushed in real-time.
 | `clipboard-show` | `{timestamp}` | Show clipboard manager |
 | `command-palette` | `{timestamp}` | Show command palette |
 | `sidebar-toggle` | `{timestamp}` | Toggle sidebar (Raven) |
+| `night-light` | `NightLightEvent` | The night light shortcut toggled it (the panel saves it) |
 | `overview` | `{timestamp}` | Window overview mode |
 
 ## Socket Requests (clients → compositor)

@@ -51,7 +51,14 @@ const (
 	EventNextAgent        = "next-agent"
 	EventOverview         = "overview"
 	EventPanelHotspot     = "panel-hotspot"
+	EventNightLight       = "night-light" // NightLightEvent: toggled by its shortcut
 )
+
+// NightLightEvent tells the panel the night light was toggled by its
+// shortcut, for it to save the setting.
+type NightLightEvent struct {
+	Enabled bool `json:"enabled"`
+}
 
 // Request names sent by clients.
 const (
