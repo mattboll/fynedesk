@@ -336,6 +336,9 @@ func changePassword(oldPass, newPass string) error {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "passwd")
+	// Its prompts are matched in English: in French passwd asks "Mot de
+	// passe actuel :" and nothing would answer.
+	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C", "LANGUAGE=")
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		return fmt.Errorf("could not start passwd: %w", err)
