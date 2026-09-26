@@ -52,6 +52,7 @@ struct wobble_src {
     float color[4]; // rect: colour to restore
     int x, y;       // position in the extent, this frame
     struct wlr_texture *texture; // of a decoration buffer, kept
+    struct wlr_texture *frame_tex; // what this frame draws, from wobble_update
 };
 
 struct wobble {
@@ -407,15 +408,13 @@ static bool render_flat(struct wobble *wb) {
             return false;
         }
     }
-    // Textures of the decorations are made (and kept) before drawing.
+    // The textures wobble_update made for this frame (making them again
+    // here uploaded the decorations a second time each frame).
     int n = wb->norder > 0 ? wb->norder : 1;
     struct wlr_texture *textures[n];
     for (int k = 0; k < wb->norder; k++) {
         struct wobble_src *src = &wb->srcs[wb->order[k]];
-        textures[k] = NULL;
-        if (src->alive && !src->is_rect) {
-            textures[k] = source_texture(wb, src, wlr_scene_buffer_from_node(src->node));
-        }
+        textures[k] = src->alive && !src->is_rect ? src->frame_tex : NULL;
     }
 
     int tw = wb->flat_w, th = wb->flat_h;
@@ -658,8 +657,9 @@ static bool wobble_update(struct wobble *wb, const float *mx, const float *my, i
     // The textures are made first: wlroots switches EGL contexts meanwhile.
     for (int k = 0; k < wb->norder; k++) {
         struct wobble_src *src = &wb->srcs[wb->order[k]];
+        src->frame_tex = NULL;
         if (src->alive && !src->is_rect) {
-            source_texture(wb, src, wlr_scene_buffer_from_node(src->node));
+            src->frame_tex = source_texture(wb, src, wlr_scene_buffer_from_node(src->node));
         }
     }
     if (!eglMakeCurrent(g_egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, g_egl_context)) {
