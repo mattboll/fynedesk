@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -204,20 +205,32 @@ type OverlayRequest struct {
 // primaryScreenOffset stores the primary output's layout position.
 // When the primary screen is not at (0,0) (multi-monitor), all overlay
 // positions must be shifted by this offset so they land on the correct output.
-var primaryScreenOffX, primaryScreenOffY float32
+var primaryScreenOff struct {
+	sync.RWMutex
+	x, y float32
+}
 
 // SetPrimaryScreenOffset sets the primary output's position in layout coordinates.
 // Called by the panel at startup when the compositor passes the output offset.
 func SetPrimaryScreenOffset(x, y float32) {
-	primaryScreenOffX = x
-	primaryScreenOffY = y
+	primaryScreenOff.Lock()
+	primaryScreenOff.x, primaryScreenOff.y = x, y
+	primaryScreenOff.Unlock()
+}
+
+// primaryScreenOffset returns the primary output's position.
+func primaryScreenOffset() (float32, float32) {
+	primaryScreenOff.RLock()
+	defer primaryScreenOff.RUnlock()
+	return primaryScreenOff.x, primaryScreenOff.y
 }
 
 // RequestOverlayPosition writes an overlay position request for the compositor.
 // Positions are expected in screen-relative coordinates (relative to the primary
 // output's top-left). The primary screen offset is added automatically.
 func RequestOverlayPosition(title string, x, y, w, h float32) error {
-	return RequestOverlayPositionAbsolute(title, x+primaryScreenOffX, y+primaryScreenOffY, w, h)
+	offX, offY := primaryScreenOffset()
+	return RequestOverlayPositionAbsolute(title, x+offX, y+offY, w, h)
 }
 
 // RequestOverlayPositionAbsolute writes an overlay position request using absolute
@@ -253,22 +266,6 @@ type LauncherRequest struct {
 	Timestamp int64   `json:"timestamp"`
 	CursorX   float32 `json:"cursor_x,omitempty"`
 	CursorY   float32 `json:"cursor_y,omitempty"`
-}
-
-// RequestLauncher writes a launcher request for the panel
-func RequestLauncher() error {
-	req := LauncherRequest{Timestamp: time.Now().UnixMilli()}
-	if trySendRequest(ReqOverlay, req) {
-		return nil
-	}
-
-	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0o700)
-	data, err := json.Marshal(req)
-	if err != nil {
-		return err
-	}
-	return atomicWriteFile(filepath.Join(configDir, "launcher-request.json"), data)
 }
 
 // WatchLauncherRequest watches for launcher requests from compositor.
@@ -405,5 +402,6 @@ func ReportDockIcons(icons map[string]DockIcon) error {
 // DockIconAbsolute converts a position on the primary output's panel to
 // layout coordinates.
 func DockIconAbsolute(x, y float32) DockIcon {
-	return DockIcon{X: x + primaryScreenOffX, Y: y + primaryScreenOffY}
+	offX, offY := primaryScreenOffset()
+	return DockIcon{X: x + offX, Y: y + offY}
 }

@@ -172,25 +172,6 @@ func RequestClipboardClear() error {
 	return atomicWriteFile(filepath.Join(configDir, "clipboard-clear.json"), data)
 }
 
-// RequestShowClipboard writes a show clipboard request for the panel
-func RequestShowClipboard() error {
-	if trySendRequest(ReqOverlay, struct {
-		Action string `json:"action"`
-	}{Action: "clipboard-show"}) {
-		return nil
-	}
-
-	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0o700)
-	data, err := json.Marshal(struct {
-		Timestamp int64 `json:"timestamp"`
-	}{Timestamp: time.Now().UnixMilli()})
-	if err != nil {
-		return err
-	}
-	return atomicWriteFile(filepath.Join(configDir, "clipboard-show-request.json"), data)
-}
-
 // WatchClipboardShowRequest watches for clipboard show requests from compositor.
 // Close the done channel to stop the watcher goroutine.
 // Prefers socket IPC when available, falls back to file polling.
