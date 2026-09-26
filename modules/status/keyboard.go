@@ -28,6 +28,7 @@ type keyboardLayout struct {
 func (k *keyboardLayout) Destroy() {
 	if k.done != nil {
 		close(k.done)
+		k.done = nil // a second Destroy must not close it again
 	}
 }
 
