@@ -148,7 +148,8 @@ type VRRRequest struct {
 }
 
 type server struct {
-	decoGen       uint64 // changes when the title bars must be drawn again (theme, settings)
+	scaledIcons   map[string]*image.NRGBA // app icons scaled per size, see scaledAppIcon
+	decoGen       uint64                  // changes when the title bars must be drawn again (theme, settings)
 	display       wlr.Display
 	backend       wlr.Backend
 	session       wlr.Session // DRM/libinput session (invalid when nested)

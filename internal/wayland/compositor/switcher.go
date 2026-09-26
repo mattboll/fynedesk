@@ -416,6 +416,8 @@ static void sw_scene_node_set_enabled(struct wlr_scene_node *node, int enabled) 
 import "C"
 
 import (
+	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"log"
@@ -439,7 +441,7 @@ import (
 // Called from renderOutput after frame_done. Uses a single EGL context
 // activation for all captures, renders directly at thumbnail resolution (~100KB
 // per window instead of ~8MB at full res), and reuses a persistent FBO.
-// Returns true if thumbnails were actually captured (false if throttled).
+// Returns true if a thumbnail shown in the switcher changed.
 func (s *server) captureViewThumbnails() bool {
 	hasPending := len(s.previewPendingIDs) > 0
 	if s.locked.Load() || (!s.switcherActive && !hasPending) {
@@ -468,16 +470,20 @@ func (s *server) captureViewThumbnails() bool {
 	// Reusable buffer for thumbnail pixels (maxW * maxH * 4 = ~107KB)
 	pix := make([]byte, thumbMaxW*thumbMaxH*4)
 
+	changed := false
 	if s.switcherActive {
-		// Capture windows shown in the active switcher
+		// Capture windows shown in the active switcher; the switcher is
+		// composed again only if one of them looks different.
 		for _, w := range s.switcherWindows {
 			switch v := w.(type) {
 			case *xdgView:
 				if thumb := s.captureXDGThumbDirect(v, pix, thumbMaxW, thumbMaxH); thumb != nil {
+					changed = changed || !sameImage(v.cachedThumb, thumb)
 					v.cachedThumb = thumb
 				}
 			case *xwayView:
 				if thumb := s.captureWlrThumbDirect(v, pix, thumbMaxW, thumbMaxH); thumb != nil {
+					changed = changed || !sameImage(v.cachedThumb, thumb)
 					v.cachedThumb = thumb
 				}
 			}
@@ -509,7 +515,12 @@ func (s *server) captureViewThumbnails() bool {
 		log.Printf("[THUMB] capture #%d: xdg=%d xway=%d with thumbs", s.thumbCaptureCount, xdgWithThumb, xwayWithThumb)
 	}
 	s.thumbCaptureCount++
-	return true
+	return changed
+}
+
+// sameImage reports whether two thumbnails have the same pixels.
+func sameImage(a, b *image.NRGBA) bool {
+	return a != nil && b != nil && a.Rect == b.Rect && bytes.Equal(a.Pix, b.Pix)
 }
 
 // captureThumbByID captures a thumbnail for the window with the given ID.
@@ -978,32 +989,47 @@ func (s *server) drawTextOnImage(img *image.NRGBA, title string, cx, cy, maxWidt
 	d.DrawString(title)
 }
 
-// loadSwitcherIconImage loads a switcher icon as an NRGBA image (for compositing).
+// loadSwitcherIconImage returns a switcher icon as an NRGBA image (for
+// compositing), or nil.
 func (s *server) loadSwitcherIconImage(appID string) *image.NRGBA {
 	if appID == "" {
 		return nil
 	}
-	iconPath := appie.FdoLookupIconPath("", switcherIconSize, strings.ToLower(appID))
-	if iconPath == "" {
-		iconPath = appie.FdoLookupIconPath("", switcherIconSize, appID)
-	}
-	if iconPath == "" {
-		return nil
-	}
+	return s.scaledAppIcon(switcherIconSize, appID, strings.ToLower(appID))
+}
 
-	f, err := os.Open(iconPath)
-	if err != nil {
-		return nil
+// scaledAppIcon returns the icon of the first of names the icon theme has,
+// scaled to size, or nil. Icons are read and scaled once, then kept: the
+// switcher and the open animation asked for them on every redraw. The image
+// is shared: read it, never draw on it.
+func (s *server) scaledAppIcon(size int, names ...string) *image.NRGBA {
+	key := fmt.Sprintf("%d:%s", size, strings.Join(names, "|"))
+	if img, ok := s.scaledIcons[key]; ok {
+		return img
 	}
-	defer f.Close()
-
-	decoded, _, err := image.Decode(f)
-	if err != nil {
-		return nil
+	if s.scaledIcons == nil {
+		s.scaledIcons = map[string]*image.NRGBA{}
 	}
-
-	scaled := image.NewNRGBA(image.Rect(0, 0, switcherIconSize, switcherIconSize))
-	draw.BiLinear.Scale(scaled, scaled.Bounds(), decoded, decoded.Bounds(), draw.Over, nil)
+	var scaled *image.NRGBA
+	for _, name := range names {
+		path := appie.FdoLookupIconPath("", size, name)
+		if path == "" {
+			continue
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		decoded, _, err := image.Decode(f)
+		f.Close()
+		if err != nil {
+			continue
+		}
+		scaled = image.NewNRGBA(image.Rect(0, 0, size, size))
+		draw.BiLinear.Scale(scaled, scaled.Bounds(), decoded, decoded.Bounds(), draw.Over, nil)
+		break
+	}
+	s.scaledIcons[key] = scaled
 	return scaled
 }
 

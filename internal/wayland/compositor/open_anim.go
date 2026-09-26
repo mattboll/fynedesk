@@ -36,13 +36,9 @@ import (
 	"image/color"
 	"log"
 	"math"
-	"os"
 	"strings"
 	"time"
 	"unsafe"
-
-	"github.com/FyshOS/appie"
-	"golang.org/x/image/draw"
 )
 
 // openAnim holds state for the icon-to-window launch animation.
@@ -387,38 +383,17 @@ func (s *server) dockCenter() (float64, float64) {
 	return ox + float64(barWidth)/2, oy + h/2
 }
 
-// loadOpenAnimIcon loads an app icon as NRGBA at openAnimIconSize.
+// loadOpenAnimIcon returns an app icon as NRGBA at openAnimIconSize (cached,
+// shared), or a generic one.
 func (s *server) loadOpenAnimIcon(appID string) *image.NRGBA {
-	iconPath := appie.FdoLookupIconPath("", openAnimIconSize, strings.ToLower(appID))
-	if iconPath == "" {
-		iconPath = appie.FdoLookupIconPath("", openAnimIconSize, appID)
+	names := []string{strings.ToLower(appID), appID}
+	if parts := strings.Split(appID, "."); len(parts) > 1 {
+		names = append(names, strings.ToLower(parts[len(parts)-1]))
 	}
-	if iconPath == "" {
-		parts := strings.Split(appID, ".")
-		if len(parts) > 1 {
-			short := strings.ToLower(parts[len(parts)-1])
-			iconPath = appie.FdoLookupIconPath("", openAnimIconSize, short)
-		}
+	if icon := s.scaledAppIcon(openAnimIconSize, names...); icon != nil {
+		return icon
 	}
-	if iconPath == "" {
-		return s.genericOpenAnimIcon()
-	}
-
-	f, err := os.Open(iconPath)
-	if err != nil {
-		return s.genericOpenAnimIcon()
-	}
-	defer f.Close()
-
-	img, _, err := image.Decode(f)
-	if err != nil {
-		return s.genericOpenAnimIcon()
-	}
-
-	sz := openAnimIconSize
-	nrgba := image.NewNRGBA(image.Rect(0, 0, sz, sz))
-	draw.BiLinear.Scale(nrgba, nrgba.Bounds(), img, img.Bounds(), draw.Over, nil)
-	return nrgba
+	return s.genericOpenAnimIcon()
 }
 
 // genericOpenAnimIcon returns a generic rounded square icon as fallback.
