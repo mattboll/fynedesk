@@ -1384,4 +1384,32 @@ func (s *server) normalizeOutputPositions() {
 		}
 		log.Printf("[LAYOUT] Output %s → (%d,%d)\n", o.output.Name(), o.layoutX, o.layoutY)
 	}
+
+	// The windows and the panel move with their screens.
+	s.shiftViews(float64(-minX), float64(-minY))
+	s.repositionPanel()
+	s.repositionSecondaryPanels()
+}
+
+// shiftViews moves every window by (dx, dy) in the layout, as the screens
+// under them moved: where they were saved to be restored, too.
+func (s *server) shiftViews(dx, dy float64) {
+	for _, v := range s.xdgViews {
+		v.x, v.y = v.x+dx, v.y+dy
+		v.savedX, v.savedY = v.savedX+dx, v.savedY+dy
+		if v.mapped {
+			setXdgScenePos(v)
+		}
+	}
+	for _, v := range s.xwayViews {
+		if v.isPanel {
+			continue // repositionPanel
+		}
+		v.x, v.y = v.x+dx, v.y+dy
+		v.savedX, v.savedY = v.savedX+dx, v.savedY+dy
+		if v.mapped {
+			setXwayScenePos(v)
+			v.surface.Configure(int16(v.x), int16(v.y), uint16(v.surface.Width()), uint16(v.surface.Height()))
+		}
+	}
 }
