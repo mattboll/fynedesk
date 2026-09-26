@@ -239,8 +239,7 @@ func (s *server) processDisplayIPCFiles(paths ipcFilePaths, locked bool,
 					removeIPC(paths.modeRequest)
 					clearFailures(paths.modeRequest)
 					r := req
-					s.mainThreadActions <- func() { s.setResolution(r) }
-					s.triggerWakeup()
+					_ = s.enqueueAction(func() { s.setResolution(r) })
 				} else {
 					logAndRemoveIfStuck(paths.modeRequest, perr)
 				}
@@ -260,8 +259,7 @@ func (s *server) processDisplayIPCFiles(paths ipcFilePaths, locked bool,
 					removeIPC(paths.scaleRequest)
 					clearFailures(paths.scaleRequest)
 					r := req
-					s.mainThreadActions <- func() { s.setOutputScale(r) }
-					s.triggerWakeup()
+					_ = s.enqueueAction(func() { s.setOutputScale(r) })
 				} else {
 					logAndRemoveIfStuck(paths.scaleRequest, perr)
 				}
@@ -281,8 +279,7 @@ func (s *server) processDisplayIPCFiles(paths ipcFilePaths, locked bool,
 					removeIPC(paths.desktopRequest)
 					clearFailures(paths.desktopRequest)
 					desk := req.Desktop
-					s.mainThreadActions <- func() { s.switchDesk(desk) }
-					s.triggerWakeup()
+					_ = s.enqueueAction(func() { s.switchDesk(desk) })
 				} else {
 					logAndRemoveIfStuck(paths.desktopRequest, perr)
 				}
@@ -327,8 +324,7 @@ func (s *server) processSettingsIPCFiles(paths ipcFilePaths, locked bool) {
 	// Check for settings change notification (allowed while locked — needed for lock client config)
 	if _, err := os.Stat(paths.settingsChanged); err == nil {
 		removeIPC(paths.settingsChanged)
-		s.mainThreadActions <- func() { s.reloadSettings() }
-		s.triggerWakeup()
+		_ = s.enqueueAction(func() { s.reloadSettings() })
 	}
 
 	// Check for layout change request — blocked while locked
@@ -343,8 +339,7 @@ func (s *server) processSettingsIPCFiles(paths ipcFilePaths, locked bool) {
 					log.Printf("[IPC] layout-request: output=%q pos=%q ref=%q primary=%v\n",
 						req.OutputName, req.Position, req.RelativeTo, req.Primary)
 					r := req
-					s.mainThreadActions <- func() { s.setOutputLayout(r) }
-					s.triggerWakeup()
+					_ = s.enqueueAction(func() { s.setOutputLayout(r) })
 				} else {
 					log.Printf("[IPC] layout-request: unmarshal error: %v\n", err)
 				}
@@ -365,13 +360,12 @@ func (s *server) processSettingsIPCFiles(paths ipcFilePaths, locked bool) {
 			if err := json.Unmarshal(data, &req); err == nil {
 				removeIPC(paths.kbLayoutRequest)
 				idx := req.Index
-				s.mainThreadActions <- func() {
+				_ = s.enqueueAction(func() {
 					if idx >= 0 && idx < len(s.keyboardLayouts) {
 						s.activeLayoutIndex = idx
 						s.applyKeyboardLayout()
 					}
-				}
-				s.triggerWakeup()
+				})
 			}
 		}
 	}
@@ -397,8 +391,7 @@ func (s *server) processWindowIPCFiles(paths ipcFilePaths, locked bool,
 				removeIPC(paths.windowAction)
 				clearFailures(paths.windowAction)
 				r := req
-				s.mainThreadActions <- func() { s.handleWindowAction(r) }
-				s.triggerWakeup()
+				_ = s.enqueueAction(func() { s.handleWindowAction(r) })
 			} else {
 				logAndRemoveIfStuck(paths.windowAction, perr)
 			}
@@ -415,8 +408,7 @@ func (s *server) processWindowIPCFiles(paths ipcFilePaths, locked bool,
 				if err := json.Unmarshal(data, &req); err == nil {
 					removeIPC(paths.raiseByTitle)
 					title := req.Title
-					s.mainThreadActions <- func() { s.raiseByTitle(title) }
-					s.triggerWakeup()
+					_ = s.enqueueAction(func() { s.raiseByTitle(title) })
 				}
 			}
 		}
@@ -432,8 +424,7 @@ func (s *server) processWindowIPCFiles(paths ipcFilePaths, locked bool,
 				if err := json.Unmarshal(data, &req); err == nil {
 					removeIPC(paths.raiseByClass)
 					class := req.Class
-					s.mainThreadActions <- func() { s.raiseByClass(class) }
-					s.triggerWakeup()
+					_ = s.enqueueAction(func() { s.raiseByClass(class) })
 				}
 			}
 		}
@@ -449,8 +440,7 @@ func (s *server) processWindowIPCFiles(paths ipcFilePaths, locked bool,
 				if err := json.Unmarshal(data, &req); err == nil {
 					removeIPC(paths.vrrRequest)
 					r := req
-					s.mainThreadActions <- func() { s.setOutputVRR(r) }
-					s.triggerWakeup()
+					_ = s.enqueueAction(func() { s.setOutputVRR(r) })
 				}
 			}
 		}

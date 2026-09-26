@@ -172,9 +172,7 @@ func (s *server) socketDesktopSwitch(msg *wlipc.Message) (json.RawMessage, error
 
 // socketSettingsChanged queues a reload of the settings.
 func (s *server) socketSettingsChanged(msg *wlipc.Message) (json.RawMessage, error) {
-	s.mainThreadActions <- func() { s.reloadSettings() }
-	s.triggerWakeup()
-	return nil, nil
+	return nil, s.enqueueAction(func() { s.reloadSettings() })
 }
 
 // socketKeyboardLayout queues a switch to another keyboard layout.
@@ -184,14 +182,12 @@ func (s *server) socketKeyboardLayout(msg *wlipc.Message) (json.RawMessage, erro
 		return nil, fmt.Errorf("invalid keyboard layout: %w", err)
 	}
 	idx := req.Index
-	s.mainThreadActions <- func() {
+	return nil, s.enqueueAction(func() {
 		if idx >= 0 && idx < len(s.keyboardLayouts) {
 			s.activeLayoutIndex = idx
 			s.applyKeyboardLayout()
 		}
-	}
-	s.triggerWakeup()
-	return nil, nil
+	})
 }
 
 // socketEmojiPaste puts the picked emoji in the clipboard.
@@ -201,12 +197,10 @@ func (s *server) socketEmojiPaste(msg *wlipc.Message) (json.RawMessage, error) {
 		return nil, fmt.Errorf("invalid emoji paste: %w", err)
 	}
 	emoji := req.Emoji
-	s.mainThreadActions <- func() {
+	return nil, s.enqueueAction(func() {
 		s.setClipboard(emoji)
 		log.Printf("[emoji] clipboard set via socket to %q\n", emoji)
-	}
-	s.triggerWakeup()
-	return nil, nil
+	})
 }
 
 // socketClipboardPaste puts the given text in the clipboard.
@@ -216,20 +210,16 @@ func (s *server) socketClipboardPaste(msg *wlipc.Message) (json.RawMessage, erro
 		return nil, fmt.Errorf("invalid clipboard paste: %w", err)
 	}
 	text := req.Text
-	s.mainThreadActions <- func() {
+	return nil, s.enqueueAction(func() {
 		s.setClipboard(text)
-	}
-	s.triggerWakeup()
-	return nil, nil
+	})
 }
 
 // socketClipboardClear clears the clipboard history.
 func (s *server) socketClipboardClear(msg *wlipc.Message) (json.RawMessage, error) {
-	s.mainThreadActions <- func() {
+	return nil, s.enqueueAction(func() {
 		s.clearClipboardHistory()
-	}
-	s.triggerWakeup()
-	return nil, nil
+	})
 }
 
 // socketCompositorAction queues a compositor action, such as a keybinding one.
@@ -375,9 +365,7 @@ func (s *server) socketRunAction(msg *wlipc.Message) (json.RawMessage, error) {
 		return nil, fmt.Errorf("invalid run-action: %w", err)
 	}
 	action := req.Action
-	s.mainThreadActions <- func() { s.dispatchAction(action) }
-	s.triggerWakeup()
-	return nil, nil
+	return nil, s.enqueueAction(func() { s.dispatchAction(action) })
 }
 
 // socketLayoutRequest queues a change of the output layout.
@@ -389,9 +377,7 @@ func (s *server) socketLayoutRequest(msg *wlipc.Message) (json.RawMessage, error
 	log.Printf("[IPC] layout-request (socket): output=%q pos=%q ref=%q primary=%v\n",
 		req.OutputName, req.Position, req.RelativeTo, req.Primary)
 	r := req
-	s.mainThreadActions <- func() { s.setOutputLayout(r) }
-	s.triggerWakeup()
-	return nil, nil
+	return nil, s.enqueueAction(func() { s.setOutputLayout(r) })
 }
 
 // socketRaiseByTitle queues raising the window with the given title.
@@ -401,9 +387,7 @@ func (s *server) socketRaiseByTitle(msg *wlipc.Message) (json.RawMessage, error)
 		return nil, fmt.Errorf("invalid raise-by-title: %w", err)
 	}
 	title := req.Title
-	s.mainThreadActions <- func() { s.raiseByTitle(title) }
-	s.triggerWakeup()
-	return nil, nil
+	return nil, s.enqueueAction(func() { s.raiseByTitle(title) })
 }
 
 // socketRaiseByClass queues raising the window with the given class.
@@ -413,9 +397,7 @@ func (s *server) socketRaiseByClass(msg *wlipc.Message) (json.RawMessage, error)
 		return nil, fmt.Errorf("invalid raise-by-class: %w", err)
 	}
 	class := req.Class
-	s.mainThreadActions <- func() { s.raiseByClass(class) }
-	s.triggerWakeup()
-	return nil, nil
+	return nil, s.enqueueAction(func() { s.raiseByClass(class) })
 }
 
 // socketNotificationAction emits the action chosen on a notification.
@@ -452,15 +434,13 @@ func (s *server) socketDockIcons(msg *wlipc.Message) (json.RawMessage, error) {
 
 // socketDumpScene logs the scene graph for debugging.
 func (s *server) socketDumpScene(msg *wlipc.Message) (json.RawMessage, error) {
-	s.mainThreadActions <- func() {
+	return nil, s.enqueueAction(func() {
 		s.dumpSceneOrder("ipc-dump")
 		s.dumpSceneLayers()
 		s.debugViewAt(640, 360)
 		s.debugViewAt(100, 100)
 		s.debugViewAt(500, 300)
-	}
-	s.triggerWakeup()
-	return nil, nil
+	})
 }
 
 // socketSimulateClick queues a simulated pointer click.
@@ -472,11 +452,9 @@ func (s *server) socketSimulateClick(msg *wlipc.Message) (json.RawMessage, error
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		return nil, fmt.Errorf("invalid simulate-click: %w", err)
 	}
-	s.mainThreadActions <- func() {
+	return nil, s.enqueueAction(func() {
 		s.simulateClick(req.X, req.Y)
-	}
-	s.triggerWakeup()
-	return nil, nil
+	})
 }
 
 // socketSimulateMove queues a simulated pointer motion.
@@ -488,11 +466,9 @@ func (s *server) socketSimulateMove(msg *wlipc.Message) (json.RawMessage, error)
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		return nil, fmt.Errorf("invalid simulate-move: %w", err)
 	}
-	s.mainThreadActions <- func() {
+	return nil, s.enqueueAction(func() {
 		s.simulateMove(req.X, req.Y)
-	}
-	s.triggerWakeup()
-	return nil, nil
+	})
 }
 
 // socketSimulateSwipe runs a simulated touchpad swipe.
@@ -522,11 +498,9 @@ func (s *server) socketSimulateButton(msg *wlipc.Message) (json.RawMessage, erro
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		return nil, fmt.Errorf("invalid simulate-button: %w", err)
 	}
-	s.mainThreadActions <- func() {
+	return nil, s.enqueueAction(func() {
 		s.simulateButton(req.Pressed)
-	}
-	s.triggerWakeup()
-	return nil, nil
+	})
 }
 
 // raiseByTitle finds a window by title and raises it to the top.

@@ -124,15 +124,13 @@ func (s *server) takeScreenshot(regionSelect, windowCapture bool) {
 		// Enter compositor-side region selection mode (draws overlay for
 		// the user to click-drag a rectangle). The actual capture happens
 		// in finishRegionSelect when the mouse button is released.
-		s.mainThreadActions <- func() { s.startRegionSelect() }
-		s.triggerWakeup()
+		_ = s.enqueueAction(func() { s.startRegionSelect() })
 		return
 	}
 
 	if windowCapture {
 		// Enter window pick mode: next click captures the clicked window
-		s.mainThreadActions <- func() { s.startWindowPick() }
-		s.triggerWakeup()
+		_ = s.enqueueAction(func() { s.startWindowPick() })
 		return
 	}
 
@@ -320,11 +318,10 @@ func (s *server) watchIdleTimeout() {
 
 		// Route idle checks through mainThreadActions to avoid data races
 		// on idleLocked/displayBlanked fields (read/written by main thread).
-		s.mainThreadActions <- func() {
+		_ = s.enqueueAction(func() {
 			s.checkIdle()
 			s.armCurtain(idleCheckEvery)
-		}
-		s.triggerWakeup()
+		})
 	}
 }
 

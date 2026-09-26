@@ -49,10 +49,7 @@ func (s *server) checkPanelHotspot() {
 		// Cursor at edge and bar is covered — start timer if not already running
 		if s.edgeHoverTimer == nil {
 			s.edgeHoverTimer = time.AfterFunc(panelRevealDelay, func() {
-				s.mainThreadActions <- func() {
-					s.revealPanelHotspot()
-				}
-				s.triggerWakeup()
+				_ = s.enqueueAction(s.revealPanelHotspot)
 			})
 		}
 		return
