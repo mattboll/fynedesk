@@ -3,10 +3,12 @@ package compositor
 import (
 	"encoding/json"
 	"fmt"
+	"image"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -276,25 +278,20 @@ func (s *server) socketWindowPreview(msg *wlipc.Message) (json.RawMessage, error
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		return nil, fmt.Errorf("invalid window preview: %w", err)
 	}
-	// handleWindowPreview iterates xdgViews/xwayViews — must run on
-	// main thread to avoid racing with view destruction.
-	type previewResult struct {
-		data json.RawMessage
-		err  error
-	}
-	res, err := runOnMainThread(s, func() previewResult {
-		data, err := s.handleWindowPreview(req.WindowID)
-		return previewResult{data, err}
-	})
+	// The window lists are read on the main thread; the picture is encoded
+	// here (a thumbnail is replaced, never changed).
+	res, err := runOnMainThread(s, func() windowThumb { return s.windowThumb(req.WindowID) })
 	if err != nil {
 		return nil, err
 	}
-	if res.err != nil {
-		log.Printf("[PREVIEW] request for %s failed: %v", req.WindowID, res.err)
-	} else {
-		log.Printf("[PREVIEW] request for %s succeeded (%d bytes)", req.WindowID, len(res.data))
+	if !res.found {
+		return nil, fmt.Errorf("no preview for window %s", req.WindowID)
 	}
-	return res.data, res.err
+	if res.thumb == nil {
+		log.Printf("[PREVIEW] request for %s: not captured yet (scheduled)", req.WindowID)
+		return nil, fmt.Errorf("preview not yet captured for window %s (scheduled)", req.WindowID)
+	}
+	return encodePreview(res.thumb, req.WindowID, res.title)
 }
 
 // socketOverlay places the next or current panel overlay window.
@@ -656,44 +653,43 @@ func (s *server) buildWindowsState() wlipc.WindowsState {
 	}
 }
 
-// handleWindowPreview returns a base64-encoded PNG thumbnail of the specified window.
-func (s *server) handleWindowPreview(windowID string) (json.RawMessage, error) {
-	// Search xdg views
+// windowThumb is what windowThumb found of a window.
+type windowThumb struct {
+	thumb *image.NRGBA
+	title string
+	found bool
+}
+
+// windowThumb returns the cached thumbnail of a window, and has one captured
+// on the next frame when there is none yet. Main thread.
+func (s *server) windowThumb(windowID string) windowThumb {
 	for _, v := range s.xdgViews {
 		if v.id == windowID {
-			if v.cachedThumb != nil {
-				return encodePreview(v.cachedThumb, windowID, v.xdgToplevel.Title())
+			if v.cachedThumb == nil {
+				s.schedulePreviewCapture(windowID)
 			}
-			s.schedulePreviewCapture(windowID)
-			return nil, fmt.Errorf("preview not yet captured for window %s (scheduled)", windowID)
+			return windowThumb{v.cachedThumb, v.xdgToplevel.Title(), true}
 		}
 	}
-	// Search xwayland views
 	for _, v := range s.xwayViews {
 		if v.id == windowID {
-			if v.cachedThumb != nil {
-				return encodePreview(v.cachedThumb, windowID, v.surface.Title())
+			if v.cachedThumb == nil {
+				s.schedulePreviewCapture(windowID)
 			}
-			s.schedulePreviewCapture(windowID)
-			return nil, fmt.Errorf("preview not yet captured for window %s (scheduled)", windowID)
+			return windowThumb{v.cachedThumb, v.surface.Title(), true}
 		}
 	}
-	return nil, fmt.Errorf("no preview for window %s", windowID)
+	return windowThumb{}
 }
 
 // schedulePreviewCapture queues a window ID for thumbnail capture on the next
-// render frame. Called from the IPC goroutine when a taskbar hover preview is
-// requested but no cached thumbnail exists yet.
+// render frame. Main thread (it used to send itself an action from there,
+// which blocked for good once the queue was full).
 func (s *server) schedulePreviewCapture(windowID string) {
-	s.mainThreadActions <- func() {
-		// Avoid duplicates
-		for _, id := range s.previewPendingIDs {
-			if id == windowID {
-				return
-			}
-		}
-		s.previewPendingIDs = append(s.previewPendingIDs, windowID)
-		s.lastThumbCapture = time.Time{} // reset throttle
+	if slices.Contains(s.previewPendingIDs, windowID) {
+		return
 	}
+	s.previewPendingIDs = append(s.previewPendingIDs, windowID)
+	s.lastThumbCapture = time.Time{} // reset throttle
 	s.triggerWakeup()
 }
