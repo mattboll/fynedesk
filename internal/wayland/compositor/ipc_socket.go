@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -53,11 +54,32 @@ var socketHandlers = map[string]socketHandler{
 	wlipc.ReqNotificationAction: (*server).socketNotificationAction,
 	wlipc.ReqWindowAttention:    (*server).socketWindowAttention,
 	wlipc.ReqDockIcons:          (*server).socketDockIcons,
-	"dump-scene":                (*server).socketDumpScene,
-	"simulate-click":            (*server).socketSimulateClick,
-	"simulate-move":             (*server).socketSimulateMove,
-	"simulate-swipe":            (*server).socketSimulateSwipe,
-	"simulate-button":           (*server).socketSimulateButton,
+}
+
+// qaSocketHandlers drive the compositor like a user would (clicks,
+// swipes) or dump its scene: for the tests only, as any local program could
+// otherwise click into any window. TYDE_QA=1 turns them on.
+var qaSocketHandlers = map[string]socketHandler{
+	"dump-scene":      (*server).socketDumpScene,
+	"simulate-click":  (*server).socketSimulateClick,
+	"simulate-move":   (*server).socketSimulateMove,
+	"simulate-swipe":  (*server).socketSimulateSwipe,
+	"simulate-button": (*server).socketSimulateButton,
+}
+
+// qaEnabled reports whether the test requests are accepted.
+var qaEnabled = os.Getenv("TYDE_QA") == "1"
+
+// socketHandlerFor returns the handler of a request, if it is accepted.
+func socketHandlerFor(name string) (socketHandler, bool) {
+	if h, ok := socketHandlers[name]; ok {
+		return h, true
+	}
+	if qaEnabled {
+		h, ok := qaSocketHandlers[name]
+		return h, ok
+	}
+	return nil, false
 }
 
 // handleSocketRequest dispatches socket requests to the appropriate handler.
@@ -74,7 +96,7 @@ func (s *server) handleSocketRequest(msg *wlipc.Message) (json.RawMessage, error
 		}
 	}
 
-	if handler, ok := socketHandlers[msg.Name]; ok {
+	if handler, ok := socketHandlerFor(msg.Name); ok {
 		return handler(s, msg)
 	}
 	return nil, fmt.Errorf("unknown request: %s", msg.Name)

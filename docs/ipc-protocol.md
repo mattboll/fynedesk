@@ -83,7 +83,7 @@ Clients subscribe via the `subscribe` request. Events are pushed in real-time.
 | `compositor-action` | `{action: "..."}` | `ok/error` | Dispatch named action |
 | `window-preview` | `{window_id: "..."}` | base64 PNG | Get window thumbnail |
 | `window-attention` | `{title, on}` | `ok` | Make the windows with this title glow until turned off |
-| `simulate-move`, `simulate-click`, `simulate-button`, `simulate-swipe` | see `ipc_socket.go` | `ok` | Pointer and touchpad input, for QA scenarios |
+| `simulate-move`, `simulate-click`, `simulate-button`, `simulate-swipe`, `dump-scene` | see `ipc_socket.go` | `ok` | Pointer and touchpad input and a scene dump, for QA scenarios. Only accepted when the compositor runs with `TYDE_QA=1`: otherwise any local program could click into any window. |
 
 ---
 
