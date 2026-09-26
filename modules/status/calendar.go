@@ -179,9 +179,9 @@ func formatNextMeetingLabel(ev cal.Event, until time.Duration) string {
 	if title == "" {
 		title = locale.T("cal.next")
 	}
-	const maxTitleLen = 24
-	if len(title) > maxTitleLen {
-		title = title[:maxTitleLen-1] + "…"
+	const maxTitleLen = 24 // characters, not bytes: accents and emoji stay whole
+	if r := []rune(title); len(r) > maxTitleLen {
+		title = string(r[:maxTitleLen-1]) + "…"
 	}
 	switch {
 	case until <= 0:
@@ -198,7 +198,7 @@ func formatNextMeetingLabel(ev cal.Event, until time.Duration) string {
 			}
 			return fmt.Sprintf("%s · %dh%02d", title, h, m)
 		}
-		return fmt.Sprintf("%s · %dm", title, minutes)
+		return fmt.Sprintf("%s · %d %s", title, minutes, locale.T("cal.minutes"))
 	}
 }
 
