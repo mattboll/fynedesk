@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"sort"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -24,12 +27,30 @@ func runWithRecovery() bool {
 	}
 
 	logDir := compositorLogDir()
-	maxRestarts := 5
 	restartCount := 0
+
+	// Signals for the session (logout, shutdown) go to the compositor, and
+	// the runner then stops instead of restarting it.
+	var mu sync.Mutex
+	var current *exec.Cmd
+	stopping := false
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	go func() {
+		for sig := range sigs {
+			mu.Lock()
+			stopping = true
+			if current != nil && current.Process != nil {
+				_ = current.Process.Signal(sig)
+			}
+			mu.Unlock()
+		}
+	}()
+	defer signal.Stop(sigs)
 
 	for restartCount < maxRestarts {
 		logFile := filepath.Join(logDir, "compositor.log")
-		f, err := os.Create(logFile)
+		f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 		if err != nil {
 			f = os.Stderr
 		}
@@ -51,14 +72,31 @@ func runWithRecovery() bool {
 		os.Remove(shutdownMarker)
 
 		fmt.Fprintf(os.Stderr, "Starting compositor (attempt %d)...\n", restartCount+1)
-		err = cmd.Run()
+		started := time.Now()
+		mu.Lock()
+		if stopping {
+			mu.Unlock()
+			return true
+		}
+		err = cmd.Start()
+		if err == nil {
+			current = cmd
+		}
+		mu.Unlock()
+		if err == nil {
+			err = cmd.Wait()
+		}
+		mu.Lock()
+		current = nil
+		stop := stopping
+		mu.Unlock()
 
 		if f != os.Stderr {
 			f.Close()
 		}
 
-		if err == nil {
-			return true // Clean exit
+		if err == nil || stop {
+			return true // Clean exit, or the session is ending
 		}
 
 		// Check for intentional shutdown marker — compositor wrote this before cleanup.
@@ -78,11 +116,17 @@ func runWithRecovery() bool {
 			}
 		}
 
-		// Save crash log
+		// Save crash log, keeping the last few only
 		crashLog := filepath.Join(logDir, fmt.Sprintf("compositor-crash-%s.log",
 			time.Now().Format("2006-01-02T15-04-05")))
 		os.Rename(logFile, crashLog)
+		pruneCrashLogs(logDir, keepCrashLogs)
 
+		// Crashes count towards giving up only when they come close
+		// together: one a week must not end the session on the fifth.
+		if time.Since(started) > stableRun {
+			restartCount = 0
+		}
 		restartCount++
 		fmt.Fprintf(os.Stderr, "Compositor crashed (attempt %d/%d), restarting in 1s...\n",
 			restartCount, maxRestarts)
@@ -91,6 +135,22 @@ func runWithRecovery() bool {
 
 	fmt.Fprintf(os.Stderr, "Compositor crashed %d times, giving up\n", maxRestarts)
 	return true
+}
+
+const (
+	maxRestarts   = 5           // crashes in a row before giving up
+	stableRun     = time.Minute // a run this long starts the count again
+	keepCrashLogs = 10          // crash logs kept
+)
+
+// pruneCrashLogs removes all but the newest keep crash logs.
+func pruneCrashLogs(dir string, keep int) {
+	logs, _ := filepath.Glob(filepath.Join(dir, "compositor-crash-*.log"))
+	sort.Strings(logs) // the names sort by date
+	for len(logs) > keep {
+		os.Remove(logs[0])
+		logs = logs[1:]
+	}
 }
 
 func compositorLogDir() string {
