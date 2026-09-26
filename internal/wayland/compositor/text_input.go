@@ -1,11 +1,14 @@
 package compositor
 
 /*
+#include "restricted_globals.h"
 #include <stdlib.h>
 #include <string.h>
 #include <wayland-server-core.h>
 #include <wlr/types/wlr_text_input_v3.h>
 #include <wlr/types/wlr_input_method_v2.h>
+#include <wlr/types/wlr_keyboard.h>
+#include <wlr/types/wlr_virtual_keyboard_v1.h>
 #include <wlr/types/wlr_seat.h>
 #include <wlr/types/wlr_compositor.h>
 
@@ -142,6 +145,8 @@ static void setup_text_input(struct wl_display *display) {
 	wl_signal_add(&ti_manager->events.destroy, &ti_mgr_destroy_listener);
 
 	im_manager = wlr_input_method_manager_v2_create(display);
+	// An input method sees every key typed: not for sandboxed clients.
+	restrict_global(im_manager->global);
 	im_new_listener.notify = handle_im_new;
 	wl_signal_add(&im_manager->events.new_input_method, &im_new_listener);
 	im_mgr_destroy_listener.notify = handle_im_mgr_destroy;
@@ -238,12 +243,56 @@ static void im_grab_set_keyboard(struct wlr_input_method_keyboard_grab_v2 *grab,
 	struct wlr_keyboard *keyboard) {
 	wlr_input_method_keyboard_grab_v2_set_keyboard(grab, keyboard);
 }
+
+static struct wlr_input_method_v2 *im_of_grab(struct wlr_input_method_keyboard_grab_v2 *grab) {
+	return grab->input_method;
+}
+
+// im_grab_for returns the keyboard grab of the input method that the keys
+// of keyboard go to, or NULL: none when it has no grab, nor for the keys
+// the input method types itself through a virtual keyboard (they would loop
+// back to it).
+static struct wlr_input_method_keyboard_grab_v2 *im_grab_for(
+	struct wlr_input_method_v2 *im, struct wlr_keyboard *keyboard) {
+	if (!im || !im->keyboard_grab || !keyboard) {
+		return NULL;
+	}
+	struct wlr_input_method_keyboard_grab_v2 *grab = im->keyboard_grab;
+	struct wlr_virtual_keyboard_v1 *vk = wlr_input_device_get_virtual_keyboard(&keyboard->base);
+	if (vk && wl_resource_get_client(vk->resource) == wl_resource_get_client(grab->resource)) {
+		return NULL;
+	}
+	wlr_input_method_keyboard_grab_v2_set_keyboard(grab, keyboard);
+	return grab;
+}
+
+static int im_grab_key(struct wlr_input_method_v2 *im, struct wlr_keyboard *keyboard,
+	uint32_t time_msec, uint32_t key, uint32_t state) {
+	struct wlr_input_method_keyboard_grab_v2 *grab = im_grab_for(im, keyboard);
+	if (!grab) {
+		return 0;
+	}
+	wlr_input_method_keyboard_grab_v2_send_key(grab, time_msec, key, state);
+	return 1;
+}
+
+static int im_grab_modifiers(struct wlr_input_method_v2 *im, struct wlr_keyboard *keyboard) {
+	struct wlr_input_method_keyboard_grab_v2 *grab = im_grab_for(im, keyboard);
+	if (!grab) {
+		return 0;
+	}
+	wlr_input_method_keyboard_grab_v2_send_modifiers(grab, &keyboard->modifiers);
+	return 1;
+}
 */
 import "C"
 
 import (
 	"log"
+	"time"
 	"unsafe"
+
+	"fyshos.com/tyde/internal/wayland/wlr"
 )
 
 var textInputServer *server
@@ -349,9 +398,13 @@ func goInputMethodNew(imRaw unsafe.Pointer) {
 		return
 	}
 
-	// If there's already an active IME, mark the old one unavailable
+	// One input method per seat, as the protocol says: a second one is told
+	// it is unavailable, and does not take over from the one the user runs
+	// (it would receive the keys typed).
 	if s.activeInputMethod != nil {
-		C.im_send_unavailable(imPtr(s.activeInputMethod))
+		C.im_send_unavailable(imPtr(imRaw))
+		log.Println("[IME] Second input method refused")
+		return
 	}
 
 	s.activeInputMethod = imRaw
@@ -384,8 +437,11 @@ func goInputMethodGrabKeyboard(grabPtr unsafe.Pointer) {
 		return
 	}
 	grab := (*C.struct_wlr_input_method_keyboard_grab_v2)(grabPtr)
+	if unsafe.Pointer(C.im_of_grab(grab)) != s.activeInputMethod {
+		return
+	}
 
-	// Set the keyboard on the grab so IME receives key events
+	// Give the grab the keymap now; keys follow (imeGrabKey).
 	keyboard := s.seat.Keyboard()
 	if keyboardValid(keyboard) {
 		C.im_grab_set_keyboard(grab, (*C.struct_wlr_keyboard)(keyboard.Ptr()))
@@ -399,15 +455,36 @@ func goInputMethodDestroy(imRaw unsafe.Pointer) {
 	if s == nil {
 		return
 	}
-	if s.activeInputMethod == imRaw {
-		s.activeInputMethod = nil
+	if s.activeInputMethod != imRaw {
+		return // a refused one
+	}
+	s.activeInputMethod = nil
 
-		// Clear any active preedit on the text input
-		if s.activeTextInput != nil {
-			C.ti_clear_preedit(tiPtr(s.activeTextInput))
-		}
+	// Clear any active preedit on the text input
+	if s.activeTextInput != nil {
+		C.ti_clear_preedit(tiPtr(s.activeTextInput))
 	}
 	log.Println("[IME] Input method (IME) disconnected")
+}
+
+// imeGrabKey hands a key to the input method when it grabbed the keyboard,
+// and reports whether it did (the key then goes no further: the input
+// method sends back what it means). Never while locked: the caller has
+// handed the key to the lock screen already.
+func (s *server) imeGrabKey(kb wlr.Keyboard, t time.Time, keyCode uint32, state wlr.KeyState) bool {
+	if s.activeInputMethod == nil || !keyboardValid(kb) {
+		return false
+	}
+	return C.im_grab_key(imPtr(s.activeInputMethod), (*C.struct_wlr_keyboard)(kb.Ptr()),
+		C.uint32_t(t.UnixMilli()), C.uint32_t(keyCode), C.uint32_t(state)) != 0
+}
+
+// imeGrabModifiers is imeGrabKey for a modifiers change.
+func (s *server) imeGrabModifiers(kb wlr.Keyboard) bool {
+	if s.activeInputMethod == nil || !keyboardValid(kb) {
+		return false
+	}
+	return C.im_grab_modifiers(imPtr(s.activeInputMethod), (*C.struct_wlr_keyboard)(kb.Ptr())) != 0
 }
 
 // handleTextInputFocusChange updates text input focus when keyboard focus changes.

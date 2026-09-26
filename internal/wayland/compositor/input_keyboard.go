@@ -172,6 +172,9 @@ func (s *server) handleKeyboardKey(keyboard, kb wlr.Keyboard, t time.Time, keyCo
 		}
 	}
 
+	if s.imeGrabKey(kb, t, keyCode, state) {
+		return
+	}
 	s.seat.SetKeyboard(keyboard)
 	s.seat.KeyboardNotifyKey(t, keyCode, state)
 }
@@ -262,6 +265,9 @@ func (s *server) handleKeyboardModifiers(keyboard, kb wlr.Keyboard) {
 	// reliably when modifier state changes and GetModifiers() is accurate here.
 	if s.switcherActive && s.isSwitcherModReleased(kb.GetModifiers()) {
 		s.confirmSwitcher()
+		return
+	}
+	if !s.locked.Load() && s.imeGrabModifiers(kb) {
 		return
 	}
 	s.seat.SetKeyboard(keyboard)
