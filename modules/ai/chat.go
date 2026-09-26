@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -146,6 +147,11 @@ func (c *chatUI) submit() {
 		defer recoverAI("chat goroutine")
 		defer cancel()
 		var sb strings.Builder
+		// The reply so far, and whether a render of it is queued: chunks
+		// that come while one is queued only update the text, so the
+		// markdown is parsed once per frame rather than once per chunk.
+		var latest atomic.Pointer[string]
+		var queued atomic.Bool
 		resp, genErr := llm.GenerateContent(
 			ctx, hist,
 			// Without an explicit limit langchaingo defaults max_tokens to 2048,
@@ -161,8 +167,14 @@ func (c *chatUI) submit() {
 				if text == "" {
 					return nil
 				}
+				latest.Store(&text)
+				if queued.Swap(true) {
+					return nil
+				}
 				fyne.Do(func() {
 					defer recoverAI("chat stream render")
+					queued.Store(false)
+					text := *latest.Load()
 					stopSpinner() // first real reply text has arrived
 					// Plain markdown while streaming: don't swap in copyable code
 					// blocks on every chunk - re-parsing rebuilds the segments each

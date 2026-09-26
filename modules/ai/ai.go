@@ -154,6 +154,13 @@ func (a *assistant) Destroy() {
 	if !moduleEnabled() {
 		serverMgr.stop()
 	}
+	// Replies still streaming stop with the module (their model call would
+	// go on, rendering into a closed window).
+	for _, c := range a.chats {
+		if c.cancel != nil {
+			c.cancel()
+		}
+	}
 	if a.win != nil {
 		a.win.Close()
 		a.win = nil
