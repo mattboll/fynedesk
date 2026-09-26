@@ -50,22 +50,17 @@ func (r *notifRateLimiter) allow() bool {
 // originating app (e.g. Slack) can navigate to the right context.
 type notificationsDBus struct {
 	mu       sync.Mutex
-	nextID   uint32
 	limiters map[string]*notifRateLimiter // per application, so one noisy app cannot mute the others
-	tags     map[string]uint32            // app + stack tag → id of the notification it replaces
-	conn     *dbus.Conn                   // owns the Notifications name; used to emit signals back to apps
+	ids      notify.IDs
+	nextID   uint32     // guarded by ids
+	conn     *dbus.Conn // owns the Notifications name; used to emit signals back to apps
 }
 
 func newNotificationsDBus() *notificationsDBus {
 	return &notificationsDBus{
-		nextID:   1,
 		limiters: map[string]*notifRateLimiter{},
-		tags:     map[string]uint32{},
 	}
 }
-
-// maxStackTags bounds the stack tags remembered; older ones are forgotten.
-const maxStackTags = 256
 
 // allow reports whether appName may show another notification now.
 func (n *notificationsDBus) allow(appName string) bool {
@@ -79,28 +74,13 @@ func (n *notificationsDBus) allow(appName string) bool {
 	return l.allow()
 }
 
-// notificationID returns the id of a new notification, and whether it
-// replaces an earlier one.
+// notificationID returns the id of a notification, and whether it replaces
+// an earlier one.
 func (n *notificationsDBus) notificationID(appName string, replacesID uint32, tag string) (uint32, bool) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	key := appName + "\x00" + tag
-	if replacesID == 0 && tag != "" {
-		replacesID = n.tags[key]
-	}
-	id, replaces := replacesID, replacesID != 0
-	if !replaces {
-		id = n.nextID
+	return n.ids.ID(appName, replacesID, tag, func() uint32 {
 		n.nextID++
-	}
-	if tag != "" {
-		if len(n.tags) >= maxStackTags {
-			clear(n.tags)
-		}
-		n.tags[key] = id
-	}
-	return id, replaces
+		return n.nextID
+	})
 }
 
 func (n *notificationsDBus) Notify(appName string, replacesID uint32, appIcon, summary, body string,
@@ -146,16 +126,17 @@ func (n *notificationsDBus) Notify(appName string, replacesID uint32, appIcon, s
 
 func (n *notificationsDBus) CloseNotification(id uint32) *dbus.Error {
 	wlipc.NotifyNotificationClosed(id)
-	n.emitClosed(id, 3) // reason 3 = closed by CloseNotification call
+	n.emitClosed(id, notify.ClosedByCall)
 	return nil
 }
 
 func (n *notificationsDBus) GetServerInformation() (string, string, string, string, *dbus.Error) {
-	return "Tyde", "Fyne.io", "0", "1.2", nil
+	name, vendor, version, spec := notify.ServerInformation()
+	return name, vendor, version, spec, nil
 }
 
 func (n *notificationsDBus) GetCapabilities() ([]string, *dbus.Error) {
-	return append([]string{"actions", "body", "icon-static", "persistence"}, notify.StackTagHints()...), nil
+	return notify.Capabilities(), nil
 }
 
 // emitAction emits ActionInvoked for a notification (so the app acts on it, e.g.
@@ -166,9 +147,8 @@ func (n *notificationsDBus) emitAction(id uint32, actionKey string) {
 		return
 	}
 	log.Printf("[NOTIFY-DBUS] emit ActionInvoked #%d %q\n", id, actionKey)
-	_ = n.conn.Emit("/org/freedesktop/Notifications",
-		"org.freedesktop.Notifications.ActionInvoked", id, actionKey)
-	n.emitClosed(id, 2) // reason 2 = dismissed by user
+	notify.EmitActionInvoked(n.conn, id, actionKey)
+	n.emitClosed(id, notify.ClosedDismissed)
 }
 
 // emitClosed emits the NotificationClosed signal for a notification id.
@@ -176,8 +156,7 @@ func (n *notificationsDBus) emitClosed(id uint32, reason uint32) {
 	if n == nil || n.conn == nil {
 		return
 	}
-	_ = n.conn.Emit("/org/freedesktop/Notifications",
-		"org.freedesktop.Notifications.NotificationClosed", id, reason)
+	notify.EmitClosed(n.conn, id, reason)
 }
 
 // startNotificationsDBus registers the Notifications D-Bus service in the compositor.
@@ -192,13 +171,13 @@ func (s *server) startNotificationsDBus() {
 	nd.conn = conn
 	s.notifDBus = nd
 
-	err = conn.ExportAll(nd, "/org/freedesktop/Notifications", "org.freedesktop.Notifications")
+	err = conn.ExportAll(nd, notify.Path, notify.Interface)
 	if err != nil {
 		log.Printf("D-Bus: could not export Notifications: %v\n", err)
 		return
 	}
 
-	reply, err := conn.RequestName("org.freedesktop.Notifications",
+	reply, err := conn.RequestName(notify.Interface,
 		dbus.NameFlagReplaceExisting|dbus.NameFlagAllowReplacement)
 	if err != nil {
 		log.Printf("D-Bus: could not request Notifications name: %v\n", err)

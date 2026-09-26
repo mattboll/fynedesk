@@ -14,6 +14,7 @@ import (
 	"github.com/godbus/dbus/v5"
 
 	"fyshos.com/tyde/internal/notify"
+	"fyshos.com/tyde/wlipc"
 )
 
 var (
@@ -350,9 +351,9 @@ type notifications struct {
 	// onScreen maps the replace key of recent notifications to their local
 	// ID, so that a transient one still on screen can be replaced too.
 	onScreen map[string]uint32
-	// stackTags maps an application and stack tag to the id of the
-	// notification it replaces (D-Bus server, X11).
-	stackTags map[string]uint32
+	// ids are those applications know their notifications by (D-Bus
+	// server, X11).
+	ids notify.IDs
 }
 
 func (n *notifications) notifyHistoryChange() {
@@ -417,7 +418,7 @@ func (n *notifications) Notify(appName string, replacesID uint32, appIcon, summa
 	item := NewNotificationFull(appName, appIcon, summary, body, actions, timeout)
 	item.Urgency = ParseUrgency(h.Urgency)
 	item.Transient = h.Transient
-	id := n.busID(appName, replacesID, h.Tag, item.ID)
+	id, _ := n.ids.ID(appName, replacesID, h.Tag, func() uint32 { return item.ID })
 	item.Tag = busTag(id)
 
 	SendNotification(item)
@@ -429,48 +430,27 @@ func busTag(id uint32) string {
 	return fmt.Sprintf("bus:%d", id)
 }
 
-// busID returns the id an application knows a notification by: the one it
-// replaces (replaces_id, or its stack tag), else fresh.
-func (n *notifications) busID(appName string, replacesID uint32, tag string, fresh uint32) uint32 {
-	n.histMu.Lock()
-	defer n.histMu.Unlock()
-	key := appName + "\x00" + tag
-	if replacesID == 0 && tag != "" {
-		replacesID = n.stackTags[key]
-	}
-	if replacesID == 0 {
-		replacesID = fresh
-	}
-	if tag != "" {
-		if len(n.stackTags) >= 4*maxHistory {
-			clear(n.stackTags)
-		}
-		n.stackTags[key] = replacesID
-	}
-	return replacesID
-}
-
 func (n *notifications) CloseNotification(id uint32) error {
 	WithdrawTagged(busTag(id))
-	// Emit NotificationClosed signal (reason 3 = closed by CloseNotification call)
-	conn, err := dbus.SessionBus()
-	if err == nil {
-		_ = conn.Emit("/org/freedesktop/Notifications",
-			"org.freedesktop.Notifications.NotificationClosed", id, uint32(3))
+	if conn, err := dbus.SessionBus(); err == nil {
+		notify.EmitClosed(conn, id, notify.ClosedByCall)
 	}
 	return nil
 }
 
 func (n *notifications) GetServerInformation() (string, string, string, string) {
-	return "Tyde", "Fyne.io", "0", "1.2"
+	return notify.ServerInformation()
 }
 
 func (n *notifications) GetCapabilities() []string {
-	return append([]string{"actions", "body", "icon-static", "persistence"}, notify.StackTagHints()...)
+	return notify.Capabilities()
 }
 
 func (n *notifications) register() {
-	err := RegisterService(n, "/org/freedesktop/Notifications", "org.freedesktop.Notifications")
+	if wlipc.IsWaylandSession() {
+		return // the compositor owns the name and forwards what it receives
+	}
+	err := RegisterService(n, string(notify.Path), notify.Interface)
 	if err != nil {
 		fyne.LogError("Could not start DBus notifications server, using local only", err)
 	}
@@ -505,11 +485,8 @@ func SetActionCallback(fn func(notifID uint32, actionKey string)) {
 
 // InvokeAction triggers a notification action and emits the D-Bus ActionInvoked signal.
 func InvokeAction(notifID uint32, actionKey string) {
-	// Emit D-Bus signal
-	conn, err := dbus.SessionBus()
-	if err == nil {
-		_ = conn.Emit("/org/freedesktop/Notifications",
-			"org.freedesktop.Notifications.ActionInvoked", notifID, actionKey)
+	if conn, err := dbus.SessionBus(); err == nil {
+		notify.EmitActionInvoked(conn, notifID, actionKey)
 	}
 
 	// Call registered callback
@@ -523,7 +500,7 @@ func InvokeAction(notifID uint32, actionKey string) {
 
 func ensureServer() *notifications {
 	serverOnce.Do(func() {
-		server = &notifications{onScreen: map[string]uint32{}, stackTags: map[string]uint32{}}
+		server = &notifications{onScreen: map[string]uint32{}}
 		go server.register()
 	})
 	return server
