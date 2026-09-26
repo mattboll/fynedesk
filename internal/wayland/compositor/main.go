@@ -47,11 +47,26 @@ static void handle_request_start_drag(struct wl_listener *listener, void *data) 
 		wlr_seat_start_pointer_drag(seat, event->drag, event->serial);
 		return;
 	}
-	// Fallback: accept unconditionally. XWayland clients (Firefox, Chrome)
-	// may produce serials that don't pass validation because XWayland
-	// synthesises them independently of the compositor's serial tracker.
-	// Without this fallback, Firefox tab tear-off and file drags fail silently.
-	wlr_seat_start_pointer_drag(seat, event->drag, event->serial);
+	struct wlr_touch_point *point;
+	if (wlr_seat_validate_touch_grab_serial(seat, event->origin, event->serial, &point)) {
+		wlr_seat_start_touch_drag(seat, event->drag, event->serial, point);
+		return;
+	}
+	// XWayland clients (Firefox, Chrome) may produce serials that don't
+	// pass validation, as XWayland synthesises them independently of the
+	// compositor's serial tracker. Their drags are still started, but only
+	// while a button is held on a surface of the client asking: any other
+	// client would otherwise take the pointer whenever it likes.
+	struct wlr_seat_pointer_state *ps = &seat->pointer_state;
+	if (ps->button_count > 0 && event->origin && ps->focused_surface &&
+		wl_resource_get_client(event->origin->resource) ==
+			wl_resource_get_client(ps->focused_surface->resource)) {
+		wlr_seat_start_pointer_drag(seat, event->drag, event->serial);
+		return;
+	}
+	if (event->drag->source) {
+		wlr_data_source_destroy(event->drag->source);
+	}
 }
 
 static void handle_drag_destroy(struct wl_listener *listener, void *data) {
