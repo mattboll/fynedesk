@@ -484,9 +484,10 @@ func applyBandShift(img *image.NRGBA, maxShift int) {
 	rowBuf := make([]byte, w*4)
 
 	for bandStart := 0; bandStart < h; bandStart += bandH * 2 {
-		// Compute shift for this band (alternating direction)
+		// Compute shift for this band (alternating direction: every other
+		// shifted band goes the other way)
 		shift := maxShift
-		if (bandStart/bandH)%2 == 1 {
+		if (bandStart/(bandH*2))%2 == 1 {
 			shift = -maxShift
 		}
 		if shift == 0 {
