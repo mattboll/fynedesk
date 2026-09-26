@@ -666,6 +666,7 @@ func (s *server) renderOutput(output wlr.Output) {
 
 	// Execute pending actions from goroutines on the main thread (wlroots is not thread-safe)
 	s.drainMainThreadActions()
+	s.reapplyViewOpacity()
 
 	// Skip rendering on blanked outputs. After suspend/resume, the DRM swapchain
 	// is stale and wlr_scene_output_commit() would crash with a NULL dereference.
