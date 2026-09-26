@@ -13,23 +13,14 @@ import (
 	"fyshos.com/tyde/wlipc"
 )
 
-// overlayRequest matches wlipc.OverlayRequest
-type overlayRequest struct {
-	Title  string  `json:"title"`
-	X      float32 `json:"x"`
-	Y      float32 `json:"y"`
-	Width  float32 `json:"width"`
-	Height float32 `json:"height"`
-}
-
-func (s *server) readOverlayRequest() *overlayRequest {
+func (s *server) readOverlayRequest() *wlipc.OverlayRequest {
 	reqPath := filepath.Join(s.getConfigDir(), "overlay-request.json")
 	data, err := os.ReadFile(reqPath)
 	if err != nil || len(data) == 0 {
 		return nil
 	}
 
-	var req overlayRequest
+	var req wlipc.OverlayRequest
 	if err := json.Unmarshal(data, &req); err != nil {
 		return nil // Partial write, retry next poll
 	}
@@ -245,13 +236,7 @@ func encodePreview(thumb *image.NRGBA, windowID, title string) (json.RawMessage,
 	}
 
 	bounds := thumb.Bounds()
-	resp := struct {
-		WindowID string `json:"window_id"`
-		Title    string `json:"title"`
-		Width    int    `json:"width"`
-		Height   int    `json:"height"`
-		PNG      string `json:"png"` // base64-encoded
-	}{
+	resp := wlipc.WindowPreview{
 		WindowID: windowID,
 		Title:    title,
 		Width:    bounds.Dx(),

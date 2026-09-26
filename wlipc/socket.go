@@ -109,10 +109,36 @@ type DesktopSwitchRequest struct {
 	Desktop int `json:"desktop"`
 }
 
-// Note: EmojiPasteRequest, ClipboardPasteRequest, and KeyboardLayoutRequest
-// are defined in wlipc.go and keyboard_layout.go respectively.
-// Socket requests reuse those types (the data payload is JSON-decoded
-// by the request handler, so extra fields like Timestamp are harmless).
+// CompositorActionRequest asks the compositor to run an action, such as a
+// keybinding one (the Action* constants).
+type CompositorActionRequest struct {
+	Action string `json:"action"`
+}
+
+// WindowPreviewRequest asks for the thumbnail of a window.
+type WindowPreviewRequest struct {
+	WindowID string `json:"window_id"`
+}
+
+// WindowPreview answers a WindowPreviewRequest.
+type WindowPreview struct {
+	WindowID string `json:"window_id"`
+	Title    string `json:"title"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+	PNG      string `json:"png"` // base64-encoded
+}
+
+// PointerRequest moves the pointer to, or clicks at, (X, Y) in layout
+// coordinates (simulate-move, simulate-click: tests and QA).
+type PointerRequest struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+// The other request types (EmojiPasteRequest, ClipboardPasteRequest,
+// KeyboardLayoutRequest, …) are defined next to their file-based helpers;
+// socket requests reuse them.
 
 // SocketPath returns the UNIX socket path for the IPC server.
 func SocketPath() string {

@@ -153,16 +153,11 @@ func (p *previewPopup) fetchPreviews(windowIDs []string) []previewItem {
 
 // requestPreview asks the compositor for the thumbnail of one window.
 func requestPreview(client *wlipc.IPCClient, windowID string) (previewItem, bool) {
-	resp, err := client.Request(wlipc.ReqWindowPreview, struct {
-		WindowID string `json:"window_id"`
-	}{WindowID: windowID})
+	resp, err := client.Request(wlipc.ReqWindowPreview, wlipc.WindowPreviewRequest{WindowID: windowID})
 	if err != nil || resp == nil || resp.Name == "error" {
 		return previewItem{}, false
 	}
-	var data struct {
-		Title string `json:"title"`
-		PNG   string `json:"png"`
-	}
+	var data wlipc.WindowPreview
 	if err := json.Unmarshal(resp.Data, &data); err != nil {
 		return previewItem{}, false
 	}

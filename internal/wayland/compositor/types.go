@@ -445,7 +445,7 @@ type server struct {
 	ipcFlushChan      chan wlipc.WindowsState // buffered(1), main thread sends snapshots
 
 	// Pending overlay position request (from socket IPC)
-	pendingOverlay *overlayRequest
+	pendingOverlay *wlipc.OverlayRequest
 
 	// Session restore: pending windows waiting to be matched on map
 	sessionMu       sync.Mutex

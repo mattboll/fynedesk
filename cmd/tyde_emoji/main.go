@@ -2,7 +2,6 @@
 package main
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/tyde/internal/emoji"
+	"fyshos.com/tyde/wlipc"
 )
 
 type picker struct {
@@ -46,7 +46,7 @@ func (p *picker) quit() {
 
 func (p *picker) selectEmoji(emoji string) {
 	saveEmojiRecent(emoji)
-	requestEmojiPaste(emoji)
+	_ = wlipc.RequestEmojiPaste(emoji)
 	p.quit()
 }
 
@@ -88,8 +88,8 @@ func main() {
 		}
 	}
 
-	// Write overlay-request.json so compositor can position the window
-	writeOverlayRequest(cursorX, cursorY)
+	// Ask the compositor to place the window at the cursor
+	_ = wlipc.RequestOverlayPositionAbsolute("EmojiPicker", cursorX, cursorY, 350, 400)
 
 	a := app.New()
 	// Window title includes "Tyde:EmojiPicker" for compositor detection
@@ -180,77 +180,10 @@ func main() {
 	win.ShowAndRun()
 }
 
-// --- IPC helpers ---
-
-func getConfigDir() string {
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		configDir = filepath.Join(os.Getenv("HOME"), ".config")
-	}
-	return filepath.Join(configDir, "tyde")
-}
-
-func atomicWriteFile(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".tmp-")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
-		return err
-	}
-	return os.Rename(tmpPath, path)
-}
-
-func writeOverlayRequest(x, y float32) {
-	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0o755)
-
-	req := struct {
-		Title  string  `json:"title"`
-		X      float32 `json:"x"`
-		Y      float32 `json:"y"`
-		Width  float32 `json:"width"`
-		Height float32 `json:"height"`
-	}{
-		Title:  "EmojiPicker",
-		X:      x,
-		Y:      y,
-		Width:  350,
-		Height: 400,
-	}
-	data, _ := json.Marshal(req)
-	path := filepath.Join(configDir, "overlay-request.json")
-	atomicWriteFile(path, data)
-}
-
-func requestEmojiPaste(emoji string) {
-	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0o755)
-
-	req := struct {
-		Emoji     string `json:"emoji"`
-		Timestamp int64  `json:"timestamp"`
-	}{
-		Emoji:     emoji,
-		Timestamp: 0, // compositor doesn't check timestamp
-	}
-	data, _ := json.Marshal(req)
-	path := filepath.Join(configDir, "emoji-paste.json")
-	atomicWriteFile(path, data)
-}
-
 // --- Recents (file-based, shared with panel) ---
 
 func getRecentsPath() string {
-	return filepath.Join(getConfigDir(), "emoji-recents.txt")
+	return filepath.Join(wlipc.ConfigDir(), "emoji-recents.txt")
 }
 
 func getRecentEmojis() []emoji.Entry {
@@ -289,8 +222,7 @@ func saveEmojiRecent(em string) {
 		filtered = filtered[:32]
 	}
 
-	configDir := getConfigDir()
-	os.MkdirAll(configDir, 0o755)
+	os.MkdirAll(wlipc.ConfigDir(), 0o700)
 	content := strings.Join(filtered, ",")
-	atomicWriteFile(getRecentsPath(), []byte(content))
+	wlipc.WriteFileAtomic(getRecentsPath(), []byte(content))
 }

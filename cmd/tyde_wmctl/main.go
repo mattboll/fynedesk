@@ -246,23 +246,7 @@ func cmdListWindows(client *wlipc.IPCClient, args []string) {
 	}
 
 	// Parse and display as table
-	var state struct {
-		Windows []struct {
-			ID           string  `json:"id"`
-			Title        string  `json:"title"`
-			AppID        string  `json:"app_id"`
-			Desktop      int     `json:"desktop"`
-			Focused      bool    `json:"focused"`
-			Iconic       bool    `json:"iconic"`
-			Maximized    bool    `json:"maximized"`
-			Fullscreened bool    `json:"fullscreened"`
-			Pinned       bool    `json:"pinned"`
-			X            float32 `json:"x"`
-			Y            float32 `json:"y"`
-			Width        float32 `json:"w"`
-			Height       float32 `json:"h"`
-		} `json:"windows"`
-	}
+	var state wlipc.WindowsState
 	if err := json.Unmarshal(resp.Data, &state); err != nil {
 		// Fallback to raw JSON
 		fmt.Println(string(resp.Data))
@@ -314,10 +298,7 @@ func cmdGetDesktop(client *wlipc.IPCClient) {
 		os.Exit(1)
 	}
 
-	var state struct {
-		Current  int `json:"current"`
-		NumDesks int `json:"num_desks"`
-	}
+	var state wlipc.DesktopState
 	if err := json.Unmarshal(resp.Data, &state); err != nil {
 		fmt.Println(string(resp.Data))
 		return
@@ -326,10 +307,7 @@ func cmdGetDesktop(client *wlipc.IPCClient) {
 }
 
 func cmdWindowAction(client *wlipc.IPCClient, windowID, action string) {
-	req := struct {
-		WindowID string `json:"window_id"`
-		Action   string `json:"action"`
-	}{WindowID: windowID, Action: action}
+	req := wlipc.WindowActionRequest{WindowID: windowID, Action: action}
 
 	resp, err := client.Request(wlipc.ReqWindowAction, req)
 	if err != nil {
@@ -342,11 +320,7 @@ func cmdWindowAction(client *wlipc.IPCClient, windowID, action string) {
 }
 
 func cmdMoveToDesktop(client *wlipc.IPCClient, windowID string, desktop int) {
-	req := struct {
-		WindowID string `json:"window_id"`
-		Action   string `json:"action"`
-		Desktop  int    `json:"desktop"`
-	}{WindowID: windowID, Action: "set_desktop", Desktop: desktop}
+	req := wlipc.WindowActionRequest{WindowID: windowID, Action: "set_desktop", Desktop: desktop}
 
 	resp, err := client.Request(wlipc.ReqWindowAction, req)
 	if err != nil {
@@ -427,9 +401,7 @@ func cmdSetOutputEnabled(client *wlipc.IPCClient, name string, on bool) {
 }
 
 func cmdAction(client *wlipc.IPCClient, action string) {
-	req := struct {
-		Action string `json:"action"`
-	}{Action: action}
+	req := wlipc.CompositorActionRequest{Action: action}
 	resp, err := client.Request(wlipc.ReqCompositorAction, req)
 	if err != nil {
 		fatal("request failed: %v", err)
@@ -449,10 +421,7 @@ func cmdSimulateInput(client *wlipc.IPCClient, kind, xs, ys string) {
 	if err != nil {
 		fatal("invalid y: %s", ys)
 	}
-	req := struct {
-		X float64 `json:"x"`
-		Y float64 `json:"y"`
-	}{X: x, Y: y}
+	req := wlipc.PointerRequest{X: x, Y: y}
 	resp, err := client.Request(kind, req)
 	if err != nil {
 		fatal("request failed: %v", err)

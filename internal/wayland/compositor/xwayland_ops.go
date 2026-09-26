@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"fyshos.com/tyde/internal/wayland/wlr"
+	"fyshos.com/tyde/wlipc"
 )
 
 func (s *server) positionNewXwayWindow(v *xwayView) {
@@ -191,7 +192,7 @@ func (s *server) positionOverlay(v *xwayView, surface wlr.XwaylandSurface) {
 // repositionMappedOverlay moves an already-mapped overlay window to a new position.
 // This is called when an overlay position request arrives via IPC for a window that
 // has already been mapped (e.g. animation frames for sidebar/notification slide-in).
-func (s *server) repositionMappedOverlay(req *overlayRequest) {
+func (s *server) repositionMappedOverlay(req *wlipc.OverlayRequest) {
 	if req == nil {
 		return
 	}

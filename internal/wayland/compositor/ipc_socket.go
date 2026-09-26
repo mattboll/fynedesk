@@ -62,7 +62,6 @@ var socketHandlers = map[string]socketHandler{
 	wlipc.ReqShutdown:           (*server).socketShutdown,
 	wlipc.ReqHibernate:          (*server).socketHibernate,
 	wlipc.ReqSuspend:            (*server).socketSuspend,
-	"run-action":                (*server).socketRunAction,
 	wlipc.ReqLayoutRequest:      (*server).socketLayoutRequest,
 	wlipc.ReqRaiseByTitle:       (*server).socketRaiseByTitle,
 	wlipc.ReqRaiseByClass:       (*server).socketRaiseByClass,
@@ -224,9 +223,7 @@ func (s *server) socketClipboardClear(msg *wlipc.Message) (json.RawMessage, erro
 
 // socketCompositorAction queues a compositor action, such as a keybinding one.
 func (s *server) socketCompositorAction(msg *wlipc.Message) (json.RawMessage, error) {
-	var req struct {
-		Action string `json:"action"`
-	}
+	var req wlipc.CompositorActionRequest
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		return nil, fmt.Errorf("invalid compositor action: %w", err)
 	}
@@ -262,9 +259,7 @@ func (s *server) socketCompositorAction(msg *wlipc.Message) (json.RawMessage, er
 
 // socketWindowPreview returns a preview image of a window.
 func (s *server) socketWindowPreview(msg *wlipc.Message) (json.RawMessage, error) {
-	var req struct {
-		WindowID string `json:"window_id"`
-	}
+	var req wlipc.WindowPreviewRequest
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		return nil, fmt.Errorf("invalid window preview: %w", err)
 	}
@@ -290,13 +285,7 @@ func (s *server) socketOverlay(msg *wlipc.Message) (json.RawMessage, error) {
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		return nil, fmt.Errorf("invalid overlay request: %w", err)
 	}
-	oReq := &overlayRequest{
-		Title:  req.Title,
-		X:      req.X,
-		Y:      req.Y,
-		Width:  req.Width,
-		Height: req.Height,
-	}
+	oReq := &req
 	// Set pendingOverlay AND reposition any already-mapped overlay together
 	// on the main thread — writing pendingOverlay from the IPC goroutine
 	// races with map handlers that read it.
@@ -354,18 +343,6 @@ func (s *server) socketSuspend(msg *wlipc.Message) (json.RawMessage, error) {
 		exec.Command(findBinary("systemctl"), "suspend").Run()
 	}()
 	return nil, nil
-}
-
-// socketRunAction queues a compositor action.
-func (s *server) socketRunAction(msg *wlipc.Message) (json.RawMessage, error) {
-	var req struct {
-		Action string `json:"action"`
-	}
-	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		return nil, fmt.Errorf("invalid run-action: %w", err)
-	}
-	action := req.Action
-	return nil, s.enqueueAction(func() { s.dispatchAction(action) })
 }
 
 // socketLayoutRequest queues a change of the output layout.
@@ -445,10 +422,7 @@ func (s *server) socketDumpScene(msg *wlipc.Message) (json.RawMessage, error) {
 
 // socketSimulateClick queues a simulated pointer click.
 func (s *server) socketSimulateClick(msg *wlipc.Message) (json.RawMessage, error) {
-	var req struct {
-		X float64 `json:"x"`
-		Y float64 `json:"y"`
-	}
+	var req wlipc.PointerRequest
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		return nil, fmt.Errorf("invalid simulate-click: %w", err)
 	}
@@ -459,10 +433,7 @@ func (s *server) socketSimulateClick(msg *wlipc.Message) (json.RawMessage, error
 
 // socketSimulateMove queues a simulated pointer motion.
 func (s *server) socketSimulateMove(msg *wlipc.Message) (json.RawMessage, error) {
-	var req struct {
-		X float64 `json:"x"`
-		Y float64 `json:"y"`
-	}
+	var req wlipc.PointerRequest
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		return nil, fmt.Errorf("invalid simulate-move: %w", err)
 	}

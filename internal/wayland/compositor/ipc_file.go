@@ -598,13 +598,9 @@ func (s *server) requestEmojiPicker() {
 	configDir := s.getConfigDir()
 	os.MkdirAll(configDir, 0o700)
 
-	emojiReq := struct {
-		X         float64 `json:"x"`
-		Y         float64 `json:"y"`
-		Timestamp int64   `json:"timestamp"`
-	}{
-		X:         s.cursor.X(),
-		Y:         s.cursor.Y(),
+	emojiReq := wlipc.EmojiPickerRequest{
+		X:         float32(s.cursor.X()),
+		Y:         float32(s.cursor.Y()),
 		Timestamp: time.Now().UnixMilli(),
 	}
 	data, _ := json.Marshal(emojiReq)
@@ -710,16 +706,11 @@ func (s *server) showWindowContextMenu(xdgV *xdgView, xwayV *xwayView) {
 
 	configDir := s.getConfigDir()
 	reqPath := filepath.Join(configDir, "context-menu-request.json")
-	ctxReq := struct {
-		WindowID string  `json:"window_id"`
-		Title    string  `json:"title"`
-		X        float64 `json:"x"`
-		Y        float64 `json:"y"`
-	}{
+	ctxReq := wlipc.ContextMenuRequest{
 		WindowID: windowID,
 		Title:    title,
-		X:        s.cursor.X(),
-		Y:        s.cursor.Y(),
+		X:        float32(s.cursor.X()),
+		Y:        float32(s.cursor.Y()),
 	}
 	data, _ := json.Marshal(ctxReq)
 	writeAtomic(reqPath, data)
