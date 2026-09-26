@@ -112,6 +112,11 @@ static int is_drag_active(struct wlr_seat *seat) {
 }
 
 // --- Compositor clipboard (wlr_data_source) ---
+#include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <pthread.h>
+#include <signal.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -120,12 +125,66 @@ struct compositor_clipboard {
     char *text;
 };
 
+struct clipboard_write {
+    int fd;
+    char *text;
+    size_t len;
+};
+
+// clipboard_write_thread hands the text to the pasting client, which may
+// read slowly or not at all: off the main loop, and given up after 5 s
+// without progress.
+static void *clipboard_write_thread(void *arg) {
+    struct clipboard_write *w = arg;
+    sigset_t pipe;
+    sigemptyset(&pipe);
+    sigaddset(&pipe, SIGPIPE);
+    pthread_sigmask(SIG_BLOCK, &pipe, NULL); // a closed pipe gives EPIPE
+    size_t off = 0;
+    while (off < w->len) {
+        struct pollfd p = { .fd = w->fd, .events = POLLOUT };
+        if (poll(&p, 1, 5000) <= 0) {
+            break;
+        }
+        ssize_t n = write(w->fd, w->text + off, w->len - off);
+        if (n < 0) {
+            if (errno == EINTR || errno == EAGAIN) {
+                continue;
+            }
+            break;
+        }
+        off += (size_t)n;
+    }
+    close(w->fd);
+    free(w->text);
+    free(w);
+    return NULL;
+}
+
 static void clipboard_send(struct wlr_data_source *source, const char *mime_type, int32_t fd) {
     struct compositor_clipboard *cb = wl_container_of(source, cb, base);
-    if (cb->text) {
-        write(fd, cb->text, strlen(cb->text));
+    struct clipboard_write *w = cb->text ? calloc(1, sizeof(*w)) : NULL;
+    if (w) {
+        w->fd = fd;
+        w->len = strlen(cb->text);
+        w->text = strdup(cb->text);
     }
-    close(fd);
+    if (!w || !w->text) {
+        free(w);
+        close(fd);
+        return;
+    }
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_t thread;
+    if (pthread_create(&thread, &attr, clipboard_write_thread, w) != 0) {
+        close(fd);
+        free(w->text);
+        free(w);
+    }
+    pthread_attr_destroy(&attr);
 }
 
 static void clipboard_destroy(struct wlr_data_source *source) {
