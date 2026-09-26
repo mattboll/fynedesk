@@ -108,6 +108,11 @@ static void handle_request_set_selection(struct wl_listener *listener, void *dat
 	const char *preferred_mime = NULL;
 	char **p;
 	wl_array_for_each(p, &event->source->mime_types) {
+		if (*p && strcmp(*p, "x-kde-passwordManagerHint") == 0) {
+			return; // a password manager asks to be left out of any history
+		}
+	}
+	wl_array_for_each(p, &event->source->mime_types) {
 		if (*p) {
 			if (strcmp(*p, "text/plain;charset=utf-8") == 0) {
 				preferred_mime = "text/plain;charset=utf-8";

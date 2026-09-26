@@ -46,10 +46,7 @@ func goClipboardChanged(fd C.int) {
 
 		text := string(data)
 		if clipServer != nil {
-			clipServer.mainThreadActions <- func() {
-				clipServer.addClipboardEntry(text)
-			}
-			clipServer.triggerWakeup()
+			_ = clipServer.enqueueAction(func() { clipServer.addClipboardEntry(text) })
 		}
 	}()
 }
@@ -91,14 +88,8 @@ func (s *server) addClipboardEntry(text string) {
 
 	// Write to IPC
 	wlipc.WriteClipboardHistory(s.clipboardHistory)
-	log.Printf("[clipboard] added entry: %q (total: %d)\n", clipTruncate(text, 40), len(s.clipboardHistory))
-}
-
-func clipTruncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "..."
+	// Only sizes: what is copied may be a password.
+	log.Printf("[clipboard] added an entry of %d bytes (total: %d)\n", len(text), len(s.clipboardHistory))
 }
 
 // clearClipboardHistory removes all entries and updates the IPC file.
@@ -132,7 +123,7 @@ func (s *server) handleClipboardPaste() {
 		s.injectCtrlV(s.keyboards[0])
 	}
 
-	log.Printf("[clipboard] pasted: %q\n", clipTruncate(req.Text, 40))
+	log.Printf("[clipboard] pasted %d bytes\n", len(req.Text))
 }
 
 // requestShowClipboard sends a clipboard show request to the panel via IPC

@@ -28,10 +28,7 @@ func (s *server) handleKeybinding(mods wlr.KeyboardModifier, sym xkb.KeySym) boo
 	clean := mods & relevantMods
 	action, ok := s.keybindingMap[resolvedBinding{sym: sym, mods: clean}]
 	if !ok {
-		if clean != 0 {
-			log.Printf("[KEYBIND] no match for sym=0x%x mods=0x%x (clean=0x%x, wmMod=0x%x)", sym, mods, clean, s.wmModifier)
-		}
-		return false
+		return false // never logged: it is what the user types, passwords included
 	}
 
 	// While locked, only allow emergency logout (prevents permanent lockout
