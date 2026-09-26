@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -478,5 +479,76 @@ func TestBroadcastNotBlockedByStalledSubscriber(t *testing.T) {
 	}
 	if d := time.Since(start); d > time.Second {
 		t.Fatalf("50 broadcasts took %v with a stalled subscriber", d)
+	}
+}
+
+// TestEarlyEventsKept checks that events sent between Subscribe and
+// ListenEvents reach the listeners.
+func TestEarlyEventsKept(t *testing.T) {
+	srv, _ := testServer(t, func(*Message) (json.RawMessage, error) { return nil, nil })
+	c := testConnect(t)
+	if err := c.Subscribe("windows-state"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		srv.Broadcast("windows-state", i)
+	}
+	time.Sleep(200 * time.Millisecond) // they arrive before anyone listens
+	got := make(chan string, 10)
+	c.OnEvent("windows-state", func(d json.RawMessage) { got <- string(d) })
+	done := make(chan struct{})
+	defer close(done)
+	c.ListenEvents(done)
+	for i := 0; i < 3; i++ {
+		select {
+		case d := <-got:
+			if d != strconv.Itoa(i) {
+				t.Fatalf("event %d: got %s", i, d)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("event %d lost", i)
+		}
+	}
+}
+
+// TestClientEndsOnOversizedMessage checks that a message too long for the
+// client ends the connection instead of leaving it open and requests
+// hanging.
+func TestClientEndsOnOversizedMessage(t *testing.T) {
+	srv, _ := testServer(t, func(msg *Message) (json.RawMessage, error) {
+		if msg.Name == "big" {
+			return json.Marshal(strings.Repeat("x", clientMaxMessage+1))
+		}
+		return nil, nil
+	})
+	_ = srv
+	c := testConnect(t)
+	if _, err := c.Request("big", nil); err == nil {
+		t.Fatal("an oversized response was accepted")
+	}
+	select {
+	case <-c.Closed():
+	case <-time.After(2 * time.Second):
+		t.Fatal("the connection stayed open")
+	}
+	if _, err := c.Request("small", nil); err == nil {
+		t.Fatal("a request on a closed connection succeeded")
+	}
+}
+
+// TestReadEvent checks the events of a client that does not listen.
+func TestReadEvent(t *testing.T) {
+	srv, _ := testServer(t, func(*Message) (json.RawMessage, error) { return nil, nil })
+	c := testConnect(t)
+	if err := c.Subscribe("desktop-state"); err != nil {
+		t.Fatal(err)
+	}
+	srv.Broadcast("desktop-state", 7)
+	if msg := c.ReadEvent(); msg == nil || string(msg.Data) != "7" {
+		t.Fatalf("ReadEvent = %+v", msg)
+	}
+	c.Close()
+	if msg := c.ReadEvent(); msg != nil {
+		t.Fatalf("ReadEvent after close = %+v", msg)
 	}
 }

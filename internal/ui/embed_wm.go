@@ -8,6 +8,7 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"fyshos.com/tyde"
 	"fyshos.com/tyde/internal/notify"
@@ -204,40 +205,48 @@ func (e *embededWM) startIPCWatcher() {
 	}
 	e.ipcMode.Store(true)
 
-	// Try socket connection
-	client, err := wlipc.Connect()
-	if err == nil {
-		wlipc.SetDefaultClient(client) // upgrades all Request* functions too
-		if err := client.Subscribe(
-			wlipc.EventWindowsState,
-			wlipc.EventDesktopState,
-			wlipc.EventContextMenu,
-			wlipc.EventLauncherRequest,
-			wlipc.EventEmojiPicker,
-			wlipc.EventClipboardShow,
-			wlipc.EventClipboardHist,
-			wlipc.EventScreenshot,
-			wlipc.EventNotification,
-			wlipc.EventNotifClosed,
-			wlipc.EventCommandPalette,
-			wlipc.EventSidebar,
-			wlipc.EventNextAgent,
-			wlipc.EventOverview,
-			wlipc.EventPanelHotspot,
-			wlipc.EventNightLight,
-		); err == nil {
-			log.Println("[panel] Connected to compositor via socket IPC")
-			e.setupSocketEventHandlers(client)
-			return
-		}
-		// Subscribe failed — close and fall back
-		client.Close()
-		wlipc.SetDefaultClient(nil)
+	if e.connectSocket() {
+		return
 	}
 
 	// Fallback: file-based polling
 	log.Println("[panel] Socket unavailable, using file-based IPC polling")
 	e.startFileIPCWatcher()
+}
+
+// connectSocket connects to the compositor's socket, subscribes to the
+// events and starts handling them. It reports whether it could.
+func (e *embededWM) connectSocket() bool {
+	client, err := wlipc.Connect()
+	if err != nil {
+		return false
+	}
+	wlipc.SetDefaultClient(client) // upgrades all Request* functions too
+	if err := client.Subscribe(
+		wlipc.EventWindowsState,
+		wlipc.EventDesktopState,
+		wlipc.EventContextMenu,
+		wlipc.EventLauncherRequest,
+		wlipc.EventEmojiPicker,
+		wlipc.EventClipboardShow,
+		wlipc.EventClipboardHist,
+		wlipc.EventScreenshot,
+		wlipc.EventNotification,
+		wlipc.EventNotifClosed,
+		wlipc.EventCommandPalette,
+		wlipc.EventSidebar,
+		wlipc.EventNextAgent,
+		wlipc.EventOverview,
+		wlipc.EventPanelHotspot,
+		wlipc.EventNightLight,
+	); err != nil {
+		client.Close()
+		wlipc.SetDefaultClient(nil)
+		return false
+	}
+	log.Println("[panel] Connected to compositor via socket IPC")
+	e.setupSocketEventHandlers(client)
+	return true
 }
 
 // setupSocketEventHandlers registers event handlers on the client and starts
@@ -355,14 +364,19 @@ func (e *embededWM) setupSocketEventHandlers(client *wlipc.IPCClient) {
 	// Start the read pump — single goroutine reads all messages and dispatches.
 	client.ListenEvents(done)
 
-	// Monitor for connection loss in a separate goroutine.
+	// When the connection is lost (the compositor's socket went away),
+	// requests fall back to files and the panel connects again as soon as
+	// it can.
 	go func() {
-		// ListenEvents' internal goroutine will close pending channels when
-		// the connection drops. We detect this by trying a no-op after the
-		// scanner loop exits. Use a simple channel trick: wait for the done
-		// channel to be written (which won't happen), or detect conn close.
-		// Simpler: just poll until DefaultClient becomes nil or conn errors.
-		<-done // will block forever unless explicitly closed
+		<-client.Closed()
+		close(done)
+		if wlipc.DefaultClient() == client {
+			wlipc.SetDefaultClient(nil)
+		}
+		log.Println("[panel] Lost the compositor's socket, reconnecting")
+		for !e.connectSocket() {
+			time.Sleep(2 * time.Second)
+		}
 	}()
 }
 

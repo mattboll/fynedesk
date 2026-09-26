@@ -502,47 +502,121 @@ func trySendRequest(name string, data any) bool {
 
 // --- Client ---
 
-// IPCClient connects to the compositor socket server.
+// IPCClient connects to the compositor socket server. A single goroutine
+// reads the connection from Connect on: responses go to the Request waiting
+// for them, events to the listeners once ListenEvents is called (those that
+// come before are kept for then, or for ReadEvent).
 type IPCClient struct {
-	conn       net.Conn
-	scanner    *bufio.Scanner
-	writer     *bufio.Writer
-	mu         sync.Mutex // protects writer + nextID
-	nextID     int64
-	listeners  map[string][]EventCallback
-	listenerMu sync.RWMutex
+	conn   net.Conn
+	writer *bufio.Writer
+	mu     sync.Mutex // protects writer + nextID
+	nextID int64
 
-	// Response demux: when the read pump is active, responses are routed
-	// through pending channels instead of being read directly by Request.
-	readPumpOnce sync.Once
-	pendingMu    sync.Mutex
-	pending      map[int64]chan *Message // request ID → response channel
+	listenerMu sync.RWMutex
+	listeners  map[string][]EventCallback
+	listening  bool          // ListenEvents was called
+	events     chan *Message // events before that, and for ReadEvent
+
+	pendingMu sync.Mutex
+	pending   map[int64]chan *Message // request ID → response channel
+	closed    chan struct{}           // closed when the connection ends
+
+	listenOnce sync.Once
 }
 
+// clientMaxMessage bounds a message from the server: larger than the
+// server's own bound on requests, as responses and events carry more
+// (window lists, previews).
+const clientMaxMessage = 4 << 20
+
+// requestTimeout bounds the wait for a response.
+const requestTimeout = 10 * time.Second
+
 // Connect establishes a connection to the IPC server.
-// Returns nil if the socket doesn't exist (compositor not running or file-based mode).
+// Returns an error if the socket doesn't exist (compositor not running or file-based mode).
 func Connect() (*IPCClient, error) {
 	sockPath := SocketPath()
 	conn, err := net.DialTimeout("unix", sockPath, 2*time.Second)
 	if err != nil {
 		return nil, err
 	}
-
-	scanner := bufio.NewScanner(conn)
-	scanner.Buffer(make([]byte, 256*1024), 256*1024)
-
-	return &IPCClient{
+	c := &IPCClient{
 		conn:      conn,
-		scanner:   scanner,
 		writer:    bufio.NewWriter(conn),
 		listeners: make(map[string][]EventCallback),
-	}, nil
+		events:    make(chan *Message, 256),
+		pending:   make(map[int64]chan *Message),
+		closed:    make(chan struct{}),
+	}
+	go c.readPump()
+	return c, nil
+}
+
+// readPump reads every message of the connection until it ends, then closes
+// it and unblocks whoever waits.
+func (c *IPCClient) readPump() {
+	scanner := bufio.NewScanner(c.conn)
+	scanner.Buffer(make([]byte, 64*1024), clientMaxMessage)
+	for scanner.Scan() {
+		var msg Message
+		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
+			continue
+		}
+		switch msg.Type {
+		case "response":
+			c.pendingMu.Lock()
+			ch := c.pending[msg.ID]
+			delete(c.pending, msg.ID)
+			c.pendingMu.Unlock()
+			if ch != nil {
+				ch <- &msg
+			}
+		case "event":
+			c.dispatch(&msg)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("[IPC] client: %v", err)
+	}
+	c.conn.Close() // a pump that stopped (message too long) must not leave it open
+	c.pendingMu.Lock()
+	for id, ch := range c.pending {
+		close(ch)
+		delete(c.pending, id)
+	}
+	c.pendingMu.Unlock()
+	c.listenerMu.Lock()
+	close(c.events)
+	c.listenerMu.Unlock()
+	close(c.closed)
+}
+
+// dispatch hands an event to the listeners, or keeps it until
+// ListenEvents (dropping it if too many wait).
+func (c *IPCClient) dispatch(msg *Message) {
+	c.listenerMu.Lock()
+	if !c.listening {
+		select {
+		case c.events <- msg:
+		default:
+		}
+		c.listenerMu.Unlock()
+		return
+	}
+	cbs := c.listeners[msg.Name]
+	c.listenerMu.Unlock()
+	for _, cb := range cbs {
+		cb(msg.Data)
+	}
 }
 
 // Close disconnects from the server.
 func (c *IPCClient) Close() {
 	c.conn.Close()
 }
+
+// Closed is closed when the connection ended.
+func (c *IPCClient) Closed() <-chan struct{} { return c.closed }
 
 // Subscribe registers for the given event types.
 func (c *IPCClient) Subscribe(events ...string) error {
@@ -551,97 +625,69 @@ func (c *IPCClient) Subscribe(events ...string) error {
 	return err
 }
 
-// Request sends a request and waits for the response.
+// Request sends a request and waits for the response, at most
+// requestTimeout.
 func (c *IPCClient) Request(name string, data any) (*Message, error) {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
 	c.mu.Lock()
 	c.nextID++
 	id := c.nextID
-
-	raw, err := json.Marshal(data)
-	if err != nil {
-		c.mu.Unlock()
-		return nil, err
-	}
-
-	msg := Message{
-		Type: "request",
-		ID:   id,
-		Name: name,
-		Data: raw,
-	}
-	line, err := json.Marshal(msg)
+	line, err := json.Marshal(Message{Type: "request", ID: id, Name: name, Data: raw})
 	if err != nil {
 		c.mu.Unlock()
 		return nil, err
 	}
 	line = append(line, '\n')
 
-	// If the read pump is active, register a pending channel BEFORE sending
-	// so the pump can route the response to us.
-	var ch chan *Message
+	// Register before sending, so the pump can route the response.
+	ch := make(chan *Message, 1)
 	c.pendingMu.Lock()
-	if c.pending != nil {
-		ch = make(chan *Message, 1)
-		c.pending[id] = ch
+	select {
+	case <-c.closed:
+		c.pendingMu.Unlock()
+		c.mu.Unlock()
+		return nil, fmt.Errorf("connection closed")
+	default:
 	}
+	c.pending[id] = ch
 	c.pendingMu.Unlock()
 
+	_ = c.conn.SetWriteDeadline(time.Now().Add(requestTimeout))
 	_, err = c.writer.Write(line)
-	if err != nil {
-		c.mu.Unlock()
-		c.removePending(id)
-		return nil, err
+	if err == nil {
+		err = c.writer.Flush()
 	}
-	err = c.writer.Flush()
 	c.mu.Unlock()
 	if err != nil {
 		c.removePending(id)
 		return nil, err
 	}
 
-	if ch != nil {
-		// Read pump is active — wait for the response via channel
-		resp, ok := <-ch
+	select {
+	case resp, ok := <-ch:
 		if !ok || resp == nil {
 			return nil, fmt.Errorf("connection closed")
 		}
 		return resp, nil
+	case <-time.After(requestTimeout):
+		c.removePending(id)
+		return nil, fmt.Errorf("no response to %s within %s", name, requestTimeout)
 	}
-
-	// No read pump — read directly (used before ListenEvents is called)
-	for c.scanner.Scan() {
-		var resp Message
-		if err := json.Unmarshal(c.scanner.Bytes(), &resp); err != nil {
-			continue
-		}
-		if resp.Type == "response" && resp.ID == id {
-			return &resp, nil
-		}
-	}
-	return nil, fmt.Errorf("connection closed")
 }
 
 func (c *IPCClient) removePending(id int64) {
 	c.pendingMu.Lock()
-	if c.pending != nil {
-		delete(c.pending, id)
-	}
+	delete(c.pending, id)
 	c.pendingMu.Unlock()
 }
 
-// ReadEvent reads the next event from the server (blocking).
-// Returns nil when the connection is closed.
+// ReadEvent returns the next event from the server (blocking), for a client
+// that does not use ListenEvents. Returns nil when the connection is closed.
 func (c *IPCClient) ReadEvent() *Message {
-	for c.scanner.Scan() {
-		var msg Message
-		if err := json.Unmarshal(c.scanner.Bytes(), &msg); err != nil {
-			continue
-		}
-		if msg.Type == "event" {
-			return &msg
-		}
-	}
-	return nil
+	return <-c.events
 }
 
 // EventCallback is called when an event is received via socket IPC.
@@ -655,56 +701,41 @@ func (c *IPCClient) OnEvent(eventName string, cb EventCallback) {
 	c.listeners[eventName] = append(c.listeners[eventName], cb)
 }
 
-// ListenEvents starts a background goroutine that reads events from the
-// server and dispatches them to registered callbacks. It blocks until the
-// done channel is closed or the connection is lost. Call Subscribe() first
-// to register for the desired event types.
+// ListenEvents hands the events to the registered callbacks from now on,
+// those that came since Connect first. The connection is closed when done
+// is. Call Subscribe() first to register for the desired event types.
 func (c *IPCClient) ListenEvents(done <-chan struct{}) {
-	// Start the read pump exactly once. It reads all messages from the socket
-	// and dispatches events to listeners and responses to pending Request callers.
-	c.readPumpOnce.Do(func() {
-		c.pendingMu.Lock()
-		c.pending = make(map[int64]chan *Message)
-		c.pendingMu.Unlock()
-
+	c.listenOnce.Do(func() {
+		c.listenerMu.Lock()
+		c.listening = true
+		var early []*Message
+	drain:
+		for {
+			select {
+			case msg, ok := <-c.events:
+				if !ok {
+					break drain
+				}
+				early = append(early, msg)
+			default:
+				break drain
+			}
+		}
+		c.listenerMu.Unlock()
+		for _, msg := range early {
+			c.listenerMu.RLock()
+			cbs := c.listeners[msg.Name]
+			c.listenerMu.RUnlock()
+			for _, cb := range cbs {
+				cb(msg.Data)
+			}
+		}
 		go func() {
-			go func() {
-				<-done
+			select {
+			case <-done:
 				c.conn.Close()
-			}()
-
-			for c.scanner.Scan() {
-				var msg Message
-				if err := json.Unmarshal(c.scanner.Bytes(), &msg); err != nil {
-					continue
-				}
-				if msg.Type == "response" {
-					c.pendingMu.Lock()
-					ch := c.pending[msg.ID]
-					delete(c.pending, msg.ID)
-					c.pendingMu.Unlock()
-					if ch != nil {
-						ch <- &msg
-					}
-					continue
-				}
-				if msg.Type == "event" {
-					c.listenerMu.RLock()
-					cbs := c.listeners[msg.Name]
-					c.listenerMu.RUnlock()
-					for _, cb := range cbs {
-						cb(msg.Data)
-					}
-				}
+			case <-c.closed:
 			}
-
-			// Connection closed — unblock any pending requests
-			c.pendingMu.Lock()
-			for id, ch := range c.pending {
-				close(ch)
-				delete(c.pending, id)
-			}
-			c.pendingMu.Unlock()
 		}()
 	})
 }
@@ -729,6 +760,7 @@ func (c *IPCClient) SendRequest(name string, data any) error {
 	line, _ := json.Marshal(msg)
 	line = append(line, '\n')
 
+	_ = c.conn.SetWriteDeadline(time.Now().Add(requestTimeout))
 	_, err = c.writer.Write(line)
 	if err != nil {
 		return err
