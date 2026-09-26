@@ -177,6 +177,20 @@ type magnifier struct {
 	level, target float64
 	scanout       bool // the scene's direct scanout, restored when zooming stops
 	outputs       map[*C.struct_wlr_output]*C.struct_zoom
+	// cursorLocked are the outputs whose software cursor lock the zoom
+	// holds: only those are unlocked when it stops (wlroots counts them).
+	cursorLocked map[*C.struct_wlr_output]bool
+}
+
+// lockZoomCursor draws the pointer of an output into its pictures, once.
+func (s *server) lockZoomCursor(out *C.struct_wlr_output) {
+	if s.zoom.cursorLocked == nil {
+		s.zoom.cursorLocked = map[*C.struct_wlr_output]bool{}
+	}
+	if !s.zoom.cursorLocked[out] {
+		C.wlr_output_lock_software_cursors(out, true)
+		s.zoom.cursorLocked[out] = true
+	}
 }
 
 // zoomBy enlarges (steps > 0) or shrinks the screen.
@@ -210,7 +224,7 @@ func (s *server) startZoom() {
 	s.zoom.scanout = bool(C.zoom_scene_scanout(scene))
 	C.zoom_scene_setup(scene, nil, true, C.bool(s.zoom.scanout))
 	for _, o := range s.outputs {
-		C.wlr_output_lock_software_cursors(outputPtr(o.output), true)
+		s.lockZoomCursor(outputPtr(o.output))
 	}
 }
 
@@ -219,9 +233,12 @@ func (s *server) stopZoom() {
 	scene := (*C.struct_wlr_scene)(s.scene)
 	for _, o := range s.outputs {
 		out := outputPtr(o.output)
-		C.wlr_output_lock_software_cursors(out, false)
+		if s.zoom.cursorLocked[out] {
+			C.wlr_output_lock_software_cursors(out, false)
+		}
 		C.zoom_scene_setup(scene, C.wlr_scene_get_scene_output(scene, out), false, C.bool(s.zoom.scanout))
 	}
+	clear(s.zoom.cursorLocked)
 	for out, z := range s.zoom.outputs {
 		C.zoom_destroy(z)
 		delete(s.zoom.outputs, out)
@@ -268,6 +285,7 @@ func (s *server) commitZoomed(output wlr.Output, sceneOutput *C.struct_wlr_scene
 		z = C.zoom_create(out)
 		s.zoom.outputs[out] = z
 	}
+	s.lockZoomCursor(out) // a screen plugged in while zoomed, too
 	lx, ly := s.zoomCenter(output)
 	return bool(C.zoom_commit(z, sceneOutput, C.double(s.zoom.level), C.double(lx), C.double(ly)))
 }
@@ -302,6 +320,7 @@ func (s *server) forgetZoomOutput(output unsafe.Pointer) {
 		C.zoom_destroy(z)
 		delete(s.zoom.outputs, out)
 	}
+	delete(s.zoom.cursorLocked, out)
 }
 
 // zoomByScroll enlarges the screen as the wheel turns up, shrinks it as it
