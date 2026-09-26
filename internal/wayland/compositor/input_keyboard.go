@@ -149,7 +149,14 @@ func (s *server) handleKeyboardKey(keyboard, kb wlr.Keyboard, t time.Time, keyCo
 		}
 
 		mods := kb.GetModifiers()
-		for _, sym := range syms {
+		candidates := syms
+		if mods&s.wmModifier != 0 {
+			// Desktop shortcuts name the key by any of its levels: WM+Shift+1
+			// on a US keyboard (exclam) and WM+1 on a French one (ampersand)
+			// both mean the "1" key.
+			candidates = append(append([]xkb.KeySym{}, syms...), kb.XKBState().LevelSyms(xkb.KeyCode(keyCode+8))...)
+		}
+		for _, sym := range candidates {
 			if s.handleKeybinding(mods, sym) {
 				// Start key repeat for repeatable actions (volume, brightness)
 				clean := mods & relevantMods

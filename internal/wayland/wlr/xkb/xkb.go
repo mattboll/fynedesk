@@ -131,8 +131,40 @@ type State struct {
 	p *C.struct_xkb_state
 }
 
+// NewState makes a keyboard state for keymap; Unref it when done.
+func NewState(keymap Keymap) State { return State{p: C.xkb_state_new(keymap.p)} }
+
+// Unref drops the caller's reference.
+func (s State) Unref() { C.xkb_state_unref(s.p) }
+
 // StateFromPtr wraps a struct xkb_state pointer.
 func StateFromPtr(p unsafe.Pointer) State { return State{p: (*C.struct_xkb_state)(p)} }
+
+// LevelSyms returns the keysyms of every shift level of keyCode in its
+// current layout (on a French keyboard, the "1" key gives ampersand and 1).
+func (s State) LevelSyms(keyCode KeyCode) []KeySym {
+	if s.p == nil {
+		return nil
+	}
+	keymap := C.xkb_state_get_keymap(s.p)
+	code := C.xkb_keycode_t(keyCode)
+	layout := C.xkb_state_key_get_layout(s.p, code)
+	if layout == C.XKB_LAYOUT_INVALID {
+		return nil
+	}
+	var out []KeySym
+	levels := C.xkb_keymap_num_levels_for_key(keymap, code, layout)
+	for level := C.xkb_level_index_t(0); level < levels; level++ {
+		var syms *C.xkb_keysym_t
+		n := int(C.xkb_keymap_key_get_syms_by_level(keymap, code, layout, level, &syms))
+		if n > 0 && syms != nil {
+			for _, sym := range unsafe.Slice(syms, n) {
+				out = append(out, KeySym(sym))
+			}
+		}
+	}
+	return out
+}
 
 // Syms returns the keysyms produced by keyCode in the current state.
 func (s State) Syms(keyCode KeyCode) []KeySym {
