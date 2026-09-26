@@ -697,6 +697,23 @@ func (s *server) closeXdgWindow(v *xdgView) {
 	v.xdgToplevel.SendClose()
 }
 
+// restoreGeometry returns where a window leaving maximize goes: where it was
+// saved, with a reasonable size when none was (maximized before it mapped,
+// by a rule), centred when that is outside the content area (e.g. 0,0
+// behind the bar). (x, y) is where it is, to know its screen.
+func (s *server) restoreGeometry(x, y, savedX, savedY float64, savedW, savedH int) (float64, float64, int, int) {
+	cx, cy, cw, ch := s.contentBounds(s.getOutputGeoForView(x, y))
+	w, h := savedW, savedH
+	unsaved := w <= 0 || h <= 0
+	if unsaved {
+		w, h = cw*2/3, ch*2/3
+	}
+	if unsaved || int(savedX) < cx || int(savedY) < cy || int(savedX)+w > cx+cw || int(savedY)+h > cy+ch {
+		return float64(cx + (cw-w)/2), float64(cy + (ch-h)/2), w, h
+	}
+	return savedX, savedY, w, h
+}
+
 func (s *server) maximizeXdgWindow(v *xdgView) {
 	oldX, oldY := v.x, v.y
 
@@ -705,23 +722,7 @@ func (s *server) maximizeXdgWindow(v *xdgView) {
 		log.Printf("[MAXIMIZE] Restoring XDG: app_id=%q saved=(%v,%v %dx%d)\n",
 			getXdgToplevelAppID(v.xdgToplevel), v.savedX, v.savedY, v.savedWidth, v.savedHeight)
 
-		// If saved size is 0 (maximize before map), use a reasonable default
-		outGeo := s.getOutputGeoForView(v.x, v.y)
-		cx, cy, cw, ch := s.contentBounds(outGeo)
-		restW, restH := v.savedWidth, v.savedHeight
-		if restW <= 0 || restH <= 0 {
-			restW = cw * 2 / 3
-			restH = ch * 2 / 3
-		}
-
-		// Validate restored position — if saved position is outside content area
-		// (e.g. 0,0 behind the bar), center the window instead
-		restX, restY := v.savedX, v.savedY
-		if int(restX) < cx || int(restY) < cy ||
-			int(restX)+restW > cx+cw || int(restY)+restH > cy+ch {
-			restX = float64(cx + (cw-restW)/2)
-			restY = float64(cy + (ch-restH)/2)
-		}
+		restX, restY, restW, restH := s.restoreGeometry(v.x, v.y, v.savedX, v.savedY, v.savedWidth, v.savedHeight)
 
 		v.xdgToplevel.SetSize(int32(restW), int32(restH))
 		v.xdgToplevel.SetMaximized(false)

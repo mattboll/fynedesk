@@ -248,10 +248,11 @@ func (s *server) maximizeXwayWindow(v *xwayView) {
 		// Restore
 		log.Printf("[MAXIMIZE] Restoring XWay: title=%q saved=(%v,%v %dx%d)",
 			v.surface.Title(), v.savedX, v.savedY, v.savedWidth, v.savedHeight)
-		v.surface.Configure(int16(v.savedX), int16(v.savedY), uint16(v.savedWidth), uint16(v.savedHeight))
+		restX, restY, restW, restH := s.restoreGeometry(v.x, v.y, v.savedX, v.savedY, v.savedWidth, v.savedHeight)
+		v.surface.Configure(int16(restX), int16(restY), uint16(restW), uint16(restH))
 		v.maximized = false
 		v.snapped = snapNone
-		s.animateXwayPos(v, oldX, oldY, v.savedX, v.savedY)
+		s.animateXwayPos(v, oldX, oldY, restX, restY)
 	} else {
 		// Maximize to the output the window is on
 		s.setXwayZone(v, s.getOutputGeoForView(v.x, v.y), snapTop)
