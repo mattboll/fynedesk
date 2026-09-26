@@ -189,7 +189,7 @@ func readTOMLAsPrefs(path string) (map[string]interface{}, error) {
 	prefs["highcontrast"] = cfg.Display.HighContrast
 
 	// Desktops
-	if cfg.Desktops.Count >= 2 {
+	if cfg.Desktops.Count >= 1 {
 		prefs["desktopcount"] = float64(cfg.Desktops.Count)
 	}
 	prefs["desktopnames"] = strings.Join(cfg.Desktops.Names, "|")
@@ -424,7 +424,7 @@ func (s *server) applyNightLightPrefs(prefs map[string]interface{}) {
 // applyDesktopPrefs applies the desktop count and names.
 func (s *server) applyDesktopPrefs(prefs map[string]interface{}) {
 	// Desktop count and names
-	if count, ok := prefs["desktopcount"].(float64); ok && int(count) >= 2 && int(count) <= 8 {
+	if count, ok := prefs["desktopcount"].(float64); ok && int(count) >= 1 && int(count) <= 8 {
 		s.numDesks = int(count)
 		// Ensure tiling state array matches
 		if len(s.tiling) < s.numDesks {

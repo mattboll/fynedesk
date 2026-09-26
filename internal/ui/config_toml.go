@@ -126,7 +126,7 @@ type PanelConfig struct {
 
 // DesktopsConfig holds virtual desktop/workspace settings.
 type DesktopsConfig struct {
-	Count int      `toml:"count"` // Number of desktops (2-8, default 4)
+	Count int      `toml:"count"` // Number of desktops (1-8, default 4)
 	Names []string `toml:"names"` // Workspace names (empty = use "1", "2", ...)
 }
 
@@ -493,7 +493,7 @@ func syncToFynePrefs(cfg *Config) {
 
 	p.SetBool("narrowpanel", cfg.Panel.NarrowWidget)
 
-	if cfg.Desktops.Count >= 2 {
+	if cfg.Desktops.Count >= 1 {
 		p.SetInt("desktopcount", cfg.Desktops.Count)
 	}
 	p.SetString("desktopnames", strings.Join(cfg.Desktops.Names, "|"))

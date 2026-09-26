@@ -143,7 +143,7 @@ func (d *deskSettings) setWindowRules(rules []wlipc.WindowRule) {
 }
 
 func (d *deskSettings) DesktopCount() int {
-	if d.desktopCount < 2 {
+	if d.desktopCount < 1 { // unset
 		return 4
 	}
 	return d.desktopCount
