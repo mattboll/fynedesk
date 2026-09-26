@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/FyshOS/backgrounds"
 
+	"fyshos.com/tyde/internal/wallpaper"
 	"fyshos.com/tyde/locale"
 	"fyshos.com/tyde/wm"
 )
@@ -91,7 +92,7 @@ func (d *settingsUI) loadBackgroundScreen() fyne.CanvasObject {
 	preview := container.NewCenter(monitorSurround(screen, screenColor))
 
 	set := fyne.CurrentApp().Settings()
-	fillSelect := widget.NewSelect(backgroundFillModes, nil)
+	fillSelect := widget.NewSelect(wallpaper.FillModes, nil)
 	refreshPreview := func() {
 		if bgPath.Text == "" {
 			// The default wallpaper used by the desktop when no image is configured.

@@ -11,7 +11,6 @@ import (
 	_ "image/png"  // ...
 	"io"
 	"log"
-	"math"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -281,15 +280,12 @@ func renderWallpaper(w, h int) *image.RGBA {
 
 	out := image.NewRGBA(image.Rect(0, 0, w, h))
 	bg := ParseHexColor(inst.Settings().BackgroundColor())
-	draw.Draw(out, out.Bounds(), &image.Uniform{C: bg}, image.Point{}, draw.Src)
-
 	src, fill := wallpaperSource(inst.Settings())
 	if src == nil {
+		draw.Draw(out, out.Bounds(), &image.Uniform{C: bg}, image.Point{}, draw.Src)
 		return out
 	}
-
-	xdraw.CatmullRom.Scale(out, wallpaperRect(src.Bounds(), w, h, fill),
-		src, src.Bounds(), draw.Over, nil)
+	wallpaper.Draw(out, src, fill, bg, xdraw.CatmullRom)
 	return out
 }
 
@@ -349,46 +345,18 @@ func decodeWallpaper(key string, open func() (io.ReadCloser, error)) image.Image
 	return img
 }
 
-// wallpaperRect returns the destination rectangle for the wallpaper within a
-// w×h image for the given fill mode, matching backgroundFillMode: Fit scales to
-// fit inside (letterboxed), Fill scales to cover (overflow clipped by Scale),
-// and the default stretches to the full size.
-func wallpaperRect(src image.Rectangle, w, h int, fill string) image.Rectangle {
-	sw, sh := src.Dx(), src.Dy()
-	if sw <= 0 || sh <= 0 {
-		return image.Rect(0, 0, w, h)
-	}
-
-	var scale float64
-	switch fill {
-	case "Fit":
-		scale = math.Min(float64(w)/float64(sw), float64(h)/float64(sh))
-	case "Fill":
-		scale = math.Max(float64(w)/float64(sw), float64(h)/float64(sh))
-	default: // Stretch
-		return image.Rect(0, 0, w, h)
-	}
-
-	dw, dh := int(float64(sw)*scale), int(float64(sh)*scale)
-	ox, oy := (w-dw)/2, (h-dh)/2
-	return image.Rect(ox, oy, ox+dw, oy+dh)
-}
-
 func newBackground() *background {
 	ret := &background{}
 	ret.ExtendBaseWidget(ret)
 	return ret
 }
 
-// backgroundFillModes lists the user-facing fill options in display order.
-var backgroundFillModes = []string{"Stretch", "Fit", "Fill"}
-
 // backgroundFillMode maps a user-facing fill name to a canvas fill mode.
 func backgroundFillMode(name string) canvas.ImageFill {
 	switch name {
-	case "Fit":
+	case wallpaper.FillFit:
 		return canvas.ImageFillContain
-	case "Fill":
+	case wallpaper.FillFill:
 		return canvas.ImageFillCover
 	default: // "Stretch"
 		return canvas.ImageFillStretch

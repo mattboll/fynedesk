@@ -844,7 +844,8 @@ func (s *server) loadWallpaperFromPath(out *outputState, bgPath string) {
 		}
 
 		// Phase 1: scale and apply wallpaper immediately (no blur yet)
-		nrgba := renderWallpaperImage(img, w, h, fill, bg)
+		nrgba := image.NewNRGBA(image.Rect(0, 0, w, h))
+		dynwp.Draw(nrgba, img, fill, bg, draw.ApproxBiLinear)
 
 		log.Printf("[WALLPAPER] scaled %s %dx%d, applying immediately\n", outName, w, h)
 		onMain(func() { s.applyWallpaper(out, nrgba) })
