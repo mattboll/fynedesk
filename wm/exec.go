@@ -3,6 +3,7 @@ package wm
 import (
 	"context"
 	"os/exec"
+	"syscall"
 	"time"
 )
 
@@ -38,4 +39,17 @@ func ExecRunCtx(timeout time.Duration, name string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return exec.CommandContext(ctx, name, args...).Run()
+}
+
+// StartDetached starts a program that runs on its own (an application, a
+// helper that outlives the call), in its own process group, and reaps it
+// when it exits so it never lingers as a zombie.
+func StartDetached(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }

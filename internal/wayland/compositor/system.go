@@ -33,6 +33,20 @@ func safeEnv() []string {
 	return safe
 }
 
+// startDetached starts a program found in the system paths, with the
+// sanitised environment, in its own process group, and reaps it when it
+// exits.
+func startDetached(name string, args ...string) error {
+	cmd := exec.Command(findBinary(name), args...)
+	cmd.Env = safeEnv()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
+}
+
 // findBinary looks for a binary in standard system paths, returning the first found.
 // Falls back to the bare name (PATH lookup) if not found in standard locations.
 func findBinary(name string) string {
@@ -89,9 +103,7 @@ func (s *server) launchTerminal() {
 	terminals := []string{"foot", "alacritty", "kitty", "gnome-terminal", "konsole", "xterm"}
 
 	for _, term := range terminals {
-		cmd := exec.Command(findBinary(term))
-		cmd.Env = safeEnv()
-		if err := cmd.Start(); err == nil {
+		if startDetached(term) == nil {
 			log.Printf("Launched terminal: %s\n", term)
 			return
 		}
@@ -510,9 +522,7 @@ func (s *server) adjustBrightness(delta int) {
 func (s *server) launchCalculator() {
 	calcs := []string{"gnome-calculator", "kcalc", "mate-calc", "galculator", "xcalc"}
 	for _, calc := range calcs {
-		cmd := exec.Command(findBinary(calc))
-		cmd.Env = safeEnv()
-		if err := cmd.Start(); err == nil {
+		if startDetached(calc) == nil {
 			return
 		}
 	}

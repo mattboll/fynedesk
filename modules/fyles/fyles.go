@@ -18,6 +18,7 @@ import (
 
 	"fyshos.com/tyde"
 	wmtheme "fyshos.com/tyde/theme"
+	"fyshos.com/tyde/wm"
 )
 
 var fylesMeta = tyde.ModuleMetadata{
@@ -110,7 +111,7 @@ func (f *fyles) tapped(u fyne.URI) {
 	p, err := execabs.LookPath("fyles")
 	if p != "" && err == nil {
 		if ok, _ := storage.CanList(u); ok {
-			err := execabs.Command(p, u.Path()).Start()
+			err := wm.StartDetached(p, u.Path())
 			if err != nil {
 				log.Println("Error opening Fyles", err)
 			}

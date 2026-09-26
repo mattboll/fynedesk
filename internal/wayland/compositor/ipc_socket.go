@@ -342,7 +342,7 @@ func (s *server) socketRestart(msg *wlipc.Message) (json.RawMessage, error) {
 func (s *server) socketShutdown(msg *wlipc.Message) (json.RawMessage, error) {
 	log.Println("Shutdown requested via socket IPC")
 	_, _ = runOnMainThread(s, func() struct{} { s.saveSessionState(); return struct{}{} })
-	go exec.Command("systemctl", "poweroff").Run()
+	go exec.Command(findBinary("systemctl"), "poweroff").Run()
 	return nil, nil
 }
 
@@ -351,7 +351,7 @@ func (s *server) socketHibernate(msg *wlipc.Message) (json.RawMessage, error) {
 	log.Println("Hibernate requested via socket IPC")
 	go func() {
 		s.lockScreen()
-		exec.Command("systemctl", "hibernate").Run()
+		exec.Command(findBinary("systemctl"), "hibernate").Run()
 	}()
 	return nil, nil
 }
@@ -361,7 +361,7 @@ func (s *server) socketSuspend(msg *wlipc.Message) (json.RawMessage, error) {
 	log.Println("Suspend requested via socket IPC")
 	go func() {
 		s.lockScreen()
-		exec.Command("systemctl", "suspend").Run()
+		exec.Command(findBinary("systemctl"), "suspend").Run()
 	}()
 	return nil, nil
 }

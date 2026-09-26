@@ -14,6 +14,7 @@ import (
 	"fyshos.com/tyde/modules/status"
 	wmTheme "fyshos.com/tyde/theme"
 	"fyshos.com/tyde/wlipc"
+	"fyshos.com/tyde/wm"
 	"github.com/FyshOS/appie"
 
 	"fyne.io/fyne/v2"
@@ -406,11 +407,9 @@ func (d *deskSettings) setScreenSaver(saver string) {
 	d.saveTOML()
 
 	if oldSaver == "XScreensaver" && saver != "XScreensaver" {
-		cmd := exec.Command("xscreensaver-command", "-exit")
-		_ = cmd.Start()
+		_ = wm.StartDetached("xscreensaver-command", "-exit")
 	} else if oldSaver != "XScreensaver" && saver == "XScreensaver" {
-		cmd := exec.Command("xscreensaver", "--no-splash")
-		_ = cmd.Start()
+		_ = wm.StartDetached("xscreensaver", "--no-splash")
 	}
 }
 

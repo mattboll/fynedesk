@@ -24,6 +24,7 @@ import (
 	"fyshos.com/tyde/internal/phone"
 	"fyshos.com/tyde/locale"
 	"fyshos.com/tyde/wlipc"
+	"fyshos.com/tyde/wm"
 )
 
 // PhoneModule names the module of the phones: KDE Connect (battery,
@@ -431,7 +432,7 @@ func (p *phoneModule) browseFiles(id string) {
 		if err != nil {
 			return err
 		}
-		return exec.Command("xdg-open", point).Start()
+		return wm.StartDetached("xdg-open", point)
 	})
 }
 

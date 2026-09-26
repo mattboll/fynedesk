@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/wm"
 	"github.com/BurntSushi/xgb/screensaver"
 	"github.com/BurntSushi/xgb/xproto"
 	"github.com/FyshOS/saver"
@@ -182,8 +183,7 @@ func (x *x11WM) ShowScreensaver(s *saver.ScreenSaver) {
 		if s.Lock {
 			task = "-lock"
 		}
-		cmd := exec.Command("xscreensaver-command", task)
-		cmd.Start()
+		_ = wm.StartDetached("xscreensaver-command", task)
 		return
 	}
 

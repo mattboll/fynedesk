@@ -1026,8 +1026,7 @@ func (x *x11WM) setupX11DPIHints() {
 	// TODO move from global once xrandr --dpi <dpi>/<output> is better supported
 	canvasScale := tyde.Instance().Screens().Primary().CanvasScale()
 	dpi := int(float32(baselineDPI) * canvasScale)
-	cmd := exec.Command("xrandr", "--dpi", strconv.Itoa(dpi))
-	_ = cmd.Start() // if it fails that's a shame but it's just info
+	_ = wm.StartDetached("xrandr", "--dpi", strconv.Itoa(dpi)) // if it fails that's a shame but it's just info
 }
 
 func (x *x11WM) showWindow(win xproto.Window, parent xproto.Window) {

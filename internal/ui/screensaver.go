@@ -11,6 +11,7 @@ import (
 	"time"
 
 	screensaver "fyshos.com/tyde/internal/ui/generated"
+	"fyshos.com/tyde/wm"
 	"github.com/FyshOS/saver"
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/introspect"
@@ -30,7 +31,7 @@ func (l *desktop) startXscreensaver() {
 		fyne.LogError("xscreensaver command not found", err)
 		return
 	}
-	err = exec.Command("xscreensaver", "-no-splash").Start()
+	err = wm.StartDetached("xscreensaver", "-no-splash")
 	if err != nil {
 		fyne.LogError("Failed to lock screen", err)
 	}

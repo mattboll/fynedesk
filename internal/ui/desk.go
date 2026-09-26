@@ -8,7 +8,6 @@ import (
 	"image/color"
 	"image/draw"
 	"math"
-	"os/exec"
 	"strconv"
 	"sync"
 	"time"
@@ -1515,7 +1514,7 @@ func rememberCalendarJoinURL(id uint32, url string) {
 }
 
 func (l *desktop) calculator() {
-	err := exec.Command("calculator").Start()
+	err := wm.StartDetached("calculator")
 	if err != nil {
 		fyne.LogError("Failed to open calculator", err)
 	}
