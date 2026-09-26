@@ -43,6 +43,13 @@ func (sh *ShortcutHandler) AddShortcut(shortcut *tyde.Shortcut, handler func()) 
 	sh.entry[shortcut.ShortcutName()] = shortcutEntry{shortcut: shortcut, handler: handler}
 }
 
+// RemoveShortcut forgets a shortcut.
+func (sh *ShortcutHandler) RemoveShortcut(shortcut *tyde.Shortcut) {
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	delete(sh.entry, shortcut.ShortcutName())
+}
+
 // Shortcuts returns the list of all registered shortcuts
 func (sh *ShortcutHandler) Shortcuts() []*tyde.Shortcut {
 	sh.mu.RLock()

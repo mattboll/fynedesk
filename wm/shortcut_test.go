@@ -48,3 +48,15 @@ func TestShortcutHandler_TypedShortcut(t *testing.T) {
 	m.TypedShortcut(key)
 	assert.True(t, called)
 }
+
+func TestRemoveShortcut(t *testing.T) {
+	sh := &ShortcutHandler{}
+	s := &tyde.Shortcut{Name: "Test", KeyName: fyne.KeyA, Modifier: fyne.KeyModifierSuper}
+	called := false
+	sh.AddShortcut(s, func() { called = true })
+	sh.RemoveShortcut(s)
+	sh.TypedShortcut(s)
+	if called || len(sh.Shortcuts()) != 0 {
+		t.Error("a removed shortcut still runs")
+	}
+}

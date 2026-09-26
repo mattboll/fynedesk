@@ -1067,6 +1067,13 @@ func (l *desktop) WindowManager() tyde.WindowManager {
 
 func (l *desktop) clearModuleCache() {
 	for _, mod := range l.moduleCache {
+		// Its shortcuts go with it: a disabled module's keys stayed bound
+		// (Modules registers those of the enabled ones again).
+		if bind, ok := mod.(tyde.KeyBindModule); ok {
+			for sh := range bind.Shortcuts() {
+				l.RemoveShortcut(sh)
+			}
+		}
 		mod.Destroy()
 	}
 
