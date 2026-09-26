@@ -51,8 +51,12 @@ void pixel_buffer_update(struct pixel_buffer *buf, const void *pixels, int w, in
 	size_t new_stride = (size_t)w * 4;
 	size_t new_size = new_stride * (size_t)h;
 	if (buf->base.width != w || buf->base.height != h) {
+		uint8_t *data = malloc(new_size);
+		if (!data) {
+			return; // out of memory: the buffer keeps its old picture
+		}
 		free(buf->data);
-		buf->data = malloc(new_size);
+		buf->data = data;
 		buf->stride = new_stride;
 		buf->base.width = w;
 		buf->base.height = h;

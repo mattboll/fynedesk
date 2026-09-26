@@ -162,6 +162,10 @@ func (s *server) startBootSequence() {
 
 	ovTree := (*C.struct_wlr_scene_tree)(s.overlayTree)
 	sceneBuf := C.scene_buffer_create(ovTree, &pixBuf.base)
+	if sceneBuf == nil {
+		C.pixel_buffer_release(pixBuf)
+		return
+	}
 	C.scene_buffer_set_dest_size(sceneBuf, C.int(w), C.int(h))
 	C.scene_node_set_position(&sceneBuf.node, C.int(minX), C.int(minY))
 
