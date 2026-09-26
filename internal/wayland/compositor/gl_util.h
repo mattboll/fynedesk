@@ -19,8 +19,8 @@ extern EGLContext g_egl_context;
 // display (with pixman, the effects are left out).
 bool gl_available(struct wlr_output *output);
 
-// gl_begin makes the renderer's EGL context current, gl_end flushes and
-// releases it. wlroots switches contexts itself: make the textures of
+// gl_begin makes the renderer's EGL context current, gl_end unbinds the
+// framebuffer and program, flushes and releases it. wlroots switches contexts itself: make the textures of
 // buffers before gl_begin.
 bool gl_begin(void);
 void gl_end(void);

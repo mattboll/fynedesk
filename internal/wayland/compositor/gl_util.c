@@ -16,6 +16,8 @@ bool gl_begin(void) {
 }
 
 void gl_end(void) {
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glUseProgram(0);
     glFlush();
     eglMakeCurrent(g_egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
 }

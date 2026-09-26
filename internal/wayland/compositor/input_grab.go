@@ -181,3 +181,150 @@ func (s *server) resizeCursorName(edges wlr.Edges) string {
 		return "grabbing"
 	}
 }
+
+// processGrabMove updates the grabbed view's position during an interactive move,
+// applying edge magnetism and updating the snap preview.
+//
+// If the grab started on a maximized or fullscreen window, the window stays
+// in its filled state until the cursor moves past restoreDragThreshold (a
+// small "resistance" to avoid accidental restores). Once crossed, the window
+// restores under the cursor and normal move tracking resumes.
+func (s *server) processGrabMove() {
+	if s.grabRestorePending {
+		ddx := s.cursor.X() - s.grabX
+		ddy := s.cursor.Y() - s.grabY
+		if ddx*ddx+ddy*ddy < restoreDragThreshold*restoreDragThreshold {
+			return
+		}
+		s.restoreForDrag()
+		s.grabRestorePending = false
+		s.grabNoWobble = true // its new size is not drawn yet
+	}
+
+	dx := s.cursor.X() - s.grabX
+	dy := s.cursor.Y() - s.grabY
+	newX := s.grabViewX + dx
+	newY := s.grabViewY + dy
+
+	// Apply edge magnetism (snap to screen edges and other windows)
+	newX, newY = s.applyEdgeMagnet(newX, newY)
+
+	// The window starts to wobble on its first move, from where it is held.
+	if s.wobble == nil && !s.grabNoWobble && (dx != 0 || dy != 0) {
+		if s.grabXdg != nil {
+			s.startWobble(s.grabXdg)
+		} else if s.grabXway != nil {
+			s.startWobble(s.grabXway)
+		}
+	}
+
+	if s.grabXdg != nil {
+		s.grabXdg.x = newX
+		s.grabXdg.y = newY
+		setXdgScenePos(s.grabXdg)
+	} else if s.grabXway != nil {
+		s.grabXway.x = newX
+		s.grabXway.y = newY
+		s.grabXway.surface.Configure(int16(newX), int16(newY),
+			uint16(s.grabXway.surface.Width()), uint16(s.grabXway.surface.Height()))
+		setXwayScenePos(s.grabXway)
+	}
+
+	// Update snap zone for edge snap on release
+	s.updateSnapPreview()
+}
+
+// clampSize enforces min/max size constraints, adjusting position for left/top
+// edge resizes so the opposite edge stays anchored.
+func (s *server) clampSize(newX, newY float64, newWidth, newHeight, minW, minH, maxW, maxH int) (float64, float64, int, int) {
+	if newWidth < minW {
+		newWidth = minW
+		if s.grabEdges&wlr.EdgeLeft != 0 {
+			newX = s.grabViewX + float64(s.grabWidth-minW)
+		}
+	}
+	if maxW > 0 && newWidth > maxW {
+		newWidth = maxW
+		if s.grabEdges&wlr.EdgeLeft != 0 {
+			newX = s.grabViewX + float64(s.grabWidth-maxW)
+		}
+	}
+	if newHeight < minH {
+		newHeight = minH
+		if s.grabEdges&wlr.EdgeTop != 0 {
+			newY = s.grabViewY + float64(s.grabHeight-minH)
+		}
+	}
+	if maxH > 0 && newHeight > maxH {
+		newHeight = maxH
+		if s.grabEdges&wlr.EdgeTop != 0 {
+			newY = s.grabViewY + float64(s.grabHeight-maxH)
+		}
+	}
+	return newX, newY, newWidth, newHeight
+}
+
+// processGrabResize updates the grabbed view's size during an interactive resize,
+// enforcing client size constraints.
+func (s *server) processGrabResize() {
+	dx := s.cursor.X() - s.grabX
+	dy := s.cursor.Y() - s.grabY
+
+	newX := s.grabViewX
+	newY := s.grabViewY
+	newWidth := s.grabWidth
+	newHeight := s.grabHeight
+
+	// Adjust based on which edges are being resized
+	if s.grabEdges&wlr.EdgeLeft != 0 {
+		newX = s.grabViewX + dx
+		newWidth = s.grabWidth - int(dx)
+	} else if s.grabEdges&wlr.EdgeRight != 0 {
+		newWidth = s.grabWidth + int(dx)
+	}
+
+	if s.grabEdges&wlr.EdgeTop != 0 {
+		newY = s.grabViewY + dy
+		newHeight = s.grabHeight - int(dy)
+	} else if s.grabEdges&wlr.EdgeBottom != 0 {
+		newHeight = s.grabHeight + int(dy)
+	}
+
+	const fallbackMinSize = 50
+
+	if s.grabXdg != nil {
+		minW, minH := s.grabXdg.minWidth, s.grabXdg.minHeight
+		maxW, maxH := s.grabXdg.maxWidth, s.grabXdg.maxHeight
+		if minW == 0 {
+			minW = fallbackMinSize
+		}
+		if minH == 0 {
+			minH = fallbackMinSize
+		}
+		newX, newY, newWidth, newHeight = s.clampSize(newX, newY, newWidth, newHeight, minW, minH, maxW, maxH)
+
+		s.grabXdg.x = newX
+		s.grabXdg.y = newY
+		s.grabXdg.configuredW = newWidth
+		s.grabXdg.configuredH = newHeight
+		s.grabXdg.xdgToplevel.SetSize(int32(newWidth), int32(newHeight))
+		setXdgScenePos(s.grabXdg)
+		s.updateXdgViewDecorations(s.grabXdg)
+	} else if s.grabXway != nil {
+		minW, minH := s.grabXway.minWidth, s.grabXway.minHeight
+		maxW, maxH := s.grabXway.maxWidth, s.grabXway.maxHeight
+		if minW == 0 {
+			minW = fallbackMinSize
+		}
+		if minH == 0 {
+			minH = fallbackMinSize
+		}
+		newX, newY, newWidth, newHeight = s.clampSize(newX, newY, newWidth, newHeight, minW, minH, maxW, maxH)
+
+		s.grabXway.x = newX
+		s.grabXway.y = newY
+		s.grabXway.surface.Configure(int16(newX), int16(newY), uint16(newWidth), uint16(newHeight))
+		setXwayScenePos(s.grabXway)
+		s.updateXwayViewDecorations(s.grabXway)
+	}
+}
