@@ -1,7 +1,9 @@
 package wm
 
 import (
+	"context"
 	"errors"
+	"time"
 
 	"fyne.io/fyne/v2"
 
@@ -14,26 +16,26 @@ import (
 // requested method and the returned parameters will be returned from this
 // method. If an error occurred the last return parameter will be set.
 func CallMethod(in []interface{}, path, iface, meth string) ([]interface{}, error) {
-	conn, err := dbus.ConnectSessionBus()
+	// The shared session connection: a private one was opened (with its
+	// authentication round trips) and closed for every call.
+	conn, err := dbus.SessionBus()
 	if err != nil {
 		fyne.LogError("Error opening DBus connection", err)
 		return nil, err
 	}
-	defer func() {
-		err := conn.Close()
-		if err != nil {
-			fyne.LogError("Error closing DBus connection", err)
-		}
-	}()
 
-	obj := conn.Object(iface, dbus.ObjectPath(path))
-	call := obj.Call(meth, 0, in...)
+	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+	defer cancel()
+	call := conn.Object(iface, dbus.ObjectPath(path)).CallWithContext(ctx, meth, 0, in...)
 	if call.Err != nil {
 		return nil, call.Err
 	}
 
 	return call.Body, nil
 }
+
+// callTimeout bounds a CallMethod: the service may be stuck.
+const callTimeout = 5 * time.Second
 
 // RegisterService allows an object to be exported to the DBus messaging system.
 // Methods on the object exposed can add an additional error parameter to the
