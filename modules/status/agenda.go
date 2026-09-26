@@ -183,5 +183,9 @@ func agendaRowTime(ev cal.Event) string {
 	if ev.AllDay {
 		return locale.T("cal.allDay")
 	}
-	return ev.Start.Format("15:04")
+	format := "24h"
+	if inst := tyde.Instance(); inst != nil && inst.Settings() != nil {
+		format = inst.Settings().ClockFormatting()
+	}
+	return locale.Clock(ev.Start, format, false)
 }

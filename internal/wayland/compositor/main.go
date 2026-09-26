@@ -542,6 +542,7 @@ func newServer() *server {
 		wobblyWindows:     true,
 		blurBehind:        true,
 		windowShadows:     true,
+		clockFormat:       "12h", // as the panel shows it by default
 	}
 	clipServer = srv
 	srv.initPowerDefaults()

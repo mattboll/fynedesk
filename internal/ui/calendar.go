@@ -533,7 +533,7 @@ func formatAgendaTitle(selected, today time.Time) string {
 	if sameDay(selected, today) {
 		return locale.T("cal.today")
 	}
-	return selected.Format("Mon 2 Jan")
+	return locale.DateShort(selected)
 }
 
 // formatEventTimeForDay describes an event's time relative to the day
@@ -550,11 +550,11 @@ func formatEventTimeForDay(ev calendar.Event, dayStart time.Time) string {
 	endsToday := !ev.End.After(dayEnd)
 	switch {
 	case startsToday && endsToday:
-		return fmt.Sprintf("%s – %s", ev.Start.Format("15:04"), ev.End.Format("15:04"))
+		return fmt.Sprintf("%s – %s", clockTime(ev.Start), clockTime(ev.End))
 	case !startsToday && endsToday:
-		return "→ " + ev.End.Format("15:04")
+		return "→ " + clockTime(ev.End)
 	case startsToday && !endsToday:
-		return ev.Start.Format("15:04") + " →"
+		return clockTime(ev.Start) + " →"
 	default:
 		return locale.T("cal.allDay")
 	}

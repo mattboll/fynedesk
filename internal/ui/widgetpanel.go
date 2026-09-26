@@ -146,27 +146,29 @@ func (w *widgetPanel) clockRefresh() {
 	w.date.Refresh()
 }
 
-func (w *widgetPanel) formattedTime() string {
-	if w.desk.Settings().ClockFormatting() == "12h" {
-		return adjustedNow().Format("3:04pm")
+// clockTime formats a time of day in the clock format of the settings.
+func clockTime(t time.Time) string {
+	format := "24h"
+	if inst := tyde.Instance(); inst != nil && inst.Settings() != nil {
+		format = inst.Settings().ClockFormatting()
 	}
-	return adjustedNow().Format("15:04")
+	return locale.Clock(t, format, false)
+}
+
+func (w *widgetPanel) formattedTime() string {
+	return locale.Clock(adjustedNow(), w.desk.Settings().ClockFormatting(), false)
 }
 
 func (w *widgetPanel) formattedTimeWithSeconds() string {
-	if w.desk.Settings().ClockFormatting() == "12h" {
-		return adjustedNow().Format("3:04:05pm")
-	}
-	return adjustedNow().Format("15:04:05")
+	return locale.Clock(adjustedNow(), w.desk.Settings().ClockFormatting(), true)
 }
 
 func (w *widgetPanel) formattedDate() string {
-	format := "2 Jan"
+	date := locale.DayMonth(adjustedNow())
 	if w.desk.Settings().NarrowWidgetPanel() {
-		format = "2\nJan"
+		date = strings.Replace(date, " ", "\n", 1)
 	}
-
-	return adjustedNow().Format(format)
+	return date
 }
 
 func (w *widgetPanel) createClock() {

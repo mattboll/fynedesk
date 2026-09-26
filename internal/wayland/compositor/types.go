@@ -312,6 +312,7 @@ type server struct {
 	builtinLock       *builtinLockState // Built-in lock screen state (nil when not active)
 	lockScreenType    string            // "FyshOS" = built-in, otherwise try external lockers
 	lockLabel         string            // Custom lock screen label from settings
+	clockFormat       string            // "12h" or "24h", as the settings say
 
 	// Settings from Fyne preferences
 	buttonsOnLeft       bool                 // true = close/max/min on left (macOS-style)

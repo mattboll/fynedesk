@@ -7,7 +7,9 @@ import (
 	"log"
 	"path"
 	"slices"
+	"strings"
 	"sync"
+	"time"
 )
 
 //go:embed *.json
@@ -106,6 +108,55 @@ func T(key string) string {
 // Tf returns a formatted translation (like fmt.Sprintf).
 func Tf(key string, args ...any) string {
 	return fmt.Sprintf(T(key), args...)
+}
+
+// WeekdayName returns the localized name of a weekday, as it reads in a
+// date ("Monday", "lundi").
+func WeekdayName(d time.Weekday) string {
+	return T("weekday." + strings.ToLower(d.String()))
+}
+
+// WeekdayShort returns the abbreviated name of a weekday ("Mon", "lun.").
+func WeekdayShort(d time.Weekday) string {
+	return T("weekday.short." + strings.ToLower(d.String()))
+}
+
+// monthInDate returns the name of a month as it reads in a date ("January",
+// "janvier"), full or abbreviated.
+func monthInDate(m time.Month, short bool) string {
+	if short {
+		return T("month.short." + strings.ToLower(m.String()))
+	}
+	return T("month." + strings.ToLower(m.String()))
+}
+
+// Clock formats the time of day of t in a clock format of the settings:
+// "12h" ("3:04pm") or else 24 hours ("15:04").
+func Clock(t time.Time, format string, seconds bool) string {
+	switch {
+	case format == "12h" && seconds:
+		return t.Format("3:04:05pm")
+	case format == "12h":
+		return t.Format("3:04pm")
+	case seconds:
+		return t.Format("15:04:05")
+	}
+	return t.Format("15:04")
+}
+
+// DateLong formats the day of t in full: "Monday, 2 January".
+func DateLong(t time.Time) string {
+	return Tf("date.long", WeekdayName(t.Weekday()), t.Day(), monthInDate(t.Month(), false))
+}
+
+// DateShort formats the day of t briefly: "Mon 2 Jan".
+func DateShort(t time.Time) string {
+	return Tf("date.short", WeekdayShort(t.Weekday()), t.Day(), monthInDate(t.Month(), true))
+}
+
+// DayMonth formats the day and month of t: "2 Jan".
+func DayMonth(t time.Time) string {
+	return Tf("date.dayMonth", t.Day(), monthInDate(t.Month(), true))
 }
 
 // MonthName returns the localized name of a month (1-12).

@@ -106,6 +106,7 @@ import (
 	"unsafe"
 
 	"fyshos.com/tyde/internal/wayland/wlr/xkb"
+	"fyshos.com/tyde/locale"
 
 	"golang.org/x/image/draw"
 	"golang.org/x/image/font"
@@ -375,7 +376,7 @@ func (s *server) drawLockPassword(img *image.NRGBA, textFace font.Face, centerX,
 			drawCenteredText(img, textFace, s.builtinLock.errorMsg, centerX, statusY,
 				color.NRGBA{R: 0xff, G: 0x66, B: 0x66, A: 0xff})
 		} else if nDots == 0 {
-			drawCenteredText(img, textFace, "Type password to unlock", centerX, statusY,
+			drawCenteredText(img, textFace, locale.T("lock.typePassword"), centerX, statusY,
 				color.NRGBA{R: 0x99, G: 0x99, B: 0x99, A: 0xff})
 		}
 	}
@@ -414,7 +415,7 @@ func (s *server) updateBuiltinLockScene() {
 	// --- Clock (upper third) ---
 	clockFace := getLockClockFace()
 	if clockFace != nil {
-		clockStr := now.Format("15:04")
+		clockStr := locale.Clock(now, s.clockFormat, false)
 		clockY := screenH / 4
 		drawCenteredText(img, clockFace, clockStr, centerX, clockY,
 			color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
@@ -423,7 +424,7 @@ func (s *server) updateBuiltinLockScene() {
 	// --- Date line below clock ---
 	dateFace := getLockDateFace()
 	if dateFace != nil {
-		dateStr := now.Format("Monday, January 2")
+		dateStr := locale.DateLong(now)
 		dateY := screenH/4 + 50
 		if clockFace != nil {
 			dateY = screenH/4 + clockFace.Metrics().Height.Ceil()/2 + 16
@@ -473,7 +474,7 @@ func (s *server) updateBuiltinLockScene() {
 		return
 	}
 	lockTreeC := (*C.struct_wlr_scene_tree)(s.lockTree)
-	shownTime := now.Format("15:04 Monday, January 2")
+	shownTime := now.Format("15:04 2006-01-02") // what the clock and date show
 	if s.builtinLock.pixBuf != nil && s.builtinLock.sceneBuf != nil && shownTime == s.builtinLock.shownTime {
 		// Same clock: only the password dots and the status below changed.
 		band := image.Rect(0, dotsY-lockAvatarRadius, screenW, dotsY+80).Intersect(img.Rect)
@@ -574,9 +575,9 @@ func (s *server) tryBuiltinLockAuth(secret []byte) {
 			return
 		}
 		log.Printf("[LOCK] PAM authentication failed: %s\n", why)
-		s.builtinLock.errorMsg = "Incorrect password"
+		s.builtinLock.errorMsg = locale.T("lock.wrongPassword")
 		if why == "unknown user" {
-			s.builtinLock.errorMsg = "Cannot determine user"
+			s.builtinLock.errorMsg = locale.T("lock.noUser")
 		}
 		s.builtinLock.showError = true
 		zeroPassword(s.builtinLock.password)

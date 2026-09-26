@@ -13,6 +13,7 @@ import (
 
 	"fyshos.com/tyde/internal/wayland/wlr"
 	"fyshos.com/tyde/internal/wayland/wlr/xkb"
+	"fyshos.com/tyde/locale"
 	"github.com/BurntSushi/toml"
 
 	"fyshos.com/tyde/wlipc"
@@ -107,7 +108,11 @@ type compositorConfig struct {
 		ReduceMotion         bool                        `toml:"reduce_motion"`
 		HighContrast         bool                        `toml:"high_contrast"`
 		Monitors             map[string]monitorWallpaper `toml:"monitors"`
+		Language             string                      `toml:"language"`
 	} `toml:"display"`
+	Clock struct {
+		Format string `toml:"format"` // "12h" (the default) or "24h"
+	} `toml:"clock"`
 	Desktops struct {
 		Count int      `toml:"count"`
 		Names []string `toml:"names"`
@@ -187,6 +192,8 @@ func readTOMLAsPrefs(path string) (map[string]interface{}, error) {
 	prefs["colorscheme"] = cfg.Display.ColorScheme
 	prefs["reducemotion"] = cfg.Display.ReduceMotion
 	prefs["highcontrast"] = cfg.Display.HighContrast
+	prefs["language"] = cfg.Display.Language
+	prefs["clockformat"] = cfg.Clock.Format
 
 	// Desktops
 	if cfg.Desktops.Count >= 1 {
@@ -547,6 +554,17 @@ func (s *server) applyFontPrefs(prefs map[string]interface{}) {
 
 // applySessionPrefs applies the screensaver and power management settings.
 func (s *server) applySessionPrefs(prefs map[string]interface{}) {
+	// What the lock screen says, and how it shows the time.
+	if lang, ok := prefs["language"].(string); ok {
+		if lang == "" {
+			lang = "en"
+		}
+		locale.SetLanguage(lang)
+	}
+	if format, ok := prefs["clockformat"].(string); ok && format != "" {
+		s.clockFormat = format
+	}
+
 	// Screensaver
 	if st, ok := prefs["savertype"].(string); ok {
 		s.lockScreenType = st

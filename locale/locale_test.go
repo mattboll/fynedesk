@@ -2,6 +2,7 @@ package locale
 
 import (
 	"testing"
+	"time"
 )
 
 func TestT_KnownKey(t *testing.T) {
@@ -91,5 +92,38 @@ func TestMonthName(t *testing.T) {
 	}
 	if got := MonthName(13); got != "" {
 		t.Errorf("MonthName(13) = %q, want \"\"", got)
+	}
+}
+
+func TestDates(t *testing.T) {
+	day := time.Date(2026, time.September, 28, 9, 0, 0, 0, time.UTC) // a Monday
+	for lang, want := range map[string][3]string{
+		"en": {"Monday, 28 September", "Mon 28 Sep", "28 Sep"},
+		"fr": {"lundi 28 septembre", "lun. 28 sept.", "28 sept."},
+	} {
+		SetLanguage(lang)
+		got := [3]string{DateLong(day), DateShort(day), DayMonth(day)}
+		if got != want {
+			t.Errorf("%s: got %q, want %q", lang, got, want)
+		}
+	}
+	SetLanguage("en")
+}
+
+func TestClock(t *testing.T) {
+	at := time.Date(2026, time.September, 28, 21, 5, 9, 0, time.UTC)
+	for _, c := range []struct {
+		format  string
+		seconds bool
+		want    string
+	}{
+		{"12h", false, "9:05pm"},
+		{"12h", true, "9:05:09pm"},
+		{"24h", false, "21:05"},
+		{"24h", true, "21:05:09"},
+	} {
+		if got := Clock(at, c.format, c.seconds); got != c.want {
+			t.Errorf("Clock(%q, %v) = %q, want %q", c.format, c.seconds, got, c.want)
+		}
 	}
 }

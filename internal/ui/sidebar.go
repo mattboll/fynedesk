@@ -75,12 +75,12 @@ func newSidebar() *sidebarPanel {
 func (sb *sidebarPanel) buildContent() {
 	// --- Header: date & time ---
 	now := time.Now()
-	timeText := canvas.NewText(now.Format("15:04"), wmtheme.ToastTitle())
+	timeText := canvas.NewText(locale.Clock(now, tyde.Instance().Settings().ClockFormatting(), false), wmtheme.ToastTitle())
 	timeText.TextStyle = fyne.TextStyle{Bold: true}
 	timeText.TextSize = 28
 	timeText.Alignment = fyne.TextAlignCenter
 
-	dateText := canvas.NewText(now.Format("Monday, 2 January"), wmtheme.ToastBody())
+	dateText := canvas.NewText(locale.DateLong(now), wmtheme.ToastBody())
 	dateText.TextSize = 13
 	dateText.Alignment = fyne.TextAlignCenter
 
@@ -280,7 +280,7 @@ func (sb *sidebarPanel) refreshNotifications() {
 		sb.clearBtn.Show()
 		for _, n := range history {
 			n := n
-			ts := n.Timestamp.Format("15:04")
+			ts := clockTime(n.Timestamp)
 			title := widget.NewLabel(fmt.Sprintf("%s  %s", ts, n.Title))
 			title.TextStyle = fyne.TextStyle{Bold: true}
 			title.Truncation = fyne.TextTruncateEllipsis

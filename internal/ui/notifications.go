@@ -334,7 +334,7 @@ func (p *notificationPanel) buildGroupRow(g *wm.NotificationGroup) fyne.CanvasOb
 	headerRow := container.NewBorder(nil, nil, p.notificationLeftIcon(latest), removeBtn, headerTap)
 
 	if !expanded {
-		ts := latest.Timestamp.Format("15:04")
+		ts := clockTime(latest.Timestamp)
 		preview := widget.NewLabel(fmt.Sprintf("%s  %s", ts, latest.Title))
 		preview.Truncation = fyne.TextTruncateEllipsis
 		return container.NewVBox(headerRow, newTappableBox(preview, func() { p.toggleExpand(gid) }))
@@ -356,7 +356,7 @@ func (p *notificationPanel) buildNotificationRow(n *wm.Notification) fyne.Canvas
 	expanded := p.expandedIDs[id]
 	p.mu.Unlock()
 
-	ts := n.Timestamp.Format("15:04")
+	ts := clockTime(n.Timestamp)
 	prefix := ts
 	if n.AppName != "" {
 		prefix = fmt.Sprintf("%s  %s", ts, n.AppName)
