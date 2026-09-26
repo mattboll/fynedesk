@@ -28,4 +28,10 @@ void pixel_buffer_release(struct pixel_buffer *buf);
 // premultiplied alpha, so the colours are multiplied by alpha on the way.
 void pixel_buffer_update(struct pixel_buffer *buf, const void *pixels, int w, int h);
 
+// pixel_buffer_update_rect copies the rectangle (x, y, w, h) of straight-
+// alpha pixels laid out with stride src_stride, the size of the buffer, into
+// it: only what changed, for pictures drawn a little at a time.
+void pixel_buffer_update_rect(struct pixel_buffer *buf, const void *pixels, size_t src_stride,
+	int x, int y, int w, int h);
+
 #endif

@@ -148,6 +148,7 @@ type VRRRequest struct {
 }
 
 type server struct {
+	penDirty      image.Rectangle         // the part of penImg drawn since the last commit
 	scaledIcons   map[string]*image.NRGBA // app icons scaled per size, see scaledAppIcon
 	decoGen       uint64                  // changes when the title bars must be drawn again (theme, settings)
 	display       wlr.Display

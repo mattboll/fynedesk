@@ -76,3 +76,25 @@ void pixel_buffer_update(struct pixel_buffer *buf, const void *pixels, int w, in
 		dst[i + 3] = a;
 	}
 }
+
+void pixel_buffer_update_rect(struct pixel_buffer *buf, const void *pixels, size_t src_stride,
+		int x, int y, int w, int h) {
+	if (x < 0) { w += x; x = 0; }
+	if (y < 0) { h += y; y = 0; }
+	if (x + w > buf->base.width) w = buf->base.width - x;
+	if (y + h > buf->base.height) h = buf->base.height - y;
+	if (w <= 0 || h <= 0 || !buf->data) {
+		return;
+	}
+	for (int row = y; row < y + h; row++) {
+		const uint8_t *src = (const uint8_t *)pixels + (size_t)row * src_stride + (size_t)x * 4;
+		uint8_t *dst = (uint8_t *)buf->data + (size_t)row * buf->stride + (size_t)x * 4;
+		for (int i = 0; i < w * 4; i += 4) {
+			uint8_t a = src[i + 3];
+			dst[i] = (uint8_t)((src[i] * a + 127) / 255);
+			dst[i + 1] = (uint8_t)((src[i + 1] * a + 127) / 255);
+			dst[i + 2] = (uint8_t)((src[i + 2] * a + 127) / 255);
+			dst[i + 3] = a;
+		}
+	}
+}

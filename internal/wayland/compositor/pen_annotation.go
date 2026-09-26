@@ -16,6 +16,15 @@ static struct wlr_scene_buffer *pen_scene_buffer_create(struct wlr_scene_tree *p
 static void pen_scene_buffer_set_buffer(struct wlr_scene_buffer *buf, struct wlr_buffer *buffer) {
 	wlr_scene_buffer_set_buffer(buf, buffer);
 }
+// pen_scene_buffer_damage shows the buffer again, damaged in (x, y, w, h)
+// only (buffer coordinates).
+static void pen_scene_buffer_damage(struct wlr_scene_buffer *buf, struct wlr_buffer *buffer,
+		int x, int y, int w, int h) {
+	pixman_region32_t damage;
+	pixman_region32_init_rect(&damage, x, y, w, h);
+	wlr_scene_buffer_set_buffer_with_damage(buf, buffer, &damage);
+	pixman_region32_fini(&damage);
+}
 static void pen_scene_buffer_set_dest_size(struct wlr_scene_buffer *buf, int w, int h) {
 	wlr_scene_buffer_set_dest_size(buf, w, h);
 }
@@ -144,6 +153,7 @@ func (s *server) ensurePenImage() bool {
 	// Layout changed (or first use) — start with a fresh transparent canvas.
 	s.discardPenScene()
 	s.penImg = image.NewNRGBA(image.Rect(0, 0, w, h))
+	s.penDirty = s.penImg.Bounds() // a new picture: all of it goes up
 	s.penOriginX = minX
 	s.penOriginY = minY
 	return true
@@ -154,7 +164,15 @@ func (s *server) stampPenDot(x, y float64) {
 	if s.penImg == nil {
 		return
 	}
-	drawFilledCircle(s.penImg, int(x)-s.penOriginX, int(y)-s.penOriginY, penBrushRadius, penColor)
+	cx, cy := int(x)-s.penOriginX, int(y)-s.penOriginY
+	drawFilledCircle(s.penImg, cx, cy, penBrushRadius, penColor)
+	s.penDirty = s.penDirty.Union(brushBox(cx, cy))
+}
+
+// brushBox is what a brush dot at (x, y) covers.
+func brushBox(x, y int) image.Rectangle {
+	r := int(penBrushRadius) + 2
+	return image.Rect(x-r, y-r, x+r+1, y+r+1)
 }
 
 // stampPenLine paints a continuous stroke between two layout coordinates by
@@ -169,10 +187,9 @@ func (s *server) stampPenLine(x0, y0, x1, y1 float64) {
 	steps := int(dist) + 1
 	for i := 0; i <= steps; i++ {
 		t := float64(i) / float64(steps)
-		drawFilledCircle(s.penImg,
-			int(x0+dx*t)-s.penOriginX,
-			int(y0+dy*t)-s.penOriginY,
-			penBrushRadius, penColor)
+		cx, cy := int(x0+dx*t)-s.penOriginX, int(y0+dy*t)-s.penOriginY
+		drawFilledCircle(s.penImg, cx, cy, penBrushRadius, penColor)
+		s.penDirty = s.penDirty.Union(brushBox(cx, cy))
 	}
 }
 
@@ -187,7 +204,25 @@ func (s *server) commitPenInk() {
 	h := s.penImg.Bounds().Dy()
 	pixels := unsafe.Pointer(&s.penImg.Pix[0])
 
-	if s.penPixBuf != nil {
+	dirty := s.penDirty.Intersect(s.penImg.Bounds())
+	s.penDirty = image.Rectangle{}
+	if s.penPixBuf != nil && int((*C.struct_pixel_buffer)(s.penPixBuf).base.width) == w &&
+		int((*C.struct_pixel_buffer)(s.penPixBuf).base.height) == h {
+		// Only what the stroke touched is copied and redrawn: a motion used
+		// to copy and damage the whole screen-sized picture.
+		if dirty.Empty() {
+			return
+		}
+		pixBuf := (*C.struct_pixel_buffer)(s.penPixBuf)
+		C.pixel_buffer_update_rect(pixBuf, pixels, C.size_t(s.penImg.Stride),
+			C.int(dirty.Min.X), C.int(dirty.Min.Y), C.int(dirty.Dx()), C.int(dirty.Dy()))
+		if s.penSceneBuf != nil {
+			sceneBuf := (*C.struct_wlr_scene_buffer)(s.penSceneBuf)
+			C.pen_scene_buffer_damage(sceneBuf, &pixBuf.base,
+				C.int(dirty.Min.X), C.int(dirty.Min.Y), C.int(dirty.Dx()), C.int(dirty.Dy()))
+			C.pen_scene_buffer_set_opacity(sceneBuf, 1.0)
+		}
+	} else if s.penPixBuf != nil {
 		pixBuf := (*C.struct_pixel_buffer)(s.penPixBuf)
 		C.pixel_buffer_update(pixBuf, pixels, C.int(w), C.int(h))
 		if s.penSceneBuf != nil {
