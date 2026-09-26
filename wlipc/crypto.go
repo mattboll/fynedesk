@@ -9,8 +9,8 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/user"
 	"path/filepath"
+	"strconv"
 	"sync"
 )
 
@@ -57,18 +57,36 @@ func loadOrCreateClipboardKey() []byte {
 	// Best-effort persist. If the directory or file can't be written we
 	// still return the generated key for this session — encryption stays
 	// strong; only persistence across restarts is lost.
-	if err := os.MkdirAll(filepath.Dir(keyPath), 0o700); err != nil {
-		log.Printf("[clipboard-crypto] cannot create config dir %s: %v (using ephemeral key)", filepath.Dir(keyPath), err)
+	dir := filepath.Dir(keyPath)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		log.Printf("[clipboard-crypto] cannot create config dir %s: %v (using ephemeral key)", dir, err)
 		return key
 	}
-	tmp := keyPath + ".tmp"
-	if err := os.WriteFile(tmp, key, 0o600); err != nil {
+	tmp, err := os.CreateTemp(dir, ".clipboard-key-*")
+	if err != nil {
 		log.Printf("[clipboard-crypto] cannot write key file (%v) — using ephemeral key", err)
 		return key
 	}
-	if err := os.Rename(tmp, keyPath); err != nil {
-		log.Printf("[clipboard-crypto] cannot finalize key file (%v) — using ephemeral key", err)
-		os.Remove(tmp)
+	defer os.Remove(tmp.Name())
+	_, err = tmp.Write(key)
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		log.Printf("[clipboard-crypto] cannot write key file (%v) — using ephemeral key", err)
+		return key
+	}
+	// The compositor and the panel start together: the first to link its
+	// key wins, and the other reads that one instead of keeping its own
+	// (what it encrypted could not be read back).
+	if err := os.Link(tmp.Name(), keyPath); err != nil {
+		if data, rerr := os.ReadFile(keyPath); rerr == nil && len(data) == 32 {
+			return data
+		}
+		// Unreadable or damaged: replace it.
+		if err := os.Rename(tmp.Name(), keyPath); err != nil {
+			log.Printf("[clipboard-crypto] cannot finalize key file (%v) — using ephemeral key", err)
+		}
 	}
 	return key
 }
@@ -76,9 +94,8 @@ func loadOrCreateClipboardKey() []byte {
 // legacyClipboardKey reproduces the original uid+hostname-derived key.
 // Used only as a fallback when crypto/rand or filesystem access fails.
 func legacyClipboardKey() []byte {
-	u, _ := user.Current()
 	hostname, _ := os.Hostname()
-	seed := u.Uid + ":" + hostname + ":tyde-clipboard"
+	seed := strconv.Itoa(os.Getuid()) + ":" + hostname + ":tyde-clipboard"
 	h := sha256.Sum256([]byte(seed))
 	return h[:]
 }
