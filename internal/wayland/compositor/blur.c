@@ -3,9 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <drm_fourcc.h>
-#include <EGL/egl.h>
-#include <GLES2/gl2.h>
-#include <GLES2/gl2ext.h>
 #include <wlr/render/allocator.h>
 #include <wlr/render/drm_format_set.h>
 #include <wlr/render/gles2.h>
@@ -17,10 +14,7 @@
 #include <wlr/util/region.h>
 
 #include "blur.h"
-
-// Defined in main.go: the renderer's EGL display and context.
-extern EGLDisplay g_egl_display;
-extern EGLContext g_egl_context;
+#include "gl_util.h"
 
 // What lies behind is drawn at half the size, then halved BLUR_LEVELS times
 // more and brought back up (dual Kawase blur): wide and cheap.
@@ -112,26 +106,10 @@ static const char *blur_vs =
     "  gl_Position = vec4(pos, 0.0, 1.0);\n"
     "}\n";
 
-// Nodes behind: textures are premultiplied, opaque ignores the alpha channel
-// of those that have none (XRGB).
-#define SRC_FS(sampler) \
-    "precision mediump float;\n" \
-    "varying vec2 uv;\n" \
-    "uniform " sampler " tex;\n" \
-    "uniform float alpha;\n" \
-    "uniform float opaque;\n" \
-    "void main() {\n" \
-    "  vec4 c = texture2D(tex, uv);\n" \
-    "  c.a = max(c.a, opaque);\n" \
-    "  gl_FragColor = c * alpha;\n" \
-    "}\n"
-static const char *blur_fs_src = SRC_FS("sampler2D");
-static const char *blur_fs_src_ext =
-    "#extension GL_OES_EGL_image_external : require\n" SRC_FS("samplerExternalOES");
-static const char *blur_fs_solid =
-    "precision mediump float;\n"
-    "uniform vec4 color;\n"
-    "void main() { gl_FragColor = color; }\n";
+// Nodes behind.
+static const char *blur_fs_src = GL_FS_TEXTURE("sampler2D");
+static const char *blur_fs_src_ext = GL_OES_EXTENSION GL_FS_TEXTURE("samplerExternalOES");
+static const char *blur_fs_solid = GL_FS_SOLID;
 static const char *blur_fs_down =
     "precision mediump float;\n"
     "varying vec2 uv;\n"
@@ -174,40 +152,10 @@ static const char *blur_fs_up =
     "  gl_FragColor = vec4(texture2D(tex, uv).rgb, 1.0) * m;\n" \
     "}\n"
 static const char *blur_fs_cut = CUT_FS("sampler2D");
-static const char *blur_fs_cut_ext =
-    "#extension GL_OES_EGL_image_external : require\n" CUT_FS("samplerExternalOES");
+static const char *blur_fs_cut_ext = GL_OES_EXTENSION CUT_FS("samplerExternalOES");
 
 enum { PROG_SRC, PROG_SRC_EXT, PROG_SOLID, PROG_DOWN, PROG_UP, PROG_CUT, PROG_CUT_EXT, PROG_COUNT };
 static GLuint blur_programs[PROG_COUNT];
-
-static GLuint blur_compile(const char *fs_src) {
-    GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vs, 1, &blur_vs, NULL);
-    glCompileShader(vs);
-    GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fs, 1, &fs_src, NULL);
-    glCompileShader(fs);
-    GLint ok = 0;
-    glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
-    GLuint prog = 0;
-    if (ok) {
-        prog = glCreateProgram();
-        glAttachShader(prog, vs);
-        glAttachShader(prog, fs);
-        glBindAttribLocation(prog, 0, "pos");
-        glBindAttribLocation(prog, 1, "texcoord");
-        glBindAttribLocation(prog, 2, "maskcoord");
-        glLinkProgram(prog);
-        glGetProgramiv(prog, GL_LINK_STATUS, &ok);
-        if (!ok) {
-            glDeleteProgram(prog);
-            prog = 0;
-        }
-    }
-    glDeleteShader(vs);
-    glDeleteShader(fs);
-    return prog;
-}
 
 void blur_reset_gl(void) {
     memset(blur_programs, 0, sizeof(blur_programs)); // they went with the old context
@@ -217,40 +165,18 @@ static GLuint blur_program(int kind) {
     if (!blur_programs[kind]) {
         const char *fs[PROG_COUNT] = { blur_fs_src, blur_fs_src_ext, blur_fs_solid,
             blur_fs_down, blur_fs_up, blur_fs_cut, blur_fs_cut_ext };
-        blur_programs[kind] = blur_compile(fs[kind]);
+        static const char *const attribs[] = { "pos", "texcoord", "maskcoord" };
+        blur_programs[kind] = gl_program(blur_vs, fs[kind], attribs, 3);
     }
     return blur_programs[kind];
 }
 
-// quad draws the rectangle (x, y, w, h) of a target of size (tw, th), row 0
-// at the top like the textures of wlroots, sampling (u0, v0)-(u1, v1) of the
-// texture and (m0, n0)-(m1, n1) of the mask.
+// quad draws the rectangle (x, y, w, h) of a target of size (tw, th),
+// sampling (u0, v0)-(u1, v1) of the texture and (m0, n0)-(m1, n1) of the mask.
 static void quad(double x, double y, double w, double h, int tw, int th,
         double u0, double v0, double u1, double v1, double m0, double n0, double m1, double n1) {
-    GLfloat x0 = 2 * x / tw - 1, x1 = 2 * (x + w) / tw - 1;
-    GLfloat y0 = 2 * y / th - 1, y1 = 2 * (y + h) / th - 1;
-    GLfloat v[] = {
-        x0, y0, u0, v0, m0, n0,  x1, y0, u1, v0, m1, n0,  x0, y1, u0, v1, m0, n1,
-        x1, y0, u1, v0, m1, n0,  x1, y1, u1, v1, m1, n1,  x0, y1, u0, v1, m0, n1,
-    };
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    for (int i = 0; i < 3; i++) {
-        glVertexAttribPointer(i, 2, GL_FLOAT, GL_FALSE, 6 * sizeof(GLfloat), v + 2 * i);
-        glEnableVertexAttribArray(i);
-    }
-    glDrawArrays(GL_TRIANGLES, 0, 6);
-    for (int i = 0; i < 3; i++) {
-        glDisableVertexAttribArray(i);
-    }
-}
-
-static void bind_texture(GLenum target, GLuint tex, int unit) {
-    glActiveTexture(GL_TEXTURE0 + unit);
-    glBindTexture(target, tex);
-    glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    const double coords[2][4] = { { u0, v0, u1, v1 }, { m0, n0, m1, n1 } };
+    gl_quad(x, y, w, h, tw, th, coords, 2);
 }
 
 static void free_levels(struct blur *b) {
@@ -347,7 +273,7 @@ static void draw_node(struct behind *w, struct wlr_scene_node *node, struct wlr_
         src = (struct wlr_fbox){ 0, 0, tex->width, tex->height };
     }
     glUseProgram(prog);
-    bind_texture(attribs.target, attribs.tex, 0);
+    gl_bind_texture(attribs.target, attribs.tex, 0);
     glUniform1i(glGetUniformLocation(prog, "tex"), 0);
     glUniform1f(glGetUniformLocation(prog, "alpha"), sb->opacity);
     glUniform1f(glGetUniformLocation(prog, "opaque"), attribs.has_alpha ? 0.0f : 1.0f);
@@ -437,7 +363,7 @@ static bool draw_behind(struct blur *b, struct wlr_scene *scene, float scale) {
         glBindFramebuffer(GL_FRAMEBUFFER, b->fbo[i]);
         glViewport(0, 0, b->tw[i], b->th[i]);
         glUseProgram(down);
-        bind_texture(GL_TEXTURE_2D, b->tex[i - 1], 0);
+        gl_bind_texture(GL_TEXTURE_2D, b->tex[i - 1], 0);
         glUniform1i(glGetUniformLocation(down, "tex"), 0);
         glUniform2f(glGetUniformLocation(down, "o"), BLUR_OFFSET / b->tw[i - 1], BLUR_OFFSET / b->th[i - 1]);
         quad(0, 0, b->tw[i], b->th[i], b->tw[i], b->th[i], 0, 0, 1, 1, 0, 0, 1, 1);
@@ -446,7 +372,7 @@ static bool draw_behind(struct blur *b, struct wlr_scene *scene, float scale) {
         glBindFramebuffer(GL_FRAMEBUFFER, b->fbo[i]);
         glViewport(0, 0, b->tw[i], b->th[i]);
         glUseProgram(up);
-        bind_texture(GL_TEXTURE_2D, b->tex[i + 1], 0);
+        gl_bind_texture(GL_TEXTURE_2D, b->tex[i + 1], 0);
         glUniform1i(glGetUniformLocation(up, "tex"), 0);
         glUniform2f(glGetUniformLocation(up, "o"), BLUR_OFFSET / b->tw[i + 1], BLUR_OFFSET / b->th[i + 1]);
         quad(0, 0, b->tw[i], b->th[i], b->tw[i], b->th[i], 0, 0, 1, 1, 0, 0, 1, 1);
@@ -476,8 +402,8 @@ static struct wlr_buffer *draw_cut(struct blur *b, struct wlr_texture *mask, str
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_BLEND);
     glUseProgram(prog);
-    bind_texture(GL_TEXTURE_2D, b->tex[0], 0);
-    bind_texture(attribs.target, attribs.tex, 1);
+    gl_bind_texture(GL_TEXTURE_2D, b->tex[0], 0);
+    gl_bind_texture(attribs.target, attribs.tex, 1);
     glUniform1i(glGetUniformLocation(prog, "tex"), 0);
     glUniform1i(glGetUniformLocation(prog, "mask"), 1);
     double cw = b->capture.width, ch = b->capture.height;
@@ -548,21 +474,13 @@ struct blur *blur_create(struct wlr_scene_tree *view, struct wlr_output *output)
     if (!renderer || !output->allocator || !output->swapchain) {
         return NULL;
     }
-    if (!wlr_renderer_is_gles2(renderer) || g_egl_display == EGL_NO_DISPLAY) {
+    if (!gl_available(output)) {
         return NULL;
     }
     struct blur *b = calloc(1, sizeof(*b));
     b->renderer = renderer;
     b->allocator = output->allocator;
-    // ARGB8888 with the layouts of the output's buffers, which the GPU
-    // renders to.
-    const struct wlr_drm_format *primary = &output->swapchain->format;
-    for (size_t i = 0; i < primary->len; i++) {
-        wlr_drm_format_set_add(&b->formats, DRM_FORMAT_ARGB8888, primary->modifiers[i]);
-    }
-    if (primary->len == 0) {
-        wlr_drm_format_set_add(&b->formats, DRM_FORMAT_ARGB8888, DRM_FORMAT_MOD_INVALID);
-    }
+    gl_output_formats(output, &b->formats);
     b->picture = wlr_scene_buffer_create(view, NULL);
     if (!b->picture) {
         wlr_drm_format_set_finish(&b->formats);
@@ -699,7 +617,7 @@ bool blur_update(struct blur *b, struct wlr_scene *scene, struct wlr_surface *su
         }
     }
 
-    if (!eglMakeCurrent(g_egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, g_egl_context)) {
+    if (!gl_begin()) {
         return false;
     }
     bool ok = true;
@@ -709,8 +627,7 @@ bool blur_update(struct blur *b, struct wlr_scene *scene, struct wlr_surface *su
         b->drawn = ok;
     }
     struct wlr_buffer *out = ok ? draw_cut(b, mask, &region) : NULL;
-    glFlush();
-    eglMakeCurrent(g_egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    gl_end();
     if (!out) {
         blur_hide(b);
         return false;
@@ -755,9 +672,9 @@ void blur_destroy(struct blur *b) {
         }
     }
     if (b->fbo[0] || b->tex[0]) {
-        eglMakeCurrent(g_egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, g_egl_context);
+        gl_begin();
         free_levels(b);
-        eglMakeCurrent(g_egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        gl_end();
     }
     if (b->chain) {
         wlr_swapchain_destroy(b->chain);

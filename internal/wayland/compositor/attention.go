@@ -3,13 +3,14 @@ package compositor
 /*
 #include <wlr/types/wlr_scene.h>
 #include "pixel_buffer.h"
+#include "wobble.h"
 
 static struct wlr_scene_tree *attention_tree_create(struct wlr_scene_tree *parent, bool still) {
     struct wlr_scene_tree *tree = wlr_scene_tree_create(parent);
     if (tree) {
         wlr_scene_node_lower_to_bottom(&tree->node);
         if (still) {
-            tree->node.data = (void *)0x7; // WOBBLE_SKIP: the halo keeps still (wobble.go)
+            tree->node.data = WOBBLE_SKIP; // the halo keeps still
         }
     }
     return tree;

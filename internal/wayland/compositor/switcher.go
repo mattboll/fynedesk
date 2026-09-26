@@ -8,15 +8,10 @@ package compositor
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/render/wlr_texture.h>
 #include <wlr/render/gles2.h>
-#include <GLES2/gl2ext.h>
 #include <wlr/interfaces/wlr_buffer.h>
 #include <drm_fourcc.h>
-#include <EGL/egl.h>
 
-// Defined in main.go's CGO preamble (non-static globals)
-extern EGLDisplay g_egl_display;
-extern EGLContext g_egl_context;
-
+#include "gl_util.h"
 #include "pixel_buffer.h"
 
 // Read raw pixel data from a surface's SHM buffer via memcpy.
@@ -102,28 +97,9 @@ static GLuint thumb_program(GLenum target, GLint *loc) {
 		return 0;
 	}
 	if (g_thumb_programs[kind] == 0) {
-		GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-		glShaderSource(vs, 1, &thumb_vs_src, NULL);
-		glCompileShader(vs);
-		GLint ok = 0;
-		glGetShaderiv(vs, GL_COMPILE_STATUS, &ok);
-		if (!ok) { glDeleteShader(vs); return 0; }
-
-		GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
-		glShaderSource(fs, 1, &thumb_fs_srcs[kind], NULL);
-		glCompileShader(fs);
-		glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
-		if (!ok) { glDeleteShader(vs); glDeleteShader(fs); return 0; }
-
-		GLuint prog = glCreateProgram();
-		glAttachShader(prog, vs);
-		glAttachShader(prog, fs);
-		glBindAttribLocation(prog, 0, "pos");
-		glLinkProgram(prog);
-		glGetProgramiv(prog, GL_LINK_STATUS, &ok);
-		glDeleteShader(vs);
-		glDeleteShader(fs);
-		if (!ok) { glDeleteProgram(prog); return 0; }
+		static const char *const attribs[] = { "pos" };
+		GLuint prog = gl_program(thumb_vs_src, thumb_fs_srcs[kind], attribs, 1);
+		if (!prog) return 0;
 		g_thumb_programs[kind] = prog;
 		g_thumb_locs[kind] = glGetUniformLocation(prog, "tex");
 	}
@@ -148,16 +124,13 @@ static int g_thumb_fbo_h = 0;
 // Activate EGL context for a batch of thumbnail captures.
 // Call once before capturing multiple windows, then end_thumb_capture after.
 static int begin_thumb_capture(void) {
-	if (g_egl_display == EGL_NO_DISPLAY || g_egl_context == EGL_NO_CONTEXT)
-		return 0;
-	return eglMakeCurrent(g_egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE,
-		g_egl_context) ? 1 : 0;
+	return gl_begin() ? 1 : 0;
 }
 
 static void end_thumb_capture(void) {
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glUseProgram(0);
-	eglMakeCurrent(g_egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+	gl_end();
 }
 
 // Ensure the persistent FBO matches the requested dimensions.
