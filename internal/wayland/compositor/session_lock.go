@@ -535,6 +535,35 @@ func (s *server) handleSessionLockUnlock() {
 // can stay alive (e.g. missing GPU driver, broken Wayland socket).
 const maxLockCrashes = 3
 
+// dropLockBlackRects removes the black covers of an ext-session-lock whose
+// client went away, before the built-in lock takes over. Main thread.
+func (s *server) dropLockBlackRects() {
+	for _, rect := range s.lockBlackRects {
+		if rect != nil {
+			C.scene_node_destroy_c(&(*C.struct_wlr_scene_rect)(rect).node)
+		}
+	}
+	s.lockBlackRects = nil
+}
+
+// relaunchLocker starts a screen locker again after the one holding the
+// lock crashed: the session is still locked, so startLock would do nothing.
+// Main thread.
+func (s *server) relaunchLocker() {
+	if s.shuttingDown.Load() || !s.locked.Load() {
+		return
+	}
+	// If something else already re-locked the screen meanwhile (an
+	// ext-session-lock client reconnected, the built-in lock kicked in),
+	// don't pile on a second one.
+	if s.currentLock != nil || (s.builtinLock != nil && s.builtinLock.active) {
+		return
+	}
+	if !s.launchLocker() {
+		s.activateBuiltinLock()
+	}
+}
+
 // handleSessionLockDestroy processes lock object destruction
 func (s *server) handleSessionLockDestroy() {
 	if s.locked.Load() {
@@ -568,13 +597,6 @@ func (s *server) handleSessionLockDestroy() {
 		// to authenticate. Ctrl+Alt+Backspace remains available as emergency logout.
 		if s.lockCrashCount >= maxLockCrashes {
 			log.Printf("[LOCK] Lock client crashed %d times — falling back to built-in lock screen\n", s.lockCrashCount)
-			// Clean up ext-session-lock black rects but keep s.locked = true
-			for _, rect := range s.lockBlackRects {
-				if rect != nil {
-					C.scene_node_destroy_c(&(*C.struct_wlr_scene_rect)(rect).node)
-				}
-			}
-			s.lockBlackRects = nil
 			// Activate built-in lock (checks if already active, sets s.locked = true)
 			s.activateBuiltinLock()
 			return
@@ -596,16 +618,7 @@ func (s *server) handleSessionLockDestroy() {
 				return
 			case <-time.After(delay):
 			}
-			if s.shuttingDown.Load() {
-				return
-			}
-			// If something else already re-locked the screen meanwhile
-			// (user pressed lock again, ext-session-lock client reconnected,
-			// fallback built-in lock kicked in), don't pile on a second one.
-			if s.currentLock != nil || (s.builtinLock != nil && s.builtinLock.active) {
-				return
-			}
-			s.lockScreen()
+			_ = s.enqueueAction(s.relaunchLocker)
 		}()
 		return
 	}

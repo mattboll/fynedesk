@@ -121,7 +121,7 @@ func (sp *settingsPortal) ReadAll(namespaces []string) (map[string]map[string]db
 	for _, ns := range namespaces {
 		if ns == "org.freedesktop.appearance" || ns == "" {
 			result["org.freedesktop.appearance"] = map[string]dbus.Variant{
-				"color-scheme": dbus.MakeVariant(uint32(sp.p.srv.colorScheme)),
+				"color-scheme": dbus.MakeVariant(uint32(sp.p.srv.colorScheme.Load())),
 			}
 		}
 	}
@@ -132,7 +132,7 @@ func (sp *settingsPortal) ReadAll(namespaces []string) (map[string]map[string]db
 // Returns a single setting value.
 func (sp *settingsPortal) Read(namespace, key string) (dbus.Variant, *dbus.Error) {
 	if namespace == "org.freedesktop.appearance" && key == "color-scheme" {
-		return dbus.MakeVariant(uint32(sp.p.srv.colorScheme)), nil
+		return dbus.MakeVariant(uint32(sp.p.srv.colorScheme.Load())), nil
 	}
 	return dbus.MakeVariant(uint32(0)),
 		dbus.NewError("org.freedesktop.portal.Error.NotFound",

@@ -876,10 +876,12 @@ func (s *server) startPanelAndRestoreSession() {
 	if !wait(6 * time.Second) {
 		return
 	}
-	if s.panelXway == nil || !s.panelXway.mapped {
-		log.Println("WARNING: Panel not detected after 10s, launching fallback terminal")
-		s.launchTerminal()
-	}
+	_ = s.enqueueAction(func() {
+		if s.panelXway == nil || !s.panelXway.mapped {
+			log.Println("WARNING: Panel not detected after 10s, launching fallback terminal")
+			s.launchTerminal()
+		}
+	})
 }
 
 // shutdownOnSignal stops the event loop when a signal arrives.
@@ -892,11 +894,30 @@ func (s *server) shutdownOnSignal(sigChan chan os.Signal) {
 	default:
 		close(s.shutdown)
 	}
-	s.saveSessionState() // Save before terminating (reads are safe from goroutine)
-	if s.panelCmd != nil && s.panelCmd.Process != nil {
-		s.panelCmd.Process.Kill()
+	s.requestEndSession(false) // finishRun stops the panel
+}
+
+// endSession saves the session and ends the event loop. Main thread (the
+// session is read from the views).
+func (s *server) endSession(restart bool) {
+	if restart {
+		s.wantRestart.Store(true)
 	}
+	s.shuttingDown.Store(true)
+	s.saveSessionState()
 	s.display.Terminate()
+}
+
+// requestEndSession has the main thread end the session. If it does not
+// answer, the event loop is ended without saving the session.
+func (s *server) requestEndSession(restart bool) {
+	if s.enqueueAction(func() { s.endSession(restart) }) != nil {
+		if restart {
+			s.wantRestart.Store(true)
+		}
+		s.shuttingDown.Store(true)
+		s.display.Terminate()
+	}
 }
 
 // finishRun writes the shutdown marker and releases resources once the

@@ -203,8 +203,8 @@ type server struct {
 	// Virtual desktops
 	currentDesk  int
 	numDesks     int
-	desktopNames []string // Workspace names (nil = use "1", "2", ...)
-	colorScheme  int      // 0=no pref, 1=dark, 2=light (portal color-scheme)
+	desktopNames []string     // Workspace names (nil = use "1", "2", ...)
+	colorScheme  atomic.Int32 // 0=no pref, 1=dark, 2=light (portal color-scheme, read by D-Bus)
 
 	// Per-app window rules
 	windowRules []wlipc.WindowRule
@@ -427,7 +427,8 @@ type server struct {
 
 	// Panel process
 	panelCmd     *exec.Cmd
-	panelPending bool // panel start deferred: no usable output yet
+	panelPID     atomic.Int32 // of panelCmd, for the watchdog
+	panelPending bool         // panel start deferred: no usable output yet
 
 	// Thread-safe action queue: goroutines enqueue, main thread (frame callback) executes
 	mainThreadActions chan func()

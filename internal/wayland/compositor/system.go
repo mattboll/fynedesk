@@ -415,6 +415,19 @@ func (s *server) startLock() {
 		s.activateBuiltinLock()
 		return
 	}
+	if !s.launchLocker() {
+		log.Println("No external locker found — using built-in lock screen")
+		s.activateBuiltinLock()
+	}
+}
+
+// launchLocker starts the first screen locker found, and reports whether
+// there was one. A locker that dies before locking (swaylock -f forks, and
+// its child may fail) must not leave the session open, nor black once it
+// is locked already: if no lock is up after lockClientGrace, and the
+// session did not lock meanwhile (even if it was unlocked since), the
+// built-in lock takes over. Main thread.
+func (s *server) launchLocker() bool {
 	for _, locker := range lockers {
 		cmd := exec.Command(findBinary(locker[0]), locker[1:]...)
 		cmd.Env = safeEnv()
@@ -423,23 +436,19 @@ func (s *server) startLock() {
 		}
 		go func() { _ = cmd.Wait() }()
 		log.Printf("Screen locked with %s\n", locker[0])
-		// A locker that dies before locking (swaylock -f forks, and its
-		// child may fail) must not leave the session open: the built-in lock
-		// takes over — unless the session locked meanwhile, even if it was
-		// unlocked since.
 		count := s.lockCount
 		time.AfterFunc(lockClientGrace, func() {
 			_ = s.enqueueAction(func() {
-				if s.lockCount == count && !s.locked.Load() && !s.shuttingDown.Load() {
+				builtin := s.builtinLock != nil && s.builtinLock.active
+				if s.lockCount == count && s.currentLock == nil && !builtin && !s.shuttingDown.Load() {
 					log.Printf("[LOCK] %s never locked the session — using the built-in lock", locker[0])
 					s.activateBuiltinLock()
 				}
 			})
 		})
-		return
+		return true
 	}
-	log.Println("No external locker found — using built-in lock screen")
-	s.activateBuiltinLock()
+	return false
 }
 
 func (s *server) adjustVolume(delta int) {
@@ -748,6 +757,7 @@ func (s *server) startPanel() {
 		s.launchTerminal()
 		return
 	}
+	s.panelPID.Store(int32(s.panelCmd.Process.Pid))
 
 	// Watch for panel crash and auto-restart. The relaunch is enqueued onto
 	// the main thread so it runs in the same serial context as the callers

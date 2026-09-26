@@ -441,19 +441,19 @@ func (s *server) applyDesktopPrefs(prefs map[string]interface{}) {
 // applyColorSchemePrefs applies the portal colour scheme.
 func (s *server) applyColorSchemePrefs(prefs map[string]interface{}) {
 	// Color scheme for portal (auto/dark/light → 0/1/2)
-	prevColorScheme := s.colorScheme
+	prevColorScheme := s.colorScheme.Load()
 	if cs, ok := prefs["colorscheme"].(string); ok {
 		switch cs {
 		case "dark":
-			s.colorScheme = 1
+			s.colorScheme.Store(1)
 		case "light":
-			s.colorScheme = 2
+			s.colorScheme.Store(2)
 		default:
-			s.colorScheme = 0
+			s.colorScheme.Store(0)
 		}
 	}
-	if s.colorScheme != prevColorScheme && s.portal != nil {
-		s.portal.emitColorSchemeChanged(s.colorScheme)
+	if cs := s.colorScheme.Load(); cs != prevColorScheme && s.portal != nil {
+		s.portal.emitColorSchemeChanged(int(cs))
 	}
 }
 

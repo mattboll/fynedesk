@@ -330,25 +330,21 @@ func (s *server) socketLock(msg *wlipc.Message) (json.RawMessage, error) {
 
 // socketLogout ends the session.
 func (s *server) socketLogout(msg *wlipc.Message) (json.RawMessage, error) {
-	s.shuttingDown.Store(true)
-	s.display.Terminate()
+	s.requestEndSession(false)
 	return nil, nil
 }
 
 // socketRestart ends the event loop so that the compositor restarts.
 func (s *server) socketRestart(msg *wlipc.Message) (json.RawMessage, error) {
 	log.Println("Restart requested via socket IPC, terminating event loop")
-	s.wantRestart.Store(true)
-	s.shuttingDown.Store(true)
-	s.saveSessionState()
-	s.display.Terminate()
+	s.requestEndSession(true)
 	return nil, nil
 }
 
 // socketShutdown powers the machine off.
 func (s *server) socketShutdown(msg *wlipc.Message) (json.RawMessage, error) {
 	log.Println("Shutdown requested via socket IPC")
-	s.saveSessionState()
+	_, _ = runOnMainThread(s, func() struct{} { s.saveSessionState(); return struct{}{} })
 	go exec.Command("systemctl", "poweroff").Run()
 	return nil, nil
 }

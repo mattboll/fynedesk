@@ -219,6 +219,10 @@ func (s *server) activateBuiltinLock() {
 	if s.builtinLock != nil && s.builtinLock.active {
 		return
 	}
+	// Taking over from a lock client that went away: its covers go.
+	if s.currentLock == nil {
+		s.dropLockBlackRects()
+	}
 
 	// Get current user
 	userName := "User"

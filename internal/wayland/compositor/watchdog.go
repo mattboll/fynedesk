@@ -3,6 +3,7 @@ package compositor
 import (
 	"log"
 	"os"
+	"syscall"
 	"time"
 )
 
@@ -77,9 +78,10 @@ func (s *server) watchdogRecovery() {
 		if stallDuration >= restartThresh && !nested {
 			// Level 3: unrecoverable — force restart (disabled in nested mode)
 			log.Printf("[WATCHDOG] CRITICAL: Event loop stuck for %v — forcing restart (exit 5)\n", gap)
-			// Kill panel first so it doesn't orphan
-			if s.panelCmd != nil && s.panelCmd.Process != nil {
-				s.panelCmd.Process.Kill()
+			// Kill panel first so it doesn't orphan (by its pid: the stuck
+			// main thread owns panelCmd)
+			if pid := s.panelPID.Load(); pid > 0 {
+				_ = syscall.Kill(int(pid), syscall.SIGKILL)
 			}
 			s.display.Terminate()
 			os.Exit(5) // Runner will auto-restart
