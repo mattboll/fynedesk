@@ -12,9 +12,10 @@ func PositionForNewWindow(win tyde.Window, x, y int, w, h uint, decorated bool,
 ) (int, int, uint, uint) {
 	target := screens.Active()
 	var offX, offY int
-	parent := win.Parent()
-	if parent != nil {
-		wx, wy, ww, wh := parent.(interface{ Geometry() (int, int, uint, uint) }).Geometry() // avoid XWin import cycle
+	// A parent that knows its geometry (an X11 window; the interface avoids
+	// an import cycle) centres the window; any other, the screen.
+	if parent, ok := win.Parent().(interface{ Geometry() (int, int, uint, uint) }); ok && parent != nil {
+		wx, wy, ww, wh := parent.Geometry()
 		offX, offY = positionInRect(w, h, wx, wy, ww, wh)
 	} else {
 		offX, offY = positionInRect(w, h, target.X, target.Y, uint(target.Width), uint(target.Height))

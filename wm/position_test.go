@@ -48,3 +48,17 @@ func TestPositionForNewWindow_WithParent(t *testing.T) {
 	assert.Equal(t, 250, x)
 	assert.Equal(t, 50, y)
 }
+
+// parentOnly is a window that cannot tell its geometry.
+type parentOnly struct{ tyde.Window }
+
+// TestPositionWithAParentWithoutGeometry checks that a parent that cannot
+// tell its geometry does not panic: the window goes to the screen.
+func TestPositionWithAParentWithoutGeometry(t *testing.T) {
+	win := test.NewWindow("child")
+	win.SetParent(parentOnly{test.NewWindow("parent")})
+	x, y, _, _ := PositionForNewWindow(win, 0, 0, 100, 100, false, test.NewScreensProvider())
+	if x != 950 || y != 450 {
+		t.Errorf("placed at %d,%d", x, y)
+	}
+}
