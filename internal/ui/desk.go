@@ -1395,10 +1395,9 @@ func newDesktop(app fyne.App, wm tyde.WindowManager, icons appie.Provider) *desk
 		watchFynePrimaryColor(app, ds)
 	}
 
-	// Watch for accent color extracted from wallpaper by the compositor
-	accentDone := make(chan struct{})
-	_ = accentDone // lives for process lifetime
-	watchAccentColor(accentDone)
+	// Watch for accent color extracted from wallpaper by the compositor,
+	// for the life of the panel.
+	watchAccentColor(nil)
 
 	desk.registerShortcuts()
 	startCalendarService()

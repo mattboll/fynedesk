@@ -22,8 +22,12 @@ import (
 
 var (
 	inhibitCount atomic.Int32
-	lastActivity = time.Now()
+	// lastActivity is when the user was last active (unix nanoseconds),
+	// set from input and D-Bus, read by the watcher.
+	lastActivity atomic.Int64
 )
+
+func init() { lastActivity.Store(time.Now().UnixNano()) }
 
 func (l *desktop) startXscreensaver() {
 	_, err := exec.LookPath("xscreensaver")
@@ -59,7 +63,7 @@ func (l *desktop) triggerScreenSaver(delay, suspending bool) {
 }
 
 func (l *desktop) DelayScreenSaver() {
-	lastActivity = time.Now()
+	lastActivity.Store(time.Now().UnixNano())
 }
 
 func (l *desktop) watchScreenActivity() {
@@ -68,7 +72,7 @@ func (l *desktop) watchScreenActivity() {
 	to := time.NewTicker(5 * time.Second)
 
 	for range to.C {
-		if inhibitCount.Load() == 0 && lastActivity.Add(time.Minute*5).Before(time.Now()) {
+		if inhibitCount.Load() == 0 && time.Since(time.Unix(0, lastActivity.Load())) > 5*time.Minute {
 			if !idle {
 				idle = true
 
