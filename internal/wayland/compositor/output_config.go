@@ -203,16 +203,7 @@ func (s *server) setResolution(req ModeRequest) {
 		return
 	}
 	out.currentMode = req.ModeIndex
-
-	out.width, out.height = out.output.EffectiveResolution()
-
-	s.writeCompositorState()
-	s.loadSettings()
-
-	// Restart panel if this is the primary output (resolution changed)
-	if out == s.primaryOutput() {
-		s.restartPanel()
-	}
+	s.outputResized(out, true)
 
 	log.Printf("Resolution changed to %dx%d (mode %d) on %s\n", out.width, out.height, req.ModeIndex, out.output.Name())
 }
@@ -237,22 +228,11 @@ func (s *server) setOutputScale(req ScaleRequest) {
 		log.Printf("Scale change to %.2f rejected on %s\n", req.Scale, out.output.Name())
 		return
 	}
-	out.width, out.height = out.output.EffectiveResolution()
-
-	// Update compositor state file
-	s.writeCompositorState()
-
 	// Reload cursor for new scale
 	s.cursorMgr.Load(float64(req.Scale))
 	s.cursor.SetXCursor(s.cursorMgr, "default")
 
-	// Restart panel if this is the primary output (scale changed → different logical resolution)
-	if out == s.primaryOutput() {
-		s.restartPanel()
-	}
-
-	// Reload wallpaper at new resolution
-	s.loadSettings()
+	s.outputResized(out, true)
 
 	log.Printf("Scale changed to %.1f, logical resolution: %dx%d on %s\n", req.Scale, out.width, out.height, out.output.Name())
 }
@@ -283,7 +263,9 @@ func (s *server) setOutputVRR(req VRRRequest) {
 	log.Printf("[VRR] Set adaptive sync=%v on %s\n", req.Enabled, name)
 }
 
-// findOutputByName returns the output with the given name, or primary if name is empty
+// findOutputByName returns the output with the given name, the primary if
+// name is empty, or nil if there is no such output (unplugged since): a
+// request meant for another screen must not change the primary.
 func (s *server) findOutputByName(name string) *outputState {
 	if name == "" {
 		return s.primaryOutput()
@@ -293,8 +275,8 @@ func (s *server) findOutputByName(name string) *outputState {
 			return out
 		}
 	}
-	log.Printf("Output not found: %s, falling back to primary\n", name)
-	return s.primaryOutput()
+	log.Printf("Output not found: %s\n", name)
+	return nil
 }
 
 // findBestMode returns the index of the EDID mode that exactly matches wantW×wantH
@@ -349,12 +331,10 @@ func (s *server) switchModeForFullscreen(out *outputState, wantW, wantH int) out
 			st.SetScale(1.0)
 		}) {
 			out.currentMode = modeIdx
-			out.width, out.height = out.output.EffectiveResolution()
+			s.outputResized(out, false)
 
 			log.Printf("[FULLSCREEN] Mode switch: %s → %dx%d @%dHz\n",
 				out.output.Name(), out.width, out.height, mode.RefreshRate()/1000)
-
-			s.writeCompositorState()
 			return s.getOutputGeometry(out)
 		}
 		log.Printf("[FULLSCREEN] Mode switch to %dx%d rejected on %s, falling back to scaling\n",
@@ -391,12 +371,10 @@ func (s *server) switchModeForFullscreen(out *outputState, wantW, wantH int) out
 		log.Printf("[FULLSCREEN] Scale switch to %.3f rejected on %s\n", scale, out.output.Name())
 		return s.getOutputGeometry(out)
 	}
-	out.width, out.height = out.output.EffectiveResolution()
+	s.outputResized(out, false)
 
 	log.Printf("[FULLSCREEN] Scale switch: %s → scale=%.3f logical=%dx%d (native=%dx%d, game=%dx%d)\n",
 		out.output.Name(), scale, out.width, out.height, nativeW, nativeH, wantW, wantH)
-
-	s.writeCompositorState()
 	return s.getOutputGeometry(out)
 }
 
@@ -427,16 +405,58 @@ func (s *server) restoreModeAfterFullscreen(out *outputState) {
 	if restoreMode {
 		out.currentMode = savedMode
 	}
-	out.width, out.height = out.output.EffectiveResolution()
+	s.outputResized(out, false)
+	s.loadWallpaperForNewOutput(out)
+	if out == s.primaryOutput() {
+		s.restartPanel()
+	}
 
 	log.Printf("[FULLSCREEN] Restored: %s → %dx%d scale=%.1f\n",
 		out.output.Name(), out.width, out.height, out.output.Scale())
+}
 
+// outputResized follows a change of the logical size of out (mode, scale).
+// The screens on its right and below keep touching it, their windows going
+// with them, and the state is written. When the user resized it (full),
+// the windows fit the screens again, their places for these screens apply,
+// and the wallpaper and the panel follow; for a fullscreen game's mode
+// switch, undone when it ends, they are left alone. Main thread.
+func (s *server) outputResized(out *outputState, full bool) {
+	old := outputGeometry{x: out.layoutX, y: out.layoutY, width: out.width, height: out.height}
+	out.width, out.height = out.output.EffectiveResolution()
+	dw, dh := out.width-old.width, out.height-old.height
+	if dw != 0 || dh != 0 {
+		for _, o := range s.outputs {
+			if o == out {
+				continue
+			}
+			dx, dy := 0, 0
+			if o.layoutX >= old.x+old.width {
+				dx = dw
+			}
+			if o.layoutY >= old.y+old.height {
+				dy = dh
+			}
+			if dx == 0 && dy == 0 {
+				continue
+			}
+			geo := outputGeometry{x: o.layoutX, y: o.layoutY, width: o.width, height: o.height}
+			s.shiftViewsOn(&geo, float64(dx), float64(dy))
+			s.outLayout.Add(o.output, o.layoutX+dx, o.layoutY+dy)
+		}
+		s.normalizeOutputPositions() // also updates the cached positions
+	}
 	s.writeCompositorState()
+	if !full {
+		return
+	}
+	s.refitWindowsToOutputs()
+	s.screensChanged()
 	s.loadWallpaperForNewOutput(out)
-
 	if out == s.primaryOutput() {
 		s.restartPanel()
+	} else {
+		s.repositionSecondaryPanels()
 	}
 }
 

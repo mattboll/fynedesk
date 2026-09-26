@@ -1409,7 +1409,19 @@ func (s *server) normalizeOutputPositions() {
 // shiftViews moves every window by (dx, dy) in the layout, as the screens
 // under them moved: where they were saved to be restored, too.
 func (s *server) shiftViews(dx, dy float64) {
+	s.shiftViewsOn(nil, dx, dy)
+}
+
+// shiftViewsOn is shiftViews for the windows on one screen (by its
+// geometry), or all of them if on is nil.
+func (s *server) shiftViewsOn(on *outputGeometry, dx, dy float64) {
+	inside := func(x, y float64) bool {
+		return on == nil || (int(x) >= on.x && int(x) < on.x+on.width && int(y) >= on.y && int(y) < on.y+on.height)
+	}
 	for _, v := range s.xdgViews {
+		if !inside(v.x, v.y) {
+			continue
+		}
 		v.x, v.y = v.x+dx, v.y+dy
 		v.savedX, v.savedY = v.savedX+dx, v.savedY+dy
 		if v.mapped {
@@ -1417,8 +1429,8 @@ func (s *server) shiftViews(dx, dy float64) {
 		}
 	}
 	for _, v := range s.xwayViews {
-		if v.isPanel {
-			continue // repositionPanel
+		if v.isPanel || !inside(v.x, v.y) {
+			continue // the panel: repositionPanel
 		}
 		v.x, v.y = v.x+dx, v.y+dy
 		v.savedX, v.savedY = v.savedX+dx, v.savedY+dy
