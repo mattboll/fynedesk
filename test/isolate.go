@@ -2,7 +2,7 @@ package test
 
 import "os"
 
-// IsolateUserSession points the XDG config, cache, data and runtime
+// IsolateUserSession points HOME and the XDG config, cache, data and runtime
 // directories at a fresh temporary directory and hides the display and
 // session bus, so that tests building a desktop never write into the
 // developer's home, open sockets beside a running session or register D-Bus
@@ -16,6 +16,7 @@ func IsolateUserSession() func() {
 	}
 
 	for name, sub := range map[string]string{
+		"HOME":            "home", // what os.UserHomeDir gives (~/Pictures, ~/.local)
 		"XDG_CONFIG_HOME": "config",
 		"XDG_CACHE_HOME":  "cache",
 		"XDG_DATA_HOME":   "data",
