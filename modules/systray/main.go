@@ -8,18 +8,17 @@ package systray
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/FyshOS/appie"
@@ -28,6 +27,7 @@ import (
 	"github.com/godbus/dbus/v5/prop"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/internal/icon"
 	"fyshos.com/tyde/modules/systray/generated/menu"
 	"fyshos.com/tyde/modules/systray/generated/notifier"
 	"fyshos.com/tyde/modules/systray/generated/watcher"
@@ -60,6 +60,7 @@ var trayMeta = tyde.ModuleMetadata{
 type tray struct {
 	conn   *dbus.Conn
 	menu   *menu.Dbusmenu
+	done   chan struct{} // closed by Destroy: stops the watch on the tray apps
 	signal chan *dbus.Signal
 
 	box   *fyne.Container
@@ -98,9 +99,9 @@ func NewTray() tyde.Module {
 		return t
 	}
 
-	_, err = conn.RequestName("org.kde.StatusNotifierWatcher", dbus.NameFlagDoNotQueue)
-	if err != nil {
-		log.Println("Failed to claim notifier watcher name", err)
+	reply, err := conn.RequestName("org.kde.StatusNotifierWatcher", dbus.NameFlagDoNotQueue)
+	if err != nil || reply != dbus.RequestNameReplyPrimaryOwner {
+		log.Println("Failed to claim notifier watcher name (another tray?)", reply, err)
 		return t
 	}
 
@@ -158,18 +159,22 @@ func NewTray() tyde.Module {
 					})
 				}
 			default:
-				log.Println("Also", v.Name)
 				continue
 			}
 		}
 	}()
 
-	go t.monitorProcesses()
+	t.done = make(chan struct{})
+	go t.monitorProcesses(t.done)
 
 	return t
 }
 
 func (t *tray) Destroy() {
+	if t.done != nil {
+		close(t.done)
+		t.done = nil
+	}
 	if t.conn != nil {
 		if t.signal != nil {
 			t.conn.RemoveSignal(t.signal)
@@ -205,8 +210,15 @@ func (t *tray) removeNode(sender dbus.Sender) {
 // monitorProcesses watches the processes backing each tray icon.
 // We periodically confirm each backing process is still
 // alive and remove the icon for any that have gone away.
-func (t *tray) monitorProcesses() {
-	for range time.Tick(time.Second * 5) {
+func (t *tray) monitorProcesses(done <-chan struct{}) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+		}
 		var dead []dbus.Sender
 		t.lock.Lock()
 		for sender, item := range t.nodes {
@@ -274,22 +286,30 @@ func (t *tray) RegisterStatusNotifierItem(service string, sender dbus.Sender) (e
 	if !ok {
 		var ico *multiButton
 		ico = newMultiButton(func() {
-			t.activate(ni, dest)
+			go t.activate(ni, dest)
 		}, func() {
-			if m, err := ni.GetMenu(t.conn.Context()); err == nil {
-				t.showMenu(string(sender), m, ico)
-				return
-			}
+			go func() { // the app may be slow to answer: not on the Fyne thread
+				ctx, cancel := callCtx()
+				defer cancel()
+				if m, err := ni.GetMenu(ctx); err == nil {
+					fyne.Do(func() { t.showMenu(string(sender), m, ico) })
+					return
+				}
 
-			// try secondary if primary not known
-			_ = ni.ContextMenu(t.conn.Context(), 5, 5)
+				// try secondary if primary not known
+				_ = ni.ContextMenu(ctx, 5, 5)
+			}()
 		})
 		ico.scroll = func(delta float32, horizontal bool) {
+			direction := "vertical"
 			if horizontal {
-				_ = ni.Scroll(t.conn.Context(), int32(delta), "horizontal")
-			} else {
-				_ = ni.Scroll(t.conn.Context(), int32(delta), "vertical")
+				direction = "horizontal"
 			}
+			go func() {
+				ctx, cancel := callCtx()
+				defer cancel()
+				_ = ni.Scroll(ctx, int32(delta), direction)
+			}()
 		}
 
 		ico.Importance = widget.LowImportance
@@ -329,6 +349,16 @@ func (t *tray) RegisterStatusNotifierHost(service string, sender dbus.Sender) (e
 	return nil
 }
 
+// trayCallTimeout bounds the calls to the apps behind the tray icons: one
+// that hangs must not hang the panel.
+const trayCallTimeout = time.Second
+
+// callCtx is the context of the calls to a tray app: they give up after
+// trayCallTimeout.
+func callCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), trayCallTimeout)
+}
+
 func (t *tray) Metadata() tyde.ModuleMetadata {
 	return trayMeta
 }
@@ -340,10 +370,23 @@ func (t *tray) StatusAreaWidget() fyne.CanvasObject {
 func (t *tray) parseMenu(parent int32, pos *fyne.Position, closer func()) fyne.CanvasObject {
 	Y := pos.Y
 	var items []*fyne.MenuItem
-	_, l, _ := t.menu.GetLayout(t.conn.Context(), parent, 1, nil)
+	ctx, cancel := callCtx()
+	defer cancel()
+	_, l, err := t.menu.GetLayout(ctx, parent, 1, nil)
+	if err != nil {
+		fyne.LogError("Tray menu", err)
+	}
 	for i, item := range l.V2 {
-		data := item.Value().([]interface{})
-		items = append(items, t.parseMenuItem(data[0].(int32), t.menu, data[1], pos, i, closer))
+		// What a tray app sends is checked: a malformed menu must not crash the panel.
+		data, ok := item.Value().([]interface{})
+		if !ok || len(data) < 2 {
+			continue
+		}
+		id, ok := data[0].(int32)
+		if !ok {
+			continue
+		}
+		items = append(items, t.parseMenuItem(id, t.menu, data[1], pos, i, closer))
 
 		Y += theme.TextSize() + theme.Padding()*2
 	}
@@ -352,24 +395,34 @@ func (t *tray) parseMenu(parent int32, pos *fyne.Position, closer func()) fyne.C
 }
 
 func (t *tray) parseMenuItem(id int32, menu *menu.Dbusmenu, in interface{}, pos *fyne.Position, off int, closer func()) *fyne.MenuItem {
-	data := in.(map[string]dbus.Variant)
 	ret := &fyne.MenuItem{}
+	data, ok := in.(map[string]dbus.Variant)
+	if !ok {
+		ret.Disabled = true
+		return ret
+	}
 	if ty, ok := data["type"]; ok {
 		if ty.String() == "\"separator\"" {
 			ret.IsSeparator = true
 		}
 	} else {
-		ret.Label = fmt.Sprintf("%s", data["label"].Value())
+		ret.Label, _ = data["label"].Value().(string)
 		if checkType, ok := data["toggle-type"]; ok && checkType.Value() == "checkmark" {
-			if checkState, ok := data["toggle-state"]; ok && checkState.Value().(int32) > 0 {
-				ret.Checked = true
+			if checkState, ok := data["toggle-state"]; ok {
+				if state, ok := checkState.Value().(int32); ok && state > 0 {
+					ret.Checked = true
+				}
 			}
 		}
 		ret.Action = func() {
-			err := menu.Event(t.conn.Context(), id, "clicked", dbus.MakeVariant(id), uint32(time.Now().Unix()))
-			if err != nil {
-				fyne.LogError("Failed to message menu tap", err)
-			}
+			go func() {
+				ctx, cancel := callCtx()
+				defer cancel()
+				err := menu.Event(ctx, id, "clicked", dbus.MakeVariant(id), uint32(time.Now().Unix()))
+				if err != nil {
+					fyne.LogError("Failed to message menu tap", err)
+				}
+			}()
 			closer()
 		}
 
@@ -381,7 +434,9 @@ func (t *tray) parseMenuItem(id int32, menu *menu.Dbusmenu, in interface{}, pos 
 	}
 
 	if i, ok := data["icon-data"]; ok {
-		ret.Icon = fyne.NewStaticResource(fmt.Sprintf("systray-icon-%d", id), i.Value().([]byte))
+		if png, ok := i.Value().([]byte); ok {
+			ret.Icon = fyne.NewStaticResource(fmt.Sprintf("systray-icon-%d", id), png)
+		}
 	}
 	if e, ok := data["enabled"]; ok && e.Value() == false {
 		ret.Disabled = true
@@ -423,12 +478,14 @@ func (t *tray) parseMenuItem(id int32, menu *menu.Dbusmenu, in interface{}, pos 
 
 // activate brings the application behind a tray item forward on left click.
 func (t *tray) activate(ni *notifier.StatusNotifierItem, dest string) {
+	ctx, cancel := callCtx()
+	defer cancel()
 	if !wlipc.IsWaylandSession() {
-		_ = ni.Activate(t.conn.Context(), 5, 5)
+		_ = ni.Activate(ctx, 5, 5)
 		return
 	}
 
-	appID, _ := ni.GetId(t.conn.Context())
+	appID, _ := ni.GetId(ctx)
 	wmClass := t.resolveWMClass(ni, appID, dest)
 	log.Printf("[SYSTRAY] Left-click on tray item id=%q resolved=%q", appID, wmClass)
 
@@ -438,7 +495,7 @@ func (t *tray) activate(ni *notifier.StatusNotifierItem, dest string) {
 	}
 
 	// 2. Call Activate via D-Bus (standard tray protocol)
-	if err := ni.Activate(t.conn.Context(), 5, 5); err != nil {
+	if err := ni.Activate(ctx, 5, 5); err != nil {
 		log.Printf("[SYSTRAY] Activate failed: %v", err)
 	}
 
@@ -451,45 +508,31 @@ func (t *tray) activate(ni *notifier.StatusNotifierItem, dest string) {
 	}
 }
 
-// launchAppFallback tries to launch an app by its WM_CLASS name.
-// This is a fallback for Electron apps where D-Bus Activate() does nothing.
-// Re-launching the app binary activates the existing instance via single-instance lock.
+// launchAppFallback starts the application of a tray icon again, through
+// its desktop entry: for Electron apps (Slack, Discord), D-Bus Activate does
+// nothing, and starting them again brings their running instance forward.
+// Only an installed application whose name is the one the icon gives is
+// started: the icon names itself, and must not choose what runs.
 func (t *tray) launchAppFallback(wmClass string) {
 	// Wait a bit to see if Activate/raiseByClass already worked
 	time.Sleep(500 * time.Millisecond)
 
-	// Launch the app binary — for single-instance apps (Electron/Slack/Discord),
-	// this activates the running instance instead of starting a new one.
-	// Validate executable exists in PATH before running.
-	binName := strings.ToLower(wmClass)
-	binPath, err := exec.LookPath(binName)
-	if err != nil {
-		log.Printf("[SYSTRAY] launchAppFallback: %q not found in PATH", binName)
+	desk := tyde.Instance()
+	if desk == nil {
 		return
 	}
-	cmd := exec.Command(binPath)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	log.Printf("[SYSTRAY] launchAppFallback: launching %q", cmd.Path)
-	if err := cmd.Start(); err != nil {
-		log.Printf("[SYSTRAY] launchAppFallback: failed: %v", err)
+	app := icon.FindAppByName(wmClass, desk.IconProvider())
+	if app == nil || !strings.EqualFold(app.Name(), wmClass) {
+		log.Printf("[SYSTRAY] launchAppFallback: no application named %q", wmClass)
 		return
 	}
-
-	// Wait up to 1s for the process to either run (single-instance hand-off,
-	// keeps running) or exit cleanly (single-instance forwarder that quits
-	// after activating the existing app). If it exits with a non-zero status,
-	// the launch failed and raising would target a stale window.
-	exitCh := make(chan error, 1)
-	go func() { exitCh <- cmd.Wait() }()
-	select {
-	case err := <-exitCh:
-		if err != nil {
-			log.Printf("[SYSTRAY] launchAppFallback: process exited with error, skipping raise: %v", err)
-			return
+	log.Printf("[SYSTRAY] launchAppFallback: starting %q", app.Name())
+	fyne.Do(func() {
+		if err := desk.RunApp(app); err != nil {
+			log.Printf("[SYSTRAY] launchAppFallback: failed: %v", err)
 		}
-	case <-time.After(1 * time.Second):
-		// Still running — likely a normal app, fall through to raise
-	}
+	})
+	time.Sleep(time.Second)
 	wlipc.RequestRaiseByClass(wmClass)
 }
 
@@ -498,6 +541,8 @@ func (t *tray) launchAppFallback(wmClass string) {
 // which doesn't match the window's WM_CLASS. We extract the real app name from
 // the icon theme path (e.g. "/run/user/1000/snap.slack/.org.chromium..." → "slack").
 func (t *tray) resolveWMClass(ni *notifier.StatusNotifierItem, appID, dest string) string {
+	ctx, cancel := callCtx()
+	defer cancel()
 	// If the ID doesn't look like a Chromium status icon, use it directly
 	if !strings.HasPrefix(appID, "chrome_status_icon") {
 		return appID
@@ -506,7 +551,7 @@ func (t *tray) resolveWMClass(ni *notifier.StatusNotifierItem, appID, dest strin
 	// Try to extract real app name from theme path
 	// Snap: /run/user/1000/snap.slack/.org.chromium.Chromium.XXXXX
 	// Flatpak: similar pattern with app name
-	themePath, _ := ni.GetIconThemePath(t.conn.Context())
+	themePath, _ := ni.GetIconThemePath(ctx)
 	if themePath != "" {
 		// Look for "snap.<appname>" pattern
 		if idx := strings.Index(themePath, "snap."); idx >= 0 {
@@ -545,7 +590,7 @@ func (t *tray) resolveWMClass(ni *notifier.StatusNotifierItem, appID, dest strin
 	}
 
 	// Fallback: try the icon name (sometimes reveals the app)
-	iconName, _ := ni.GetIconName(t.conn.Context())
+	iconName, _ := ni.GetIconName(ctx)
 	if iconName != "" && !strings.HasPrefix(iconName, "status_icon") {
 		return iconName
 	}
@@ -601,11 +646,27 @@ func (t *tray) showMenu(sender string, name dbus.ObjectPath, from fyne.CanvasObj
 	desk.WindowManager().ShowOverlay(w, size, pos)
 }
 
+// firstImage returns the first well-formed icon of those a tray app sent.
+func firstImage(icons []struct {
+	V0 int32
+	V1 int32
+	V2 []byte
+},
+) image.Image {
+	for _, ic := range icons {
+		if img := pixelsToImage(ic); img != nil {
+			return img
+		}
+	}
+	return nil
+}
+
 func (t *tray) fetchIcon(i *node) fyne.Resource {
+	ctx, cancel := callCtx()
+	defer cancel()
 	// Try 1: Raw pixel data from the app
-	ic, _ := i.ni.GetIconPixmap(t.conn.Context())
-	if len(ic) > 0 {
-		img := pixelsToImage(ic[0])
+	ic, _ := i.ni.GetIconPixmap(ctx)
+	if img := firstImage(ic); img != nil {
 		unique := strconv.Itoa(resourceID) + ".png"
 		resourceID++
 		w := &bytes.Buffer{}
@@ -614,8 +675,8 @@ func (t *tray) fetchIcon(i *node) fyne.Resource {
 	}
 
 	// Try 2: Icon name + optional theme path from the app
-	name, _ := i.ni.GetIconName(t.conn.Context())
-	themePath, _ := i.ni.GetIconThemePath(t.conn.Context())
+	name, _ := i.ni.GetIconName(ctx)
+	themePath, _ := i.ni.GetIconThemePath(ctx)
 
 	fullPath := ""
 	if name != "" {
@@ -646,7 +707,7 @@ func (t *tray) fetchIcon(i *node) fyne.Resource {
 
 	// Try 3: Look up icon from .desktop files using icon name and app ID
 	if desk := tyde.Instance(); desk != nil {
-		appID, _ := i.ni.GetId(t.conn.Context())
+		appID, _ := i.ni.GetId(ctx)
 		lookupNames := []string{}
 		if name != "" {
 			lookupNames = append(lookupNames, strings.ToLower(name))
@@ -758,11 +819,20 @@ func (i *img) At(x, y int) color.Color {
 	return color.NRGBA{r, g, b, a}
 }
 
+// maxTrayIconSide bounds the size of an icon a tray app sends.
+const maxTrayIconSide = 1024
+
+// pixelsToImage reads an ARGB32 icon a tray app sent; nil if its size and
+// its data do not agree.
 func pixelsToImage(in struct {
 	V0 int32
 	V1 int32
 	V2 []byte
 },
 ) image.Image {
-	return &img{int(in.V0), int(in.V1), in.V2}
+	w, h := int(in.V0), int(in.V1)
+	if w <= 0 || h <= 0 || w > maxTrayIconSide || h > maxTrayIconSide || len(in.V2) < w*h*4 {
+		return nil
+	}
+	return &img{w, h, in.V2}
 }
