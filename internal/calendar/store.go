@@ -53,24 +53,70 @@ func (s *Store) Accounts() []Account {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]Account, len(s.accounts))
-	copy(out, s.accounts)
+	for i, a := range s.accounts {
+		out[i] = a.clone()
+	}
 	return out
 }
 
-// AccountByID returns the account with the given ID, or false.
+// AccountByID returns a copy of the account with the given ID, or false.
 func (s *Store) AccountByID(id string) (Account, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, a := range s.accounts {
 		if a.ID == id {
-			return a, true
+			return a.clone(), true
 		}
 	}
 	return Account{}, false
 }
 
+// AddCalendars gives the calendars of an account that it did not know yet
+// their default preferences (shown), keeping whatever was set meanwhile,
+// and returns a copy of the account as stored.
+func (s *Store) AddCalendars(accountID string, ids []string) (Account, bool) {
+	s.mu.Lock()
+	var acc *Account
+	for i := range s.accounts {
+		if s.accounts[i].ID == accountID {
+			acc = &s.accounts[i]
+		}
+	}
+	if acc == nil {
+		s.mu.Unlock()
+		return Account{}, false
+	}
+	added := false
+	for _, id := range ids {
+		if _, ok := acc.Calendars[id]; !ok {
+			if acc.Calendars == nil {
+				acc.Calendars = make(map[string]CalendarPrefs)
+			}
+			acc.Calendars[id] = CalendarPrefs{Enabled: true}
+			added = true
+		}
+	}
+	out := acc.clone()
+	var listeners []func()
+	if added {
+		_ = s.persistAccountsLocked()
+		listeners = s.listenerSnapshotLocked()
+	}
+	s.mu.Unlock()
+	notify(listeners)
+	return out, true
+}
+
+// cachedEvents returns a copy of the events cached for an account.
+func (s *Store) cachedEvents(accountID string) []Event {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]Event(nil), s.cache[accountID]...)
+}
+
 // PutAccount inserts or replaces an account by ID.
 func (s *Store) PutAccount(acc Account) error {
+	acc = acc.clone() // the caller's maps stay the caller's
 	s.mu.Lock()
 	replaced := false
 	for i := range s.accounts {

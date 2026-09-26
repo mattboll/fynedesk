@@ -12,6 +12,7 @@ package calendar
 
 import (
 	"context"
+	"maps"
 	"time"
 )
 
@@ -65,6 +66,13 @@ type Account struct {
 	// secrets layer handles real credentials, this map carries only
 	// non-sensitive lookups.
 	Extra map[string]string `json:"extra,omitempty"`
+}
+
+// clone returns a copy of the account that shares no map with it.
+func (a Account) clone() Account {
+	a.Calendars = maps.Clone(a.Calendars)
+	a.Extra = maps.Clone(a.Extra)
+	return a
 }
 
 // CalendarPrefs holds per-calendar user preferences.

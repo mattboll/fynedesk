@@ -175,25 +175,22 @@ func (s *Syncer) syncOnce(ctx context.Context, accountID string) {
 
 	// Sync default-on for newly discovered calendars: respect existing
 	// CalendarPrefs (so users can disable a calendar and the choice
-	// sticks), but default Enabled=true for unseen IDs.
-	if acc.Calendars == nil {
-		acc.Calendars = make(map[string]CalendarPrefs)
+	// sticks), but default Enabled=true for unseen IDs. Merged in the
+	// store: writing back the account read above would undo a choice made
+	// during the sync.
+	ids := make([]string, len(cals))
+	for i, c := range cals {
+		ids[i] = c.ID
 	}
-	added := false
-	for _, c := range cals {
-		if _, present := acc.Calendars[c.ID]; !present {
-			acc.Calendars[c.ID] = CalendarPrefs{Enabled: true}
-			added = true
-		}
-	}
-	if added {
-		_ = s.Store.PutAccount(acc)
+	if acc, ok = s.Store.AddCalendars(accountID, ids); !ok {
+		return
 	}
 
 	from := time.Now().Add(-s.Lookback)
 	to := time.Now().Add(s.Lookahead)
 
 	var allEvents []Event
+	failed := map[string]bool{}
 	for _, c := range cals {
 		if prefs, ok := acc.Calendars[c.ID]; ok && !prefs.Enabled {
 			continue
@@ -204,9 +201,19 @@ func (s *Syncer) syncOnce(ctx context.Context, accountID string) {
 				return
 			}
 			log.Printf("[calendar-sync] %s/%s: %v", acc.Email, c.Name, err)
+			failed[c.ID] = true
 			continue
 		}
 		allEvents = append(allEvents, evs...)
+	}
+	// A calendar that failed this time keeps the events it had: they would
+	// vanish until the next good sync.
+	if len(failed) > 0 {
+		for _, ev := range s.Store.cachedEvents(accountID) {
+			if failed[ev.CalendarID] {
+				allEvents = append(allEvents, ev)
+			}
+		}
 	}
 	if err := s.Store.PutEvents(accountID, allEvents); err != nil {
 		log.Printf("[calendar-sync] %s: persist events: %v", acc.Email, err)
