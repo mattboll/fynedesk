@@ -236,7 +236,7 @@ func (sb *sidebarPanel) refreshSystemState(
 	streams := listAudioStreams()
 
 	fyne.Do(func() {
-		if sb.win == nil {
+		if sidebar != sb {
 			return // sidebar closed before refresh finished
 		}
 		volSlider.Value = vol
@@ -585,20 +585,29 @@ func audioDeviceSelectorObjects(kind string, devices []audioDevice, defaultIdx i
 		return nil
 	}
 
+	// Two devices can have the same name (two identical headsets): number
+	// them, so each name picks its own device.
 	names := make([]string, len(devices))
 	idMap := make(map[string]string)
 	for i, d := range devices {
-		names[i] = d.name
-		idMap[d.name] = d.id
+		name := d.name
+		for n := 2; idMap[name] != ""; n++ {
+			name = fmt.Sprintf("%s (%d)", d.name, n)
+		}
+		names[i] = name
+		idMap[name] = d.id
 	}
 
-	sel := widget.NewSelect(names, func(selected string) {
+	sel := widget.NewSelect(names, nil)
+	if defaultIdx < len(names) {
+		sel.SetSelected(names[defaultIdx])
+	}
+	// Set after the current one is shown: selecting it must not set the
+	// default device again each time the sidebar opens.
+	sel.OnChanged = func(selected string) {
 		if id, ok := idMap[selected]; ok {
 			setDefaultAudioDevice(id)
 		}
-	})
-	if defaultIdx < len(names) {
-		sel.SetSelected(names[defaultIdx])
 	}
 
 	label := locale.T("sidebar.audioOutput")
