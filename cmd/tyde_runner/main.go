@@ -6,15 +6,30 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+	"time"
 )
 
 const runCmd = "tyde"
+
+// exitNoX is the status tyde exits with, under the runner, when it cannot
+// reach the X server: the session is over, it is not restarted. (512 was
+// used before, which an exit status, 8 bits, cannot carry.)
+const exitNoX = 3
+
+// Restarts after a crash wait, longer each time tyde crashes soon after it
+// started, so a crash at start does not spin.
+const (
+	restartPause    = time.Second
+	restartPauseMax = 30 * time.Second
+	stableRun       = time.Minute // a run this long resets the pause
+)
 
 func main() {
 	_ = os.Remove(logPath()) // remove old logs
 	_ = os.Remove(runnerLogPath())
 	log.SetOutput(openRunnerLogWriter())
 	launchEnv := os.Environ()
+	pause := restartPause
 
 	for {
 		logFile := logPath()
@@ -28,10 +43,11 @@ func main() {
 
 		exe := exec.Command(runCmd)
 		exe.Env = append(launchEnv, "FYNE_DESK_RUNNER=1")
-		// logger will be closed at the end of this for loop
 		logger := openLogWriter()
 		exe.Stdout, exe.Stderr = logger, logger
+		started := time.Now()
 		err := exe.Run()
+		_ = logger.Close() // on every path out of this run
 		if err == nil {
 			return
 		}
@@ -43,21 +59,22 @@ func main() {
 		}
 
 		if exit, ok := exitErr.Sys().(syscall.WaitStatus); ok {
-			status := exit.ExitStatus()
-			if status == 0 {
+			switch status := exit.ExitStatus(); status {
+			case 0:
 				log.Println("Exiting Error 0")
 				return
-			} else if status == 512 { // X server unavailable
+			case exitNoX:
 				log.Println("X server went away")
 				return
-			} else if status == 2 {
-				log.Println("Failed to connect to X, retrying")
-			} else {
+			default:
 				log.Println("Restart from status", status)
 			}
 		}
 
-		// close before starting next run
-		_ = logger.Close()
+		if time.Since(started) > stableRun {
+			pause = restartPause
+		}
+		time.Sleep(pause)
+		pause = min(pause*2, restartPauseMax)
 	}
 }
