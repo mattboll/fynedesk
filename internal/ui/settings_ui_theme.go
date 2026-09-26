@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -340,57 +339,40 @@ var fynePrimaryColorHex = map[string]string{
 // watchFynePrimaryColor polls ~/.config/fyne/settings.json for Main Color changes.
 // We cannot use app.Settings().AddListener() because Fyne disables its file watcher
 // when a custom theme is set via SetTheme() (themeSpecified=true).
-func watchFynePrimaryColor(app fyne.App) {
-	// Resolve settings.json path: ~/.config/fyne/settings.json
-	// App storage root is ~/.config/fyne/<appID>/, parent is ~/.config/fyne/
-	storageRoot := app.Storage().RootURI()
-	settingsPath := filepath.Join(filepath.Dir(storageRoot.Path()), "settings.json")
-	themeDest := filepath.Join(filepath.Dir(storageRoot.Path()), "theme.json")
+func watchFynePrimaryColor(app fyne.App, settings *deskSettings) {
+	// theme.json sits next to the app storage: ~/.config/fyne/theme.json
+	themeDest := filepath.Join(filepath.Dir(app.Storage().RootURI().Path()), "theme.json")
 
+	// Fyne watches its settings.json and calls back on the main thread.
 	lastPrimary := app.Settings().PrimaryColor()
-
-	go func() {
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
-		for range ticker.C {
-			data, err := os.ReadFile(settingsPath)
-			if err != nil {
-				continue
-			}
-			var schema struct {
-				PrimaryColor string `json:"primary_color"`
-			}
-			if err := json.Unmarshal(data, &schema); err != nil {
-				continue
-			}
-			if schema.PrimaryColor == "" || schema.PrimaryColor == lastPrimary {
-				continue
-			}
-			lastPrimary = schema.PrimaryColor
-
-			fyne.Do(func() {
-				// Disable auto accent color when user explicitly picks a color
-				if cfg, _ := loadConfig(); cfg != nil && cfg.Theme.AutoAccentColor {
-					cfg.Theme.AutoAccentColor = false
-					_ = saveConfig(cfg)
-					fyne.CurrentApp().Preferences().SetBool("autoaccentcolor", false)
-				}
-
-				hex, ok := fynePrimaryColorHex[lastPrimary]
-				if !ok {
-					hex = fynePrimaryColorHex["blue"]
-				}
-
-				syncPrimaryColors(themeDest, hex)
-				applyThemeFromJSON(themeDest)
-
-				// Notify compositor to re-read theme colors for decorations
-				if wlipc.IsWaylandSession() {
-					_ = wlipc.NotifySettingsChanged()
-				}
-			})
+	app.Settings().AddListener(func(s fyne.Settings) {
+		primary := s.PrimaryColor()
+		if primary == "" || primary == lastPrimary {
+			return
 		}
-	}()
+		lastPrimary = primary
+		fyne.Do(func() {
+			// Disable auto accent color when user explicitly picks a color;
+			// through the settings, whose copy of config.toml is the one saved.
+			if settings.cfg != nil && settings.cfg.Theme.AutoAccentColor {
+				settings.cfg.Theme.AutoAccentColor = false
+				settings.saveTOML()
+			}
+
+			hex, ok := fynePrimaryColorHex[primary]
+			if !ok {
+				hex = fynePrimaryColorHex["blue"]
+			}
+
+			syncPrimaryColors(themeDest, hex)
+			applyThemeFromJSON(themeDest)
+
+			// Notify compositor to re-read theme colors for decorations
+			if wlipc.IsWaylandSession() {
+				_ = wlipc.NotifySettingsChanged()
+			}
+		})
+	})
 }
 
 // syncPrimaryColors updates the primary color and all accent-derived colors
@@ -429,17 +411,19 @@ func updateThemeJSONColor(path, colorName, hexValue string) {
 // applies it to the theme when auto_accent_color is enabled.
 func watchAccentColor(done <-chan struct{}) {
 	wlipc.WatchAccentColor(func(hex string) {
-		// Check if auto accent color is enabled in TOML config
-		cfg, _ := loadConfig()
-		if cfg == nil || !cfg.Theme.AutoAccentColor {
-			return
-		}
+		fyne.Do(func() { // the theme changes on the Fyne thread
+			// Check if auto accent color is enabled in TOML config
+			cfg, _ := loadConfig()
+			if cfg == nil || !cfg.Theme.AutoAccentColor {
+				return
+			}
 
-		storageRoot := fyne.CurrentApp().Storage().RootURI()
-		dest := filepath.Join(filepath.Dir(storageRoot.Path()), "theme.json")
-		syncPrimaryColors(dest, hex)
-		reloadFyneTheme()
-		log.Printf("[ACCENT] Applied accent color from wallpaper: %s\n", hex)
+			storageRoot := fyne.CurrentApp().Storage().RootURI()
+			dest := filepath.Join(filepath.Dir(storageRoot.Path()), "theme.json")
+			syncPrimaryColors(dest, hex)
+			reloadFyneTheme()
+			log.Printf("[ACCENT] Applied accent color from wallpaper: %s\n", hex)
+		})
 	}, done)
 }
 

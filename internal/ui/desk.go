@@ -1384,7 +1384,9 @@ func newDesktop(app fyne.App, wm tyde.WindowManager, icons appie.Provider) *desk
 
 	// Sync Fyne primary color changes to theme.json so the JSON theme
 	// reflects the user's "Main Color" selection from Fyne Settings.
-	watchFynePrimaryColor(app)
+	if ds, ok := desk.settings.(*deskSettings); ok {
+		watchFynePrimaryColor(app, ds)
+	}
 
 	// Watch for accent color extracted from wallpaper by the compositor
 	accentDone := make(chan struct{})
