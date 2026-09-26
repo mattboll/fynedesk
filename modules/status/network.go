@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -39,9 +40,10 @@ type network struct {
 
 	wasBlocked bool
 
-	conn *dbus.Conn       // system bus for Wi-Fi browsing, opened lazily and reused
-	net  *netman.Networks // iwd-backed network browser, built once on first use
-	done chan struct{}
+	netMu sync.Mutex       // guards conn and net: built from the menu's goroutine
+	conn  *dbus.Conn       // system bus for Wi-Fi browsing, opened lazily and reused
+	net   *netman.Networks // iwd-backed network browser, built once on first use
+	done  chan struct{}
 }
 
 func (n *network) Destroy() {
@@ -49,10 +51,12 @@ func (n *network) Destroy() {
 		close(n.done)
 		n.done = nil
 	}
+	n.netMu.Lock()
 	if n.conn != nil {
 		_ = n.conn.Close()
 		n.conn, n.net = nil, nil
 	}
+	n.netMu.Unlock()
 }
 
 func (n *network) wirelessName() (string, error) {
@@ -97,7 +101,7 @@ func (n *network) wirelessName() (string, error) {
 // airportDevice returns the macOS device name of the Wi-Fi hardware port,
 // or "" if this machine has none (as on CI runners and Mac minis without Wi-Fi).
 func airportDevice() string {
-	out, err := exec.Command("networksetup", "-listallhardwareports").Output()
+	out, err := wm.ExecOutput("networksetup", "-listallhardwareports")
 	if err != nil {
 		log.Println("Error running networksetup tool", err)
 		return ""
@@ -122,18 +126,34 @@ func parseAirportDevice(out string) string {
 	return ""
 }
 
+// wlanRfkill returns the rfkill id of the Wi-Fi radio and whether it is
+// blocked (soft or hard), running rfkill (at path) with the default timeout.
+func wlanRfkill(path string) (id string, blocked bool, err error) {
+	out, err := wm.ExecOutput(path, "--noheadings", "--output", "ID,TYPE,SOFT,HARD")
+	if err != nil {
+		return "", false, err
+	}
+	return parseRfkillWlan(string(out))
+}
+
+// parseRfkillWlan reads "ID TYPE SOFT HARD" lines for the first wlan radio.
+func parseRfkillWlan(out string) (id string, blocked bool, err error) {
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 4 && f[1] == "wlan" {
+			return f[0], f[2] == "blocked" || f[3] == "blocked", nil
+		}
+	}
+	return "", false, errors.New("rfkill: no Wi-Fi radio")
+}
+
 func (n *network) isBlocked() (bool, error) {
 	if ip, _ := exec.LookPath("rfkill"); ip != "" {
-		out, err := exec.Command("bash", []string{"-c", "rfkill | grep \"wlan\""}...).Output()
+		_, blocked, err := wlanRfkill(ip)
 		if err != nil {
 			log.Println("Error running rfkill tool", err)
-			return false, err
 		}
-		if strings.Contains(string(out), " blocked") {
-			return true, nil
-		}
-
-		return false, nil
+		return blocked, err
 	}
 	if ip, _ := exec.LookPath("networksetup"); ip != "" {
 		dev := airportDevice()
@@ -141,7 +161,7 @@ func (n *network) isBlocked() (bool, error) {
 			return false, nil
 		}
 
-		out, err := exec.Command("networksetup", "-getairportpower", dev).Output()
+		out, err := wm.ExecOutput("networksetup", "-getairportpower", dev)
 		if err != nil {
 			log.Println("Error running networksetup tool", err)
 			return false, err
@@ -296,23 +316,19 @@ func (n *network) Metadata() tyde.ModuleMetadata {
 
 func (n *network) setFlightMode(block bool) error {
 	if ip, _ := exec.LookPath("rfkill"); ip != "" {
-		out, err := exec.Command("bash", []string{"-c", "rfkill | grep \"wlan\""}...).Output()
+		id, _, err := wlanRfkill(ip)
 		if err != nil {
 			log.Println("Error running rfkill tool", err)
 			return err
 		}
-		if len(out) < 3 {
-			return errors.New("rfkill tool: rfkill output is too short")
-		}
-
-		id := strings.Split(strings.TrimSpace(string(out)), " ")[0]
 
 		if id != "" {
 			mode := "block"
 			if !block {
 				mode = "unblock"
 			}
-			cmd := exec.Command("bash", []string{"-c", "pkexec rfkill " + mode + " " + id}...)
+			// No shell: the id and mode are arguments of their own.
+			cmd := exec.Command("pkexec", ip, mode, id)
 			err = cmd.Start()
 			if err != nil {
 				log.Println("Error running rfkill tool", err)
@@ -338,7 +354,7 @@ func (n *network) setFlightMode(block bool) error {
 		if !block {
 			mode = "on"
 		}
-		err := exec.Command("networksetup", "-setairportpower", dev, mode).Run()
+		err := wm.ExecRun("networksetup", "-setairportpower", dev, mode)
 		if err != nil {
 			log.Println("Error running networksetup tool", err)
 			return err
@@ -390,6 +406,8 @@ func (n *network) showMenu() {
 
 // networks lazily gets a network manager from our networks repo package that will generate our menu.
 func (n *network) networks() *netman.Networks {
+	n.netMu.Lock()
+	defer n.netMu.Unlock()
 	if n.net != nil {
 		return n.net
 	}
@@ -427,7 +445,7 @@ func (n *network) networks() *netman.Networks {
 	}
 
 	nm, err := netman.New(conn, handlePass, func(err error) {
-		dialog.ShowError(err, win)
+		fyne.Do(func() { dialog.ShowError(err, win) }) // called from netman's goroutines
 	})
 	if err != nil {
 		_ = conn.Close()
