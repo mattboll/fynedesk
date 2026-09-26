@@ -63,11 +63,13 @@ func (d *settingsUI) loadAdvancedScreen() fyne.CanvasObject {
 
 	applyButton := container.NewHBox(layout.NewSpacer(),
 		&widget.Button{Text: locale.T("settings.apply"), Importance: widget.HighImportance, OnTapped: func() {
+			d.settings.beginBatch() // one apply for the five, not five
 			d.settings.setNaturalScroll(naturalScroll.Checked)
 			d.settings.setWindowGaps(int(innerGapSlider.Value), int(outerGapSlider.Value))
 			d.settings.setWobblyWindows(wobbly.Checked)
 			d.settings.setBlurBehind(blur.Checked)
 			d.settings.setWindowShadows(shadows.Checked)
+			d.settings.endBatch()
 			wm.SendNotification(wm.NewNotification(locale.T("settings.settings"), locale.T("notif.applied")))
 		}})
 

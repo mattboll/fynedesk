@@ -89,6 +89,9 @@ var CompositorScreensChanged func([]ScreenCompositors)
 var CompositorWindowSnapshot func(screen *tyde.Screen, offsetY int) image.Image
 
 type desktop struct {
+	// What the last settings change built the modules, wallpaper and dock
+	// from (see fireSettingsChangeListener).
+	lastModulesKey, lastBackgroundKey, lastBarKey string
 	wm.ShortcutHandler
 	app      fyne.App
 	wm       tyde.WindowManager
@@ -1164,9 +1167,29 @@ func (l *desktop) RefreshWindowAccessories() {
 
 func (l *desktop) fireSettingsChangeListener(s tyde.DeskSettings) {
 	locale.SetLanguage(s.Language())
-	l.clearModuleCache()
+
+	// Each part is rebuilt only when what it depends on changed: any setting
+	// used to reload the modules, the wallpaper and the dock icons.
+	modulesKey := fmt.Sprint(s.ModuleNames(), s.Language(), s.NarrowWidgetPanel(),
+		s.ReduceMotion(), s.IconTheme(), s.DesktopNames(), s.DesktopCount(), s.BarPosition())
 	bgType := fyne.CurrentApp().Preferences().String("background_type")
-	l.updateBackgrounds(s.Background(), bgType)
+	bgKey := s.Background() + "\x00" + bgType
+	barKey := fmt.Sprint(s.LauncherIconSize(), s.LauncherZoomScale(), s.LauncherDisableZoom(),
+		s.LauncherIcons(), s.LauncherDisableTaskbar(), s.IconTheme(), s.BarPosition())
+	if bgKey != l.lastBackgroundKey {
+		l.lastBackgroundKey = bgKey
+		l.updateBackgrounds(s.Background(), bgType)
+	}
+	if modulesKey == l.lastModulesKey && barKey == l.lastBarKey {
+		return
+	}
+	modulesChanged := modulesKey != l.lastModulesKey
+	l.lastModulesKey, l.lastBarKey = modulesKey, barKey
+	if !modulesChanged {
+		l.updateBar()
+		return
+	}
+	l.clearModuleCache()
 	l.widgets.reloadModules(l.Modules())
 
 	// Update locale-dependent labels
@@ -1177,7 +1200,11 @@ func (l *desktop) fireSettingsChangeListener(s tyde.DeskSettings) {
 		l.overlayLayer.rebuild()
 	}
 	l.RefreshWindowAccessories() // pick up enabling/disabling of accessory modules
+	l.updateBar()
+}
 
+// updateBar applies the dock settings.
+func (l *desktop) updateBar() {
 	l.bar.iconSize = l.Settings().LauncherIconSize()
 	l.bar.iconScale = l.Settings().LauncherZoomScale()
 	l.bar.disableZoom = l.Settings().LauncherDisableZoom()
