@@ -280,6 +280,10 @@ func (s *server) handleXdgUnmap(v *xdgView, viewTree *C.struct_wlr_scene_tree) {
 	s.captureHideXdg(v)
 	destroyModalScrim(&v.scrimRect)
 	C.scene_node_set_enabled(&viewTree.node, 0)
+	if s.activeXdg == v {
+		s.activeXdg = nil
+		s.focusAfterHide()
+	}
 	s.writeWindowsState()
 	s.retile()
 }

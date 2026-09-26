@@ -240,6 +240,16 @@ func (s *server) focusTopmostOnDesk(desk int) {
 	}
 }
 
+// focusAfterHide gives the focus of a window that was hidden (to the tray)
+// to the one now on top, or to none: the keys must not go on to the hidden
+// window.
+func (s *server) focusAfterHide() {
+	s.focusTopmostOnDesk(s.currentDesk)
+	if s.activeXdg == nil && s.activeXway == nil {
+		s.seat.KeyboardClearFocus()
+	}
+}
+
 // focusableXway reports whether an XWayland window can take the focus:
 // not the panel, an overlay or an override-redirect popup (tooltip, menu).
 func focusableXway(v *xwayView) bool {

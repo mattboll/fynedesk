@@ -513,6 +513,10 @@ func (s *server) handleXwayUnmap(v *xwayView, viewTree *C.struct_wlr_scene_tree)
 	s.captureHideXway(v)
 	destroyModalScrim(&v.scrimRect)
 	C.scene_node_set_enabled(&viewTree.node, 0)
+	if s.activeXway == v && focusableXway(v) {
+		s.activeXway = nil
+		s.focusAfterHide()
+	}
 	if v.isOverlay && s.overlayXway == v {
 		s.overlayXway = nil
 		s.overlayW = 0
