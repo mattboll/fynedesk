@@ -13,7 +13,7 @@ import (
 // The D-Bus names of the notification service.
 const (
 	Path      dbus.ObjectPath = "/org/freedesktop/Notifications"
-	Interface                 = "org.freedesktop.Notifications"
+	Interface string          = "org.freedesktop.Notifications"
 )
 
 // Reasons of a NotificationClosed signal.
