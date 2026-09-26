@@ -195,7 +195,6 @@ func (s *server) tickCloseAnims() bool {
 		pixBuf := (*C.struct_pixel_buffer)(a.pixBuf)
 		C.pixel_buffer_update(pixBuf, unsafe.Pointer(&glitched.Pix[0]), C.int(tw), C.int(th))
 		sceneBuf := (*C.struct_wlr_scene_buffer)(a.buf)
-		C.scene_buffer_set_buffer(sceneBuf, nil)
 		C.scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
 
 		remaining = append(remaining, a)

@@ -15,6 +15,9 @@ static struct wlr_scene_buffer *scene_buffer_create(struct wlr_scene_tree *paren
 static void scene_buffer_set_buffer(struct wlr_scene_buffer *buf, struct wlr_buffer *buffer) {
 	wlr_scene_buffer_set_buffer(buf, buffer);
 }
+static void scene_buffer_set_opacity_t(struct wlr_scene_buffer *buf, float opacity) {
+	wlr_scene_buffer_set_opacity(buf, opacity);
+}
 static void scene_buffer_set_dest_size(struct wlr_scene_buffer *buf, int w, int h) {
 	wlr_scene_buffer_set_dest_size(buf, w, h);
 }
@@ -218,19 +221,12 @@ func (s *server) tickSlideTransition() bool {
 		return false
 	}
 
-	// Update all alpha values in the overlay image
-	pix := s.transitionImg.Pix
-	for i := 3; i < len(pix); i += 4 {
-		pix[i] = alpha
-	}
-
-	// Push updated pixels and reposition the scene buffer
-	pixBuf := (*C.struct_pixel_buffer)(s.transitionPixBuf)
-	C.pixel_buffer_update(pixBuf, unsafe.Pointer(&pix[0]),
-		C.int(s.transitionImg.Bounds().Dx()), C.int(s.transitionImg.Bounds().Dy()))
+	// The overlay's alpha is uniform (0xE0): the fade is the buffer's
+	// opacity, drawn by the GPU, rather than every pixel rewritten and copied
+	// again on the CPU at each frame.
 	sceneBuf := (*C.struct_wlr_scene_buffer)(s.transitionBuf)
-	C.scene_buffer_set_buffer(sceneBuf, nil) // force damage
-	C.scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
+	// (The spring can overshoot: wlroots asserts 0 <= opacity <= 1.)
+	C.scene_buffer_set_opacity_t(sceneBuf, C.float(min(max(1-progress, 0), 1)))
 	C.scene_node_set_position(&sceneBuf.node, C.int(out.layoutX+offsetX), C.int(out.layoutY))
 
 	return true
@@ -291,7 +287,6 @@ func (s *server) tickIrisTransition() bool {
 	pixBuf := (*C.struct_pixel_buffer)(s.transitionPixBuf)
 	C.pixel_buffer_update(pixBuf, unsafe.Pointer(&pix[0]), C.int(w), C.int(h))
 	sceneBuf := (*C.struct_wlr_scene_buffer)(s.transitionBuf)
-	C.scene_buffer_set_buffer(sceneBuf, nil) // force damage
 	C.scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
 
 	return true
@@ -416,7 +411,6 @@ func (s *server) tickMatrixTransition() bool {
 	pixBuf := (*C.struct_pixel_buffer)(s.transitionPixBuf)
 	C.pixel_buffer_update(pixBuf, unsafe.Pointer(&pix[0]), C.int(w), C.int(h))
 	sceneBuf := (*C.struct_wlr_scene_buffer)(s.transitionBuf)
-	C.scene_buffer_set_buffer(sceneBuf, nil)
 	C.scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
 	// Keep centered (no sliding)
 	C.scene_node_set_position(&sceneBuf.node, C.int(out.layoutX), C.int(out.layoutY))

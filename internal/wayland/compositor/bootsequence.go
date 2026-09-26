@@ -331,7 +331,6 @@ func (s *server) tickBootSequence() bool {
 	pixBuf := (*C.struct_pixel_buffer)(s.bootPixBuf)
 	C.pixel_buffer_update(pixBuf, unsafe.Pointer(&pix[0]), C.int(w), C.int(h))
 	sceneBuf = (*C.struct_wlr_scene_buffer)(s.bootBuf)
-	C.scene_buffer_set_buffer(sceneBuf, nil) // force damage
 	C.scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
 
 	return true

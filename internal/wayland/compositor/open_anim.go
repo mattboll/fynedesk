@@ -254,7 +254,6 @@ func (s *server) tickOpenAnim() bool {
 		C.pixel_buffer_update(pixBuf,
 			unsafe.Pointer(&glitched.Pix[0]),
 			C.int(sz), C.int(sz))
-		C.oa_scene_buffer_set_buffer(sceneBuf, nil)
 		C.oa_scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
 	}
 
