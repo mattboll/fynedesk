@@ -72,29 +72,23 @@ func (d *settingsUI) loadThemeScreen() fyne.CanvasObject {
 
 	useTheme := func(name string) {
 		dest := filepath.Join(filepath.Dir(storageRoot.Path()), "theme.json")
-		out, err := os.Create(dest)
+		// The theme is read whole first, then written in one go: creating
+		// the file first emptied it when the source failed to open.
+		var data []byte
+		var err error
+		if builtin, openErr := bundledThemes.Open(filepath.Join("themes/", name, "theme.json")); openErr == nil {
+			data, err = io.ReadAll(builtin)
+			builtin.Close()
+		} else {
+			data, err = os.ReadFile(filepath.Join(userThemesDir, name, "theme.json"))
+		}
 		if err != nil {
-			fyne.LogError("Failed to create theme file", err)
+			fyne.LogError("Failed to read theme "+name, err)
 			return
 		}
-		defer out.Close()
-		var in io.ReadCloser
-		if builtin, err := bundledThemes.Open(filepath.Join("themes/", name, "theme.json")); err == nil {
-			in = builtin
-		} else {
-			source := filepath.Join(userThemesDir, name, "theme.json")
-			opened, err := os.Open(source)
-			if err != nil {
-				fyne.LogError("Failed to open theme source", err)
-			} else {
-				in = opened
-			}
-		}
-		if in != nil {
-			if _, err := io.Copy(out, in); err != nil {
-				fyne.LogError("Failed to copy theme data", err)
-			}
-			in.Close()
+		if err := wlipc.WriteFileAtomic(dest, data); err != nil {
+			fyne.LogError("Failed to write theme file", err)
+			return
 		}
 
 		// Extract tyde titlebar colors from the theme for compositor propagation
@@ -378,18 +372,22 @@ func watchFynePrimaryColor(app fyne.App, settings *deskSettings) {
 // syncPrimaryColors updates the primary color and all accent-derived colors
 // in theme.json so the entire UI reflects the selected Main Color.
 func syncPrimaryColors(path, hex string) {
-	updateThemeJSONColor(path, "primary", hex)
-	updateThemeJSONColor(path, "pressed", hex)
-	updateThemeJSONColor(path, "scrollBar", hex)
-	updateThemeJSONColor(path, "tydeToastTitle", hex)
-	updateThemeJSONColor(path, "tydeAccentGlow", hex+"dc")
-	updateThemeJSONColor(path, "tydeSidebarSeparator", hex+"3c")
-	updateThemeJSONColor(path, "tydeSectionLabel", hex)
-	updateThemeJSONColor(path, "tydeBadge", hex)
+	updateThemeJSONColors(path, map[string]string{
+		"primary":              hex,
+		"pressed":              hex,
+		"scrollBar":            hex,
+		"tydeToastTitle":       hex,
+		"tydeAccentGlow":       hex + "dc",
+		"tydeSidebarSeparator": hex + "3c",
+		"tydeSectionLabel":     hex,
+		"tydeBadge":            hex,
+	})
 }
 
-// updateThemeJSONColor updates a single color entry in theme.json.
-func updateThemeJSONColor(path, colorName, hexValue string) {
+// updateThemeJSONColors sets colour entries of theme.json in one write, and
+// atomically: the compositor reads the file too (it was written once per
+// colour, eight times for a main colour, in place).
+func updateThemeJSONColors(path string, colors map[string]string) {
 	var themeData map[string]any
 	if data, err := os.ReadFile(path); err == nil {
 		_ = json.Unmarshal(data, &themeData)
@@ -401,10 +399,17 @@ func updateThemeJSONColor(path, colorName, hexValue string) {
 	if colorsMap == nil {
 		colorsMap = map[string]any{}
 	}
-	colorsMap[colorName] = hexValue
+	for name, hex := range colors {
+		colorsMap[name] = hex
+	}
 	themeData["Colors"] = colorsMap
-	data, _ := json.MarshalIndent(themeData, "", "\t")
-	_ = os.WriteFile(path, data, 0o644)
+	data, err := json.MarshalIndent(themeData, "", "\t")
+	if err != nil {
+		return
+	}
+	if err := wlipc.WriteFileAtomic(path, data); err != nil {
+		fyne.LogError("Failed to write "+path, err)
+	}
 }
 
 // watchAccentColor watches for accent color IPC from the compositor and
@@ -491,29 +496,7 @@ func parseSettingsHexColor(hex string) color.Color {
 // mergeCustomColors reads the active theme.json and overlays custom color values.
 func (d *settingsUI) mergeCustomColors(colors map[string]string) {
 	storageRoot := fyne.CurrentApp().Storage().RootURI()
-	dest := filepath.Join(filepath.Dir(storageRoot.Path()), "theme.json")
-
-	// Read existing theme
-	var themeData map[string]any
-	if data, err := os.ReadFile(dest); err == nil {
-		_ = json.Unmarshal(data, &themeData)
-	}
-	if themeData == nil {
-		themeData = map[string]any{}
-	}
-
-	colorsMap, _ := themeData["Colors"].(map[string]any)
-	if colorsMap == nil {
-		colorsMap = map[string]any{}
-	}
-
-	for k, v := range colors {
-		colorsMap[k] = v
-	}
-	themeData["Colors"] = colorsMap
-
-	data, _ := json.MarshalIndent(themeData, "", "\t")
-	_ = os.WriteFile(dest, data, 0o644)
+	updateThemeJSONColors(filepath.Join(filepath.Dir(storageRoot.Path()), "theme.json"), colors)
 }
 
 // exportThemeDialog shows a dialog to save the current theme as a shareable TOML file.

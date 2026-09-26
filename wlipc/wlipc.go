@@ -124,6 +124,10 @@ func ConfigDir() string {
 
 func getConfigDir() string { return ConfigDir() }
 
+// WriteFileAtomic writes a file that others read while it changes (the
+// theme, the IPC files): see atomicWriteFile.
+func WriteFileAtomic(path string, data []byte) error { return atomicWriteFile(path, data) }
+
 // atomicWriteFile writes data to a file atomically using write-to-temp + rename
 // to avoid race conditions with concurrent readers. If the target path is a
 // symlink, refuse to write rather than silently replacing it (defense in depth
