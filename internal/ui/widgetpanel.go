@@ -137,7 +137,7 @@ func (w *widgetPanel) clockRefresh() {
 		newText := w.vClock.Text
 		if newText != w.lastRotatedText {
 			w.lastRotatedText = newText
-			go w.rotate(w.vClock)
+			go w.rotate(*w.vClock)
 		}
 	}
 
@@ -208,18 +208,19 @@ func (w *widgetPanel) createClock() {
 	startClock(w)
 }
 
-func (w *widgetPanel) rotate(time *canvas.Text) {
+// rotate draws the clock text turned a quarter, for the narrow panel. It
+// runs in a goroutine, on a copy of the text: the clock changes it on the
+// Fyne thread meanwhile.
+func (w *widgetPanel) rotate(clock canvas.Text) {
 	c := software.NewTransparentCanvas()
 	c.SetPadded(false)
-	c.SetContent(time)
+	c.SetContent(&clock)
 
-	img := c.Capture()
-	out := imaging.Rotate270(img)
-
-	w.rotated.Image = out
-	ratio := time.MinSize().Width / time.MinSize().Height
+	out := imaging.Rotate270(c.Capture())
+	ratio := clock.MinSize().Width / clock.MinSize().Height
 	space := wmtheme.NarrowBarWidth - theme.Padding()*2
 	fyne.Do(func() {
+		w.rotated.Image = out
 		w.rotated.SetMinSize(fyne.NewSize(space, space*ratio))
 		w.rotated.Refresh()
 	})
