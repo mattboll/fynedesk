@@ -881,6 +881,16 @@ func (l *desktop) createSecondaryContent(sw *screenWindow) fyne.CanvasObject {
 	return container.New(&secondaryLayout{}, objects...)
 }
 
+// hasScreen reports whether a screen of that name is connected.
+func hasScreen(screens []*tyde.Screen, name string) bool {
+	for _, sc := range screens {
+		if sc.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func (l *desktop) setupRoot() {
 	primary := l.screens.Primary()
 
@@ -888,6 +898,17 @@ func (l *desktop) setupRoot() {
 	existingByName := make(map[string]*screenWindow, len(l.screenWindows))
 	for _, sw := range l.screenWindows {
 		existingByName[sw.screen.Name] = sw
+	}
+
+	// The primary's window is Fyne's master window, whose closing ends the
+	// session: when its screen goes, it moves to the new primary screen, and
+	// the window that screen had goes instead.
+	if old := l.primaryWin; old != nil && primary != nil && old.screen.Name != primary.Name && !hasScreen(l.screens.Screens(), old.screen.Name) {
+		if other := existingByName[primary.Name]; other != nil {
+			other.win.Close()
+		}
+		delete(existingByName, old.screen.Name)
+		existingByName[primary.Name] = old
 	}
 
 	var newWindows, createdWindows []*screenWindow

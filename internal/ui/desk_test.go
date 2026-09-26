@@ -80,3 +80,26 @@ func TestBackgroundChange(t *testing.T) {
 	l.settings.(*wmTest.Settings).SetBackground(filepath.Join(workingDir, "testdata", "fyne.png"))
 	assert.Equal(t, filepath.Join(workingDir, "testdata", "fyne.png"), l.settings.Background())
 }
+
+// TestPrimaryScreenUnplugged checks that the primary's (master) window
+// moves to the new primary screen instead of being closed, which would end
+// the session.
+func TestPrimaryScreenUnplugged(t *testing.T) {
+	t.Setenv("WAYLAND_DISPLAY", "")
+	l := NewEmbeddedDesktop(test.NewApp(), wmTest.NewAppProvider()).(*desktop)
+	a := &tyde.Screen{Name: "A", Width: 2000, Height: 1000, Scale: 1}
+	b := &tyde.Screen{Name: "B", X: 2000, Width: 1600, Height: 900, Scale: 1}
+	l.screens = wmTest.NewScreensProvider(a, b)
+	l.settings = wmTest.NewSettings()
+	l.setupRoot()
+	master := l.primaryWin
+	if master == nil || master.screen != a {
+		t.Fatal("no primary window on A")
+	}
+
+	l.screens = wmTest.NewScreensProvider(b) // A unplugged: B is the primary
+	l.setupRoot()
+	assert.Same(t, master, l.primaryWin, "the master window was replaced")
+	assert.Same(t, b, l.primaryWin.screen)
+	assert.Len(t, l.screenWindows, 1)
+}
