@@ -2,7 +2,6 @@ package wm
 
 import (
 	"bytes"
-	"encoding/base64"
 	"fmt"
 	"image/color"
 	"log"
@@ -13,6 +12,7 @@ import (
 	"sync"
 
 	"fyshos.com/tyde"
+	"fyshos.com/tyde/locale"
 	wmTheme "fyshos.com/tyde/theme"
 
 	"fyne.io/fyne/v2"
@@ -31,10 +31,8 @@ type subj struct {
 }
 
 type auth struct {
+	mu      sync.Mutex
 	dialogs map[string]func() // cookie -> dismiss the modal and end the session
-
-	rememberPass string
-	encoder      *base64.Encoding
 }
 
 func (a *auth) register() {
@@ -105,70 +103,80 @@ type ident struct {
 	Details map[string]dbus.Variant
 }
 
+// BeginAuthentication asks the user for the password polkit wants, and
+// returns once they gave it or cancelled. The password is never kept: each
+// request asks again (polkit itself remembers an authorisation for a while
+// where its policy says so).
 func (a *auth) BeginAuthentication(actionID, message, iconName string, details map[string]string, cookie string, ids []ident, sender dbus.Sender) (err *dbus.Error) {
 	username, err2 := a.resolveUser(ids)
 	if err2 != nil {
-		fyne.LogError("Failed to look up user", err)
-	}
-	if a.rememberPass != "" {
-		err2 = a.reply(username, cookie, a.decode(a.rememberPass))
-		if err2 == nil {
-			return nil
-		}
-
-		// fall through to asking again
-		a.rememberPass = ""
+		fyne.LogError("Failed to look up user", err2)
 	}
 
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	pass := widget.NewPasswordEntry()
-	remember := widget.NewCheck("", func(bool) {})
-	remember.Checked = true
-	f := widget.NewForm(
-		widget.NewFormItem("Ident", widget.NewLabel(username)),
-		widget.NewFormItem("Password", pass),
-		widget.NewFormItem("Remember", remember),
-	)
+	done := make(chan struct{})
+	var once sync.Once
+	var closeModal func()
 	// dismiss tears down the modal and ends the auth session. It is guarded so the
 	// buttons and a CancelAuthentication call cannot double-close.
-	var closeModal func()
-	var once sync.Once
 	dismiss := func() {
 		once.Do(func() {
-			if closeModal != nil {
-				closeModal()
-			}
+			fyne.Do(func() {
+				if closeModal != nil {
+					closeModal()
+				}
+			})
+			a.mu.Lock()
 			delete(a.dialogs, cookie)
-			wg.Done()
+			a.mu.Unlock()
+			close(done)
 		})
 	}
+	a.mu.Lock()
 	a.dialogs[cookie] = dismiss
+	a.mu.Unlock()
 
-	var auth *widget.Button
-	auth = widget.NewButton("Authorize", func() {
-		auth.Disable()
-		err3 := a.reply(username, cookie, pass.Text)
+	fyne.DoAndWait(func() {
+		closeModal = a.showDialog(username, message, cookie, dismiss)
+	})
+	<-done
+	return nil
+}
 
-		if err3 != nil {
-			log.Println("Auth err", err3)
-		} else {
-			if remember.Checked {
-				a.rememberPass = a.encode(pass.Text)
-			}
-			dismiss()
-		}
-		auth.Enable()
+// showDialog shows the password dialog as a modal; it returns what closes it.
+// Fyne thread.
+func (a *auth) showDialog(username, message, cookie string, dismiss func()) func() {
+	pass := widget.NewPasswordEntry()
+	f := widget.NewForm(
+		widget.NewFormItem(locale.T("auth.user"), widget.NewLabel(username)),
+		widget.NewFormItem(locale.T("auth.password"), pass),
+	)
+
+	var authBtn *widget.Button
+	authBtn = widget.NewButton(locale.T("auth.authorize"), func() {
+		authBtn.Disable()
+		password := pass.Text
+		go func() { // the helper takes its time (and waits on a wrong password)
+			err := a.reply(username, cookie, password)
+			fyne.Do(func() {
+				if err != nil {
+					log.Println("Auth err", err)
+					pass.SetText("")
+					authBtn.Enable()
+					return
+				}
+				dismiss()
+			})
+		}()
 	})
-	auth.Importance = widget.HighImportance
-	cancel := widget.NewButton("Cancel", func() {
-		dismiss()
-	})
+	authBtn.Importance = widget.HighImportance
+	cancel := widget.NewButton(locale.T("auth.cancel"), dismiss)
 	pass.OnSubmitted = func(string) {
-		auth.OnTapped()
+		if !authBtn.Disabled() {
+			authBtn.OnTapped()
+		}
 	}
 
-	header := widget.NewRichTextFromMarkdown(fmt.Sprintf("### Authorise\n\n```%s```", message))
+	header := widget.NewRichTextFromMarkdown(fmt.Sprintf("### %s\n\n```%s```", locale.T("auth.title"), message))
 	header.Wrapping = fyne.TextWrapBreak
 	header.Refresh()
 	bottomPad := canvas.NewRectangle(color.Transparent)
@@ -177,7 +185,7 @@ func (a *auth) BeginAuthentication(actionID, message, iconName string, details m
 		header,
 		container.NewVBox(
 			container.NewHBox(layout.NewSpacer(),
-				container.NewGridWithColumns(2, cancel, auth),
+				container.NewGridWithColumns(2, cancel, authBtn),
 				layout.NewSpacer()), bottomPad,
 		),
 		nil, nil, f,
@@ -198,13 +206,9 @@ func (a *auth) BeginAuthentication(actionID, message, iconName string, details m
 
 	// Show as a modal: the desktop centres the dialog over a blurred backdrop that
 	// does not dismiss on tap or mouse-out, so it stays until a button calls dismiss.
-	closeModal = tyde.Instance().ShowModal(dialog, fyne.NewSize(340, 250))
-	fyne.Do(func() {
-		tyde.Instance().Root().Canvas().Focus(pass)
-	})
-
-	wg.Wait()
-	return nil
+	closeModal := tyde.Instance().ShowModal(dialog, fyne.NewSize(340, 220))
+	tyde.Instance().Root().Canvas().Focus(pass)
+	return closeModal
 }
 
 // resolveUser picks which identity to authenticate as from those polkit offers.
@@ -259,8 +263,18 @@ func identUID(id ident) string {
 	return ""
 }
 
+// polkitHelpers are where distributions install polkit's helper.
+var polkitHelpers = []string{"/usr/lib/polkit-1/polkit-agent-helper-1", "/usr/libexec/polkit-agent-helper-1"}
+
 func (a *auth) reply(username string, cookie string, pass string) error {
-	cmd := exec.Command("/usr/lib/polkit-1/polkit-agent-helper-1", username)
+	helper := polkitHelpers[0]
+	for _, h := range polkitHelpers {
+		if _, err := os.Stat(h); err == nil {
+			helper = h
+			break
+		}
+	}
+	cmd := exec.Command(helper, username)
 
 	buffer := bytes.Buffer{}
 	buffer.Write([]byte(cookie + "\n"))
@@ -273,27 +287,17 @@ func (a *auth) reply(username string, cookie string, pass string) error {
 }
 
 func (a *auth) CancelAuthentication(cookie string, sender dbus.Sender) (err *dbus.Error) {
-	if dismiss, ok := a.dialogs[cookie]; ok {
+	a.mu.Lock()
+	dismiss, ok := a.dialogs[cookie]
+	a.mu.Unlock()
+	if ok {
 		dismiss() // tears down the modal and ends the session
 	}
 	return nil
 }
 
-func (a *auth) decode(in string) string {
-	out, err := a.encoder.DecodeString(in)
-	if err != nil {
-		fyne.LogError("Codinging remembered password err", err)
-		return ""
-	}
-	return string(out)
-}
-
-func (a *auth) encode(in string) string {
-	return a.encoder.EncodeToString([]byte(in))
-}
-
 // StartAuthAgent asks our policy kit agent to start listening for auth requests.
 func StartAuthAgent() {
-	a := &auth{dialogs: make(map[string]func()), encoder: base64.StdEncoding}
+	a := &auth{dialogs: make(map[string]func())}
 	go a.register()
 }
