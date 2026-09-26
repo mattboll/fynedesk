@@ -182,11 +182,12 @@ func (s *IPCServer) Close() {
 	os.Remove(SocketPath())
 }
 
-// Broadcast sends an event to all clients subscribed to the given event name.
-func (s *IPCServer) Broadcast(eventName string, data any) {
+// Broadcast sends an event to all clients subscribed to the given event name,
+// and returns how many there are.
+func (s *IPCServer) Broadcast(eventName string, data any) int {
 	raw, err := json.Marshal(data)
 	if err != nil {
-		return
+		return 0
 	}
 	msg := Message{
 		Type: "event",
@@ -195,13 +196,14 @@ func (s *IPCServer) Broadcast(eventName string, data any) {
 	}
 	line, err := json.Marshal(msg)
 	if err != nil {
-		return
+		return 0
 	}
 	line = append(line, '\n')
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	reached := 0
 	for c := range s.clients {
 		c.mu.Lock()
 		subscribed := c.subs[eventName]
@@ -209,6 +211,7 @@ func (s *IPCServer) Broadcast(eventName string, data any) {
 		if !subscribed {
 			continue
 		}
+		reached++
 		// Non-blocking send. If the client's queue is full (slow consumer),
 		// drop the oldest event to make room — broadcasts are state snapshots
 		// so the latest is what matters.
@@ -225,6 +228,7 @@ func (s *IPCServer) Broadcast(eventName string, data any) {
 			}
 		}
 	}
+	return reached
 }
 
 // ClientCount returns the number of connected clients.
@@ -399,14 +403,16 @@ func SetDefaultServer(s *IPCServer) {
 	defaultServerMu.Unlock()
 }
 
-// broadcastIfServer broadcasts an event if a default server is registered.
-func broadcastIfServer(eventName string, data any) {
+// broadcastIfServer broadcasts an event if a default server is registered,
+// and returns how many clients it reached.
+func broadcastIfServer(eventName string, data any) int {
 	defaultServerMu.RLock()
 	srv := defaultServer
 	defaultServerMu.RUnlock()
-	if srv != nil {
-		srv.Broadcast(eventName, data)
+	if srv == nil {
+		return 0
 	}
+	return srv.Broadcast(eventName, data)
 }
 
 // --- Default client (used by Request* functions for transparent socket upgrade) ---

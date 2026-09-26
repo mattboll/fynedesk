@@ -1,8 +1,11 @@
 package wm
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/godbus/dbus/v5"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -237,4 +240,47 @@ func TestWithdrawTagged(t *testing.T) {
 	if assert.Len(t, hist, 1) {
 		assert.Equal(t, "Other", hist[0].Title)
 	}
+}
+
+func TestBusNotifications(t *testing.T) {
+	ClearNotificationHistory()
+	AddNotificationListener(func(*Notification) {})
+	s := ensureServer()
+
+	first, _ := s.Notify("mail", 0, "", "one", "", nil, nil, 0)
+	again, _ := s.Notify("mail", first, "", "two", "", nil, nil, 0)
+	assert.Equal(t, first, again, "replaces_id keeps the id")
+	if hist := NotificationHistory(); assert.Len(t, hist, 1) {
+		assert.Equal(t, "two", hist[0].Title)
+	}
+
+	tag := map[string]dbus.Variant{"x-dunst-stack-tag": dbus.MakeVariant("vol")}
+	vol, _ := s.Notify("volume", 0, "", "50%", "", nil, tag, 0)
+	vol2, _ := s.Notify("volume", 0, "", "60%", "", nil, tag, 0)
+	assert.Equal(t, vol, vol2, "the stack tag replaces")
+	assert.Len(t, NotificationHistory(), 2)
+
+	low := map[string]dbus.Variant{"urgency": dbus.MakeVariant(byte(0)), "transient": dbus.MakeVariant(true)}
+	var got *Notification
+	AddNotificationListener(func(n *Notification) { got = n })
+	_, _ = s.Notify("", 0, "", "quiet", "", nil, low, 0)
+	assert.Equal(t, UrgencyLow, got.Urgency)
+	assert.True(t, got.Transient)
+
+	_ = s.CloseNotification(first)
+	assert.Len(t, NotificationHistory(), 1, "CloseNotification withdraws it")
+}
+
+func TestNotificationIconBounded(t *testing.T) {
+	dir := t.TempDir()
+	small := filepath.Join(dir, "small.png")
+	big := filepath.Join(dir, "big.png")
+	assert.NoError(t, os.WriteFile(small, []byte("png"), 0o600))
+	assert.NoError(t, os.WriteFile(big, make([]byte, maxNotificationIcon+1), 0o600))
+
+	assert.NotNil(t, loadNotificationIcon(small))
+	assert.Nil(t, loadNotificationIcon(big), "too big")
+	assert.Nil(t, loadNotificationIcon(dir), "a directory")
+	assert.Nil(t, loadNotificationIcon("/dev/zero"), "a device")
+	assert.Nil(t, loadNotificationIcon("dialog-information"), "a theme name")
 }

@@ -398,12 +398,19 @@ func NotifyNotificationClosed(id uint32) {
 	broadcastIfServer(EventNotifClosed, NotificationClosed{ID: id})
 }
 
-// NotifyDBusNotification writes a D-Bus notification for the panel to display.
+// notificationFileMaxAge is how old a notification left in the file can be
+// and still be shown: one found at startup is from an earlier session.
+const notificationFileMaxAge = 10 * time.Second
+
+// NotifyDBusNotification hands a D-Bus notification to the panel to display:
+// over the socket, or, when no panel listens there, through a file (the
+// notification then sits on disk until the panel reads it).
 func NotifyDBusNotification(n DBusNotification) error {
 	n.Timestamp = time.Now().UnixMilli()
 
-	// Broadcast via socket if server is available (compositor-side)
-	broadcastIfServer(EventNotification, n)
+	if broadcastIfServer(EventNotification, n) > 0 {
+		return nil
+	}
 
 	configDir := getConfigDir()
 	os.MkdirAll(configDir, 0o700)
@@ -454,7 +461,8 @@ func WatchDBusNotification(callback func(n *DBusNotification), done <-chan struc
 					os.Remove(evtPath)
 
 					var n DBusNotification
-					if err := json.Unmarshal(data, &n); err == nil {
+					if err := json.Unmarshal(data, &n); err == nil &&
+						time.Since(time.UnixMilli(n.Timestamp)) < notificationFileMaxAge {
 						callback(&n)
 					}
 				}

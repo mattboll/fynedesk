@@ -2,6 +2,8 @@ package wm
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -10,6 +12,8 @@ import (
 	"fyne.io/fyne/v2"
 
 	"github.com/godbus/dbus/v5"
+
+	"fyshos.com/tyde/internal/notify"
 )
 
 var (
@@ -117,18 +121,30 @@ func NewNotificationFull(appName, iconName, title, body string, actions []string
 	}
 }
 
+// maxNotificationIcon bounds the icon file of a notification: the path comes
+// from the application, and could name a huge file or a device.
+const maxNotificationIcon = 4 << 20
+
 // loadNotificationIcon reads an icon given as an absolute file path. Icon theme
 // names are resolved later by the user interface, so return nil for them.
 func loadNotificationIcon(icon string) fyne.Resource {
 	if !filepath.IsAbs(icon) {
 		return nil
 	}
-	res, err := fyne.LoadResourceFromPath(icon)
-	if err != nil {
-		fyne.LogError("Failed to read notification icon: "+icon, err)
+	info, err := os.Stat(icon)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxNotificationIcon {
 		return nil
 	}
-	return res
+	f, err := os.Open(icon)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxNotificationIcon+1))
+	if err != nil || len(data) > maxNotificationIcon {
+		return nil
+	}
+	return fyne.NewStaticResource(filepath.Base(icon), data)
 }
 
 // AddNotificationListener registers a listener that will be called for each new notification.
@@ -334,6 +350,9 @@ type notifications struct {
 	// onScreen maps the replace key of recent notifications to their local
 	// ID, so that a transient one still on screen can be replaced too.
 	onScreen map[string]uint32
+	// stackTags maps an application and stack tag to the id of the
+	// notification it replaces (D-Bus server, X11).
+	stackTags map[string]uint32
 }
 
 func (n *notifications) notifyHistoryChange() {
@@ -385,16 +404,54 @@ func GroupedNotificationHistory() []*NotificationGroup {
 	return result
 }
 
+// Notify shows a notification an application sent over D-Bus (X11: under
+// Wayland the compositor owns the name). The id the application gets back
+// names it for replaces_id and CloseNotification.
 func (n *notifications) Notify(appName string, replacesID uint32, appIcon, summary, body string,
-	actions []string, hints map[string]interface{}, timeout int32,
+	actions []string, hints map[string]dbus.Variant, timeout int32,
 ) (uint32, error) {
+	h := notify.ParseHints(hints)
+	if appName == "" {
+		appName = h.DesktopEntry
+	}
 	item := NewNotificationFull(appName, appIcon, summary, body, actions, timeout)
+	item.Urgency = ParseUrgency(h.Urgency)
+	item.Transient = h.Transient
+	id := n.busID(appName, replacesID, h.Tag, item.ID)
+	item.Tag = busTag(id)
 
 	SendNotification(item)
-	return item.ID, nil
+	return id, nil
+}
+
+// busTag is the tag of the notification an application knows by id.
+func busTag(id uint32) string {
+	return fmt.Sprintf("bus:%d", id)
+}
+
+// busID returns the id an application knows a notification by: the one it
+// replaces (replaces_id, or its stack tag), else fresh.
+func (n *notifications) busID(appName string, replacesID uint32, tag string, fresh uint32) uint32 {
+	n.histMu.Lock()
+	defer n.histMu.Unlock()
+	key := appName + "\x00" + tag
+	if replacesID == 0 && tag != "" {
+		replacesID = n.stackTags[key]
+	}
+	if replacesID == 0 {
+		replacesID = fresh
+	}
+	if tag != "" {
+		if len(n.stackTags) >= 4*maxHistory {
+			clear(n.stackTags)
+		}
+		n.stackTags[key] = replacesID
+	}
+	return replacesID
 }
 
 func (n *notifications) CloseNotification(id uint32) error {
+	WithdrawTagged(busTag(id))
 	// Emit NotificationClosed signal (reason 3 = closed by CloseNotification call)
 	conn, err := dbus.SessionBus()
 	if err == nil {
@@ -409,7 +466,7 @@ func (n *notifications) GetServerInformation() (string, string, string, string) 
 }
 
 func (n *notifications) GetCapabilities() []string {
-	return []string{"actions", "body", "icon-static", "persistence"}
+	return append([]string{"actions", "body", "icon-static", "persistence"}, notify.StackTagHints()...)
 }
 
 func (n *notifications) register() {
@@ -466,7 +523,7 @@ func InvokeAction(notifID uint32, actionKey string) {
 
 func ensureServer() *notifications {
 	serverOnce.Do(func() {
-		server = &notifications{onScreen: map[string]uint32{}}
+		server = &notifications{onScreen: map[string]uint32{}, stackTags: map[string]uint32{}}
 		go server.register()
 	})
 	return server

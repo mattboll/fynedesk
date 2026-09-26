@@ -7,6 +7,7 @@ import (
 
 	"github.com/godbus/dbus/v5"
 
+	"fyshos.com/tyde/internal/notify"
 	"fyshos.com/tyde/wlipc"
 )
 
@@ -66,11 +67,6 @@ func newNotificationsDBus() *notificationsDBus {
 // maxStackTags bounds the stack tags remembered; older ones are forgotten.
 const maxStackTags = 256
 
-// stackTagHints name the hints with which an application asks for a
-// notification to replace its previous one with the same value (volume or
-// progress popups, a chat thread…).
-var stackTagHints = []string{"x-canonical-private-synchronous", "x-dunst-stack-tag", "synchronous"}
-
 // allow reports whether appName may show another notification now.
 func (n *notificationsDBus) allow(appName string) bool {
 	n.mu.Lock()
@@ -107,68 +103,27 @@ func (n *notificationsDBus) notificationID(appName string, replacesID uint32, ta
 	return id, replaces
 }
 
-// hintString returns a string hint, or "".
-func hintString(hints map[string]dbus.Variant, key string) string {
-	if v, ok := hints[key]; ok {
-		if str, ok := v.Value().(string); ok {
-			return str
-		}
-	}
-	return ""
-}
-
-// hintUrgency returns the urgency hint as the panel names it: "low",
-// "critical", or "" for normal.
-func hintUrgency(hints map[string]dbus.Variant) string {
-	v, ok := hints["urgency"]
-	if !ok {
-		return ""
-	}
-	var level int
-	switch u := v.Value().(type) {
-	case byte:
-		level = int(u)
-	case int32:
-		level = int(u)
-	case uint32:
-		level = int(u)
-	}
-	switch level {
-	case 0:
-		return "low"
-	case 2:
-		return "critical"
-	}
-	return ""
-}
-
 func (n *notificationsDBus) Notify(appName string, replacesID uint32, appIcon, summary, body string,
 	actions []string, hints map[string]dbus.Variant, timeout int32,
 ) (uint32, *dbus.Error) {
-	var tag string
-	for _, key := range stackTagHints {
-		if tag = hintString(hints, key); tag != "" {
-			break
-		}
-	}
+	h := notify.ParseHints(hints)
 	// Reuse the client-supplied id when it is replacing an existing notification,
 	// so the id we forward matches the one the app already tracks.
-	id, replaces := n.notificationID(appName, replacesID, tag)
+	id, replaces := n.notificationID(appName, replacesID, h.Tag)
 
-	urgency := hintUrgency(hints)
 	// Updates of a notification already on screen are not throttled: they
 	// replace it instead of adding one.
-	if !replaces && urgency != "critical" && !n.allow(appName) {
-		log.Printf("[NOTIFY-DBUS] rate limit exceeded, dropping notification from %s: %q\n", appName, summary)
+	if !replaces && h.Urgency != "critical" && !n.allow(appName) {
+		log.Printf("[NOTIFY-DBUS] rate limit exceeded, dropping notification from %s\n", appName)
 		return id, nil
 	}
 
-	transient, _ := hints["transient"].Value().(bool)
-	if desktopEntry := hintString(hints, "desktop-entry"); appName == "" {
-		appName = desktopEntry
+	if appName == "" {
+		appName = h.DesktopEntry
 	}
-	log.Printf("[NOTIFY-DBUS] #%d %s: %q (urgency=%q, replaces=%v, timeout=%d, actions=%d)\n",
-		id, appName, summary, urgency, replaces, timeout, len(actions)/2)
+	// What it says stays out of the log: messages, codes, mail.
+	log.Printf("[NOTIFY-DBUS] #%d %s (urgency=%q, replaces=%v, timeout=%d, actions=%d)\n",
+		id, appName, h.Urgency, replaces, timeout, len(actions)/2)
 
 	if err := wlipc.NotifyDBusNotification(wlipc.DBusNotification{
 		ID:        id,
@@ -178,9 +133,9 @@ func (n *notificationsDBus) Notify(appName string, replacesID uint32, appIcon, s
 		Body:      body,
 		Actions:   actions,
 		Timeout:   timeout,
-		Urgency:   urgency,
-		Transient: transient,
-		Category:  hintString(hints, "category"),
+		Urgency:   h.Urgency,
+		Transient: h.Transient,
+		Category:  h.Category,
 		Replaces:  replaces,
 	}); err != nil {
 		log.Printf("[NOTIFY-DBUS] IPC write error: %v\n", err)
@@ -200,10 +155,7 @@ func (n *notificationsDBus) GetServerInformation() (string, string, string, stri
 }
 
 func (n *notificationsDBus) GetCapabilities() ([]string, *dbus.Error) {
-	return []string{
-		"actions", "body", "icon-static", "persistence",
-		"x-canonical-private-synchronous", "x-dunst-stack-tag",
-	}, nil
+	return append([]string{"actions", "body", "icon-static", "persistence"}, notify.StackTagHints()...), nil
 }
 
 // emitAction emits ActionInvoked for a notification (so the app acts on it, e.g.
