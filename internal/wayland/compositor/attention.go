@@ -273,7 +273,11 @@ type glowTarget struct {
 
 // glowTargets returns the windows to surround, by view.
 func (s *server) glowTargets() map[any]glowTarget {
-	targets := map[any]glowTarget{}
+	if s.glowTargetsBuf == nil {
+		s.glowTargetsBuf = map[any]glowTarget{}
+	}
+	targets := s.glowTargetsBuf // reused: this runs every frame
+	clear(targets)
 	if len(s.attentionTitles) == 0 {
 		return targets
 	}
@@ -313,9 +317,18 @@ func (s *server) glowTargets() map[any]glowTarget {
 	return targets
 }
 
-// tickAttention updates the halos and reports whether one is breathing, to
-// keep the frames coming.
+// tickAttention updates the halos. A breathing one asks for frames at the
+// animation rate (~24 Hz: its opacity has a dozen steps a breath), not at
+// every vblank; it reports false, so it does not keep the display busy.
 func (s *server) tickAttention() bool {
+	if s.tickAttentionHalos() {
+		s.scheduleAnimWakeup(time.Now())
+	}
+	return false
+}
+
+// tickAttentionHalos places the halos and reports whether one is breathing.
+func (s *server) tickAttentionHalos() bool {
 	targets := s.glowTargets()
 
 	for view, g := range s.glows {
