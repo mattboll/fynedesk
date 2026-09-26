@@ -38,7 +38,7 @@ func (u *unyts) LaunchSuggestions(input string) []tyde.LaunchSuggestion {
 }
 
 func (u *unyts) Metadata() tyde.ModuleMetadata {
-	return urlMeta
+	return unytsMeta
 }
 
 func (u *unyts) isConversion(input string) bool {
