@@ -210,24 +210,40 @@ func (s *server) switchDesk(desk int) {
 	s.writeWindowsState()
 }
 
-// focusTopmostOnDesk focuses the topmost window on the specified desktop
+// focusTopmostOnDesk focuses the topmost window of the desktop (the
+// current one, whose windows are the enabled ones), by the real stacking
+// order across XDG and XWayland windows. A fullscreen window, in its own
+// layer, comes first; panels, overlays and override-redirect popups never
+// take the focus.
 func (s *server) focusTopmostOnDesk(desk int) {
-	// Check XDG views (top to bottom)
 	for i := len(s.xdgViews) - 1; i >= 0; i-- {
-		v := s.xdgViews[i]
-		if v.mapped && v.onDesk(desk) {
+		if v := s.xdgViews[i]; v.mapped && v.fullscreen && v.onDesk(desk) {
 			s.focusXdgView(v)
 			return
 		}
 	}
-	// Check XWayland views (skip panel and overlay windows like tooltips)
 	for i := len(s.xwayViews) - 1; i >= 0; i-- {
-		v := s.xwayViews[i]
-		if v.mapped && !v.isPanel && !v.isOverlay && v.onDesk(desk) {
+		if v := s.xwayViews[i]; v.mapped && v.fullscreen && focusableXway(v) && v.onDesk(desk) {
 			s.focusXwayView(v)
 			return
 		}
 	}
+	for _, e := range s.getViewsInZOrder() {
+		if v := e.xdg; v != nil && v.mapped && !v.minimized && v.onDesk(desk) {
+			s.focusXdgView(v)
+			return
+		}
+		if v := e.xway; v != nil && v.mapped && !v.minimized && focusableXway(v) && v.onDesk(desk) {
+			s.focusXwayView(v)
+			return
+		}
+	}
+}
+
+// focusableXway reports whether an XWayland window can take the focus:
+// not the panel, an overlay or an override-redirect popup (tooltip, menu).
+func focusableXway(v *xwayView) bool {
+	return !v.isPanel && !v.isOverlay && !v.overrideRedirect
 }
 
 // moveWindowToDesk moves the active window to the specified desktop
