@@ -99,3 +99,35 @@ func TestNextAgentKeyFollowsTheModule(t *testing.T) {
 		t.Error("next_agent is still bound with the module off")
 	}
 }
+
+// TestReadTOMLAsPrefsWhole checks the keys the panel used to send in its
+// partial snapshot are read from the file itself.
+func TestReadTOMLAsPrefsWhole(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg := "[display]\n  color_scheme = \"dark\"\n  reduce_motion = true\n  high_contrast = true\n" +
+		"[desktops]\n  count = 6\n  names = [\"Mail\", \"Code\"]\n" +
+		"[theme]\n  [theme.colors]\n    tyde_titlebar = \"#112233\"\n    tyde_border = \"#445566\"\n" +
+		"[[window_rules]]\n  app_id = \"firefox\"\n  workspace = 2\n"
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prefs, err := readTOMLAsPrefs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]any{
+		"colorscheme":  "dark",
+		"reducemotion": true,
+		"highcontrast": true,
+		"desktopcount": float64(6),
+		"desktopnames": "Mail|Code",
+		"theme_colors": "tyde_border=#445566|tyde_titlebar=#112233",
+	} {
+		if prefs[key] != want {
+			t.Errorf("%s = %v, want %v", key, prefs[key], want)
+		}
+	}
+	if rules, _ := prefs["windowrules"].(string); rules == "" {
+		t.Error("window rules not read")
+	}
+}

@@ -170,16 +170,7 @@ func (s *server) socketDesktopSwitch(msg *wlipc.Message) (json.RawMessage, error
 
 // socketSettingsChanged queues a reload of the settings.
 func (s *server) socketSettingsChanged(msg *wlipc.Message) (json.RawMessage, error) {
-	var sc wlipc.SettingsChanged
-	if err := json.Unmarshal(msg.Data, &sc); err != nil {
-		return nil, fmt.Errorf("invalid settings: %w", err)
-	}
-	if sc.Prefs != nil {
-		prefs := sc.Prefs
-		s.mainThreadActions <- func() { s.reloadSettingsFrom(prefs) }
-	} else {
-		s.mainThreadActions <- func() { s.reloadSettings() }
-	}
+	s.mainThreadActions <- func() { s.reloadSettings() }
 	s.triggerWakeup()
 	return nil, nil
 }

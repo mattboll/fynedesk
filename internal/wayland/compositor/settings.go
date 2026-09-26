@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -102,8 +103,15 @@ type compositorConfig struct {
 		BackgroundFill       string                      `toml:"background_fill"`
 		BackgroundColor      string                      `toml:"background_color"`
 		BorderButtonPosition string                      `toml:"border_button_position"`
+		ColorScheme          string                      `toml:"color_scheme"`
+		ReduceMotion         bool                        `toml:"reduce_motion"`
+		HighContrast         bool                        `toml:"high_contrast"`
 		Monitors             map[string]monitorWallpaper `toml:"monitors"`
 	} `toml:"display"`
+	Desktops struct {
+		Count int      `toml:"count"`
+		Names []string `toml:"names"`
+	} `toml:"desktops"`
 	Launcher struct {
 		NarrowLeft  bool    `toml:"narrow_left"`
 		BarPosition string  `toml:"bar_position"`
@@ -138,9 +146,10 @@ type compositorConfig struct {
 		Mods []string `toml:"mods"`
 	} `toml:"keybindings"`
 	Theme struct {
-		AutoAccentColor bool   `toml:"auto_accent_color"`
-		FontFamily      string `toml:"font_family"`
-		FontSize        int    `toml:"font_size"`
+		AutoAccentColor bool              `toml:"auto_accent_color"`
+		FontFamily      string            `toml:"font_family"`
+		FontSize        int               `toml:"font_size"`
+		Colors          map[string]string `toml:"colors"`
 	} `toml:"theme"`
 	WindowRules []wlipc.WindowRule `toml:"window_rules"`
 	Windows     struct {
@@ -175,6 +184,15 @@ func readTOMLAsPrefs(path string) (map[string]interface{}, error) {
 	prefs["backgroundfill"] = cfg.Display.BackgroundFill
 	prefs["backgroundcolor"] = cfg.Display.BackgroundColor
 	prefs["borderbuttonposition"] = cfg.Display.BorderButtonPosition
+	prefs["colorscheme"] = cfg.Display.ColorScheme
+	prefs["reducemotion"] = cfg.Display.ReduceMotion
+	prefs["highcontrast"] = cfg.Display.HighContrast
+
+	// Desktops
+	if cfg.Desktops.Count >= 2 {
+		prefs["desktopcount"] = float64(cfg.Desktops.Count)
+	}
+	prefs["desktopnames"] = strings.Join(cfg.Desktops.Names, "|")
 
 	// Per-monitor wallpapers
 	if len(cfg.Display.Monitors) > 0 {
@@ -238,6 +256,14 @@ func readTOMLAsPrefs(path string) (map[string]interface{}, error) {
 	prefs["autoaccentcolor"] = cfg.Theme.AutoAccentColor
 	prefs["fontfamily"] = cfg.Theme.FontFamily
 	prefs["fontsize"] = float64(cfg.Theme.FontSize)
+	if len(cfg.Theme.Colors) > 0 {
+		keys := slices.Sorted(maps.Keys(cfg.Theme.Colors))
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			parts = append(parts, k+"="+cfg.Theme.Colors[k])
+		}
+		prefs["theme_colors"] = strings.Join(parts, "|")
+	}
 
 	// Window rules: serialize to JSON for loadWindowRules()
 	if len(cfg.WindowRules) > 0 {
@@ -603,7 +629,6 @@ func (s *server) loadSettings() {
 }
 
 // reloadSettings re-reads preferences from disk and applies runtime-changeable settings.
-// Used as fallback when no prefs snapshot is available in the IPC notification.
 func (s *server) reloadSettings() {
 	prefs, _, err := s.readPrefs()
 	if err != nil {

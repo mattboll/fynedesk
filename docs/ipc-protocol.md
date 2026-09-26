@@ -68,7 +68,7 @@ Clients subscribe via the `subscribe` request. Events are pushed in real-time.
 | `subscribe` | `{events: [...]}` | `ok` | Register for events |
 | `window-action` | `WindowActionRequest` | `ok/error` | Focus, close, minimize, etc. |
 | `desktop-switch` | `{desktop: N}` | `ok/error` | Switch virtual desktop |
-| `settings-changed` | `SettingsChanged` | `ok/error` | Notify prefs update |
+| `settings-changed` | `SettingsChanged` | `ok/error` | Reload config.toml |
 | `layout-request` | `LayoutRequest` | `ok/error` | Reposition/mirror monitors |
 | `keyboard-layout` | `{index: N}` | `ok/error` | Switch keyboard layout |
 | `emoji-paste` | `{emoji: "..."}` | `ok/error` | Set clipboard to emoji |
@@ -158,7 +158,7 @@ Persisted to disk for cross-session restoration.
 |------|--------|-----------|---------|
 | `desktop-request.json` | `wlipc.RequestDesktopSwitch(N)` | `{desktop: N}` | Switch desktop |
 | `window-action-request.json` | `wlipc.RequestWindowAction(id, action)` | see below | Window operation |
-| `settings-changed.json` | `wlipc.NotifySettingsChanged(prefs)` | see below | Config update |
+| `settings-changed.json` | `wlipc.NotifySettingsChanged()` | see below | Config update |
 | `keyboard-layout-request.json` | `wlipc.RequestKeyboardLayout(N)` | `{index: N, timestamp: T}` | Switch layout |
 | `mode-request.json` | `wlipc.RequestModeChange(idx, output)` | `{mode_index: N, output_name: ""}` | Display resolution |
 | `scale-request.json` | `wlipc.RequestScaleChange(s, output)` | `{scale: 1.5, output_name: ""}` | Display scale |
@@ -186,20 +186,11 @@ Actions: `focus`, `close`, `iconify`, `uniconify`, `maximize`, `unmaximize`, `ra
 
 ```json
 {
-  "timestamp": 1700000000000,
-  "prefs": {
-    "background": "/path/to/bg.jpg",
-    "background_type": "image",
-    "keyboardmodifier": 133,
-    "naturalscroll": false,
-    "nightlightenabled": true,
-    "nightlighttemperature": 4500,
-    "keybindings": "{\"quit\": [{\"key\": \"Escape\", \"mods\": [\"Alt\"]}]}"
-  }
+  "timestamp": 1700000000000
 }
 ```
 
-Includes a snapshot of Fyne preferences so the compositor doesn't need to re-read the prefs file.
+Sent once `config.toml` is written; the compositor reads the whole file (a partial copy of the settings would reset what it left out).
 
 #### Layout Request (multi-monitor)
 

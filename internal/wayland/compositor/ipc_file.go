@@ -331,15 +331,9 @@ func (s *server) processSessionIPCFiles(paths ipcFilePaths, locked bool) bool {
 // keyboard layout requests.
 func (s *server) processSettingsIPCFiles(paths ipcFilePaths, locked bool) {
 	// Check for settings change notification (allowed while locked — needed for lock client config)
-	if data, err := os.ReadFile(paths.settingsChanged); err == nil {
+	if _, err := os.Stat(paths.settingsChanged); err == nil {
 		removeIPC(paths.settingsChanged)
-		var msg wlipc.SettingsChanged
-		if jsonErr := json.Unmarshal(data, &msg); jsonErr == nil && msg.Prefs != nil {
-			prefs := msg.Prefs
-			s.mainThreadActions <- func() { s.reloadSettingsFrom(prefs) }
-		} else {
-			s.mainThreadActions <- func() { s.reloadSettings() }
-		}
+		s.mainThreadActions <- func() { s.reloadSettings() }
 		s.triggerWakeup()
 	}
 

@@ -386,7 +386,7 @@ func watchFynePrimaryColor(app fyne.App) {
 
 				// Notify compositor to re-read theme colors for decorations
 				if wlipc.IsWaylandSession() {
-					_ = wlipc.NotifySettingsChanged(nil)
+					_ = wlipc.NotifySettingsChanged()
 				}
 			})
 		}

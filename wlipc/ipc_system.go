@@ -268,21 +268,16 @@ func WatchVolumeEvent(callback func(), done <-chan struct{}) {
 }
 
 // SettingsChanged is the IPC payload for settings change notifications.
-// It embeds a snapshot of the Fyne preferences so the compositor does not
-// need to re-read the prefs JSON file (which may not have been flushed yet).
+// The compositor then reads config.toml, the source of truth, whole: a
+// partial copy of the settings would reset what it left out.
 type SettingsChanged struct {
-	Timestamp int64          `json:"timestamp"`
-	Prefs     map[string]any `json:"prefs,omitempty"`
+	Timestamp int64 `json:"timestamp"`
 }
 
-// NotifySettingsChanged signals the compositor to reload preferences.
-// The prefs map should contain all current Fyne preference values so
-// the compositor can apply them immediately without reading the prefs file.
-func NotifySettingsChanged(prefs map[string]any) error {
-	msg := SettingsChanged{
-		Timestamp: time.Now().UnixMilli(),
-		Prefs:     prefs,
-	}
+// NotifySettingsChanged signals the compositor to reload the settings, once
+// config.toml is written.
+func NotifySettingsChanged() error {
+	msg := SettingsChanged{Timestamp: time.Now().UnixMilli()}
 	if trySendRequest(ReqSettingsChanged, msg) {
 		return nil
 	}

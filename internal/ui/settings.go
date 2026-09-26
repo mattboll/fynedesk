@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"encoding/json"
 	"log"
 	"os"
 	"os/exec"
@@ -240,10 +239,9 @@ func (d *deskSettings) apply() {
 		}
 	})
 
-	// Notify compositor to reload settings with a prefs snapshot
-	// (Fyne may not have flushed to disk yet)
+	// The compositor reads config.toml, written by now.
 	if wlipc.IsWaylandSession() {
-		_ = wlipc.NotifySettingsChanged(d.prefsSnapshot())
+		_ = wlipc.NotifySettingsChanged()
 	}
 }
 
@@ -854,83 +852,6 @@ func (d *deskSettings) migrateModules(names ...string) {
 		d.cfg.Modules.Enabled = d.moduleNames
 		d.saveTOML()
 	}
-}
-
-// prefsSnapshot returns a map of all settings that the compositor needs.
-// Reads from the TOML config (source of truth) to avoid Fyne flush races.
-func (d *deskSettings) prefsSnapshot() map[string]any {
-	var modVal float64
-	if d.cfg.Input.KeyboardModifier == "Alt" {
-		modVal = float64(fyne.KeyModifierAlt)
-	} else {
-		modVal = float64(fyne.KeyModifierSuper)
-	}
-
-	snapshot := map[string]any{
-		"background":            d.cfg.Display.Background,
-		"background_type":       d.cfg.Display.BackgroundType,
-		"backgroundfill":        d.cfg.Display.BackgroundFill,
-		"backgroundcolor":       d.cfg.Display.BackgroundColor,
-		"borderbuttonposition":  d.cfg.Display.BorderButtonPosition,
-		"keyboardmodifier":      modVal,
-		"naturalscroll":         d.cfg.Input.NaturalScroll,
-		"narrowpanel":           d.cfg.Panel.NarrowWidget,
-		"launchernarrowleft":    d.cfg.Launcher.NarrowLeft,
-		"barposition":           d.cfg.Launcher.BarPosition,
-		"keyboardlayouts":       strings.Join(d.cfg.Input.KeyboardLayouts, "|"),
-		"nightlightenabled":     d.cfg.NightLight.Enabled,
-		"nightlighttemperature": float64(d.cfg.NightLight.Temperature),
-		"reducemotion":          d.cfg.Display.ReduceMotion,
-		"highcontrast":          d.cfg.Display.HighContrast,
-		"language":              d.cfg.Display.Language,
-	}
-
-	// Windows and modules
-	snapshot["wobblywindows"] = d.cfg.Windows.WobblyWindows()
-	snapshot["blurbehind"] = d.cfg.Windows.BlurBehind()
-	snapshot["windowshadows"] = d.cfg.Windows.WindowShadows()
-	snapshot["agentsmodule"] = slices.Contains(d.moduleNames, wlipc.AgentsModule)
-
-	// Power management
-	snapshot["power_lock_timeout"] = float64(d.cfg.Power.LockTimeoutMin)
-	snapshot["power_blank_timeout"] = float64(d.cfg.Power.BlankTimeoutMin)
-	snapshot["power_suspend_timeout"] = float64(d.cfg.Power.SuspendTimeoutMin)
-	snapshot["power_suspend_action"] = d.cfg.Power.SuspendAction
-
-	// Keybindings: serialize to JSON for compositor backward compat
-	if len(d.cfg.Keybindings) > 0 {
-		bindings := tomlToActionBindings(d.cfg.Keybindings)
-		jsonStr, err := wlipc.BindingsToJSON(bindings)
-		if err == nil {
-			snapshot["keybindings"] = jsonStr
-		}
-	} else {
-		snapshot["keybindings"] = ""
-	}
-
-	// Font
-	snapshot["fontfamily"] = d.cfg.Theme.FontFamily
-	snapshot["fontsize"] = float64(d.cfg.Theme.FontSize)
-
-	// Theme name and custom colors
-	snapshot["theme_name"] = d.cfg.Theme.Name
-	if len(d.cfg.Theme.Colors) > 0 {
-		colorParts := make([]string, 0, len(d.cfg.Theme.Colors))
-		for k, v := range d.cfg.Theme.Colors {
-			colorParts = append(colorParts, k+"="+v)
-		}
-		snapshot["theme_colors"] = strings.Join(colorParts, "|")
-	}
-
-	// Per-monitor wallpapers
-	if len(d.cfg.Display.Monitors) > 0 {
-		monData, err := json.Marshal(d.cfg.Display.Monitors)
-		if err == nil {
-			snapshot["monitor_wallpapers"] = string(monData)
-		}
-	}
-
-	return snapshot
 }
 
 // newDeskSettings loads the user's preferences from environment or config

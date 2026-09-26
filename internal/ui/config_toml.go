@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -596,109 +595,4 @@ func tomlToActionBindings(bindings map[string][]KeyBindingTOML) wlipc.ActionBind
 		result[action] = entries
 	}
 	return result
-}
-
-// LoadConfigForCompositor reads config.toml and returns settings as a flat map
-// compatible with the compositor's applyPrefs(). Falls back to Fyne prefs JSON
-// if config.toml doesn't exist.
-func LoadConfigForCompositor() (map[string]any, error) {
-	path := configPath()
-	if _, err := os.Stat(path); err != nil {
-		return nil, err // caller should fall back to Fyne prefs
-	}
-
-	var cfg Config
-	if _, err := toml.DecodeFile(path, &cfg); err != nil {
-		return nil, err
-	}
-
-	// Build the flat prefs map the compositor expects
-	prefs := make(map[string]any)
-	prefs["background"] = cfg.Display.Background
-	prefs["background_type"] = cfg.Display.BackgroundType
-	prefs["backgroundfill"] = cfg.Display.BackgroundFill
-	prefs["backgroundcolor"] = cfg.Display.BackgroundColor
-	prefs["borderbuttonposition"] = cfg.Display.BorderButtonPosition
-	prefs["colorscheme"] = cfg.Display.ColorScheme
-
-	// Per-monitor wallpapers
-	if len(cfg.Display.Monitors) > 0 {
-		monData, err := json.Marshal(cfg.Display.Monitors)
-		if err == nil {
-			prefs["monitor_wallpapers"] = string(monData)
-		}
-	}
-
-	var modVal float64
-	if cfg.Input.KeyboardModifier == "Alt" {
-		modVal = float64(fyne.KeyModifierAlt)
-	} else {
-		modVal = float64(fyne.KeyModifierSuper)
-	}
-	prefs["keyboardmodifier"] = modVal
-	prefs["naturalscroll"] = cfg.Input.NaturalScroll
-	prefs["narrowpanel"] = cfg.Panel.NarrowWidget
-	prefs["launchernarrowleft"] = cfg.Launcher.NarrowLeft
-	if cfg.Desktops.Count >= 2 {
-		prefs["desktopcount"] = float64(cfg.Desktops.Count)
-	}
-	prefs["desktopnames"] = strings.Join(cfg.Desktops.Names, "|")
-	prefs["barposition"] = cfg.Launcher.BarPosition
-	prefs["keyboardlayouts"] = strings.Join(cfg.Input.KeyboardLayouts, "|")
-
-	// Keybindings: convert TOML back to JSON string for compositor
-	if len(cfg.Keybindings) > 0 {
-		bindings := tomlToActionBindings(cfg.Keybindings)
-		jsonStr, err := wlipc.BindingsToJSON(bindings)
-		if err == nil {
-			prefs["keybindings"] = jsonStr
-		}
-	}
-
-	// Night light
-	prefs["nightlightenabled"] = cfg.NightLight.Enabled
-	prefs["nightlighttemperature"] = float64(cfg.NightLight.Temperature)
-
-	// Theme
-	prefs["theme_name"] = cfg.Theme.Name
-	prefs["autoaccentcolor"] = cfg.Theme.AutoAccentColor
-	prefs["fontfamily"] = cfg.Theme.FontFamily
-	prefs["fontsize"] = float64(cfg.Theme.FontSize)
-	if len(cfg.Theme.Colors) > 0 {
-		colorParts := make([]string, 0, len(cfg.Theme.Colors))
-		for k, v := range cfg.Theme.Colors {
-			colorParts = append(colorParts, k+"="+v)
-		}
-		prefs["theme_colors"] = strings.Join(colorParts, "|")
-	}
-
-	// Window gaps
-	prefs["windowinnergap"] = float64(cfg.Windows.InnerGap)
-	prefs["windowoutergap"] = float64(cfg.Windows.OuterGap)
-	prefs["wobblywindows"] = cfg.Windows.WobblyWindows()
-	prefs["blurbehind"] = cfg.Windows.BlurBehind()
-	prefs["windowshadows"] = cfg.Windows.WindowShadows()
-	prefs["agentsmodule"] = slices.Contains(cfg.Modules.Enabled, wlipc.AgentsModule)
-
-	// Hot corners
-	prefs["hotcorner_topleft"] = cfg.HotCorners.TopLeft
-	prefs["hotcorner_topright"] = cfg.HotCorners.TopRight
-	prefs["hotcorner_bottomleft"] = cfg.HotCorners.BottomLeft
-	prefs["hotcorner_bottomright"] = cfg.HotCorners.BottomRight
-
-	// Power management
-	prefs["power_lock_timeout"] = float64(cfg.Power.LockTimeoutMin)
-	prefs["power_blank_timeout"] = float64(cfg.Power.BlankTimeoutMin)
-	prefs["power_suspend_timeout"] = float64(cfg.Power.SuspendTimeoutMin)
-	prefs["power_suspend_action"] = cfg.Power.SuspendAction
-
-	// Window rules: pass as JSON string for compositor
-	if len(cfg.WindowRules) > 0 {
-		data, err := json.Marshal(cfg.WindowRules)
-		if err == nil {
-			prefs["windowrules"] = string(data)
-		}
-	}
-
-	return prefs, nil
 }
