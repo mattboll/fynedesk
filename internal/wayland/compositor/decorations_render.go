@@ -204,20 +204,30 @@ func (s *server) renderDecoComposite(width1x int, title string, iconW1x int, act
 	return img
 }
 
-// truncateTitle truncates title to fit within maxWidth, adding "..." if needed.
+// truncateTitle truncates title to fit within maxWidth, adding "..." if
+// needed. It cuts between characters (never inside a UTF-8 sequence) and
+// finds the longest prefix that fits by bisection.
 func truncateTitle(d *font.Drawer, title string, maxWidth int) string {
-	for len(title) > 0 {
-		adv := d.MeasureString(title)
-		if adv.Ceil() <= maxWidth {
-			return title
-		}
-		if len(title) > 3 {
-			title = title[:len(title)-4] + "..."
+	if d.MeasureString(title).Ceil() <= maxWidth {
+		return title
+	}
+	runes := []rune(title)
+	fits := func(n int) bool {
+		return d.MeasureString(string(runes[:n])+"...").Ceil() <= maxWidth
+	}
+	lo, hi := 0, len(runes) // the longest prefix that fits is in [lo, hi)
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if fits(mid) {
+			lo = mid
 		} else {
-			title = title[:len(title)-1]
+			hi = mid - 1
 		}
 	}
-	return ""
+	if lo == 0 && !fits(0) {
+		return ""
+	}
+	return string(runes[:lo]) + "..."
 }
 
 // fillRoundedTopBg fills img with bg color and masks top-left/top-right corners with AA
