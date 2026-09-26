@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"fyshos.com/tyde/internal/icon"
+	"fyshos.com/tyde/wm"
 	"github.com/FyshOS/appie"
 
 	"fyne.io/fyne/v2"
@@ -383,7 +384,9 @@ func (bi *barIcon) CreateRenderer() fyne.WidgetRenderer {
 	return render
 }
 
-func cloneRepo(src *appie.AppSource, path string, done func()) (err error) {
+// cloneRepo clones the source of an app into path, showing that it works,
+// and calls done on the Fyne thread once it is over, with its error.
+func cloneRepo(src *appie.AppSource, path string, done func(error)) {
 	spin := widget.NewActivity()
 	prop := canvas.NewRectangle(color.Transparent)
 	prop.SetMinSize(fyne.NewSquareSize(56))
@@ -397,21 +400,13 @@ func cloneRepo(src *appie.AppSource, path string, done func()) (err error) {
 	w.Show()
 
 	go func() {
-		cmd := exec.Command("git", "clone", "--", src.Repo, path)
-		err = cmd.Run()
-
+		err := exec.Command("git", "clone", "--", src.Repo, path).Run()
 		fyne.Do(func() {
 			w.Hide()
 			spin.Stop()
+			done(err)
 		})
-		if err == nil {
-			return
-		}
-
-		fyne.Do(done)
 	}()
-
-	return err
 }
 
 func editApp(app appie.AppData, editor string) {
@@ -419,30 +414,29 @@ func editApp(app appie.AppData, editor string) {
 	srcDir := filepath.Join(root, app.Name())
 
 	open := func() {
-		cmd := exec.Command(editor, srcDir)
-		err := cmd.Start()
-		if err != nil {
+		if err := wm.StartDetached(editor, srcDir); err != nil {
 			fyne.LogError("Failed to start app editor: "+editor, err)
 		}
 	}
 
-	if !exists(srcDir) {
-		if !exists(root) {
-			err := os.MkdirAll(root, 0o755)
-			if err != nil {
-				fyne.LogError("Failed to make source root", err)
-				return
-			}
+	if exists(srcDir) {
+		open()
+		return
+	}
+	if !exists(root) {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			fyne.LogError("Failed to make source root", err)
+			return
 		}
-
-		err := cloneRepo(app.Source(), srcDir, open)
+	}
+	// The editor opens once the source is there.
+	cloneRepo(app.Source(), srcDir, func(err error) {
 		if err != nil {
 			fyne.LogError("Error cloning the app source", err)
 			return
 		}
-	}
-
-	open()
+		open()
+	})
 }
 
 func newBarIcon(res fyne.Resource, appData appie.AppData, winData *appWindow) *barIcon {
