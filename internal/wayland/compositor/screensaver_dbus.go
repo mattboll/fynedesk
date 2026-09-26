@@ -3,6 +3,7 @@ package compositor
 import (
 	"log"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/godbus/dbus/v5"
@@ -19,6 +20,7 @@ type screenSaverDBus struct {
 type inhibitEntry struct {
 	appName string
 	reason  string
+	sender  string // the bus name of the app: its inhibits go when it does
 }
 
 func newScreenSaverDBus(srv *server) *screenSaverDBus {
@@ -30,13 +32,13 @@ func newScreenSaverDBus(srv *server) *screenSaverDBus {
 }
 
 // Inhibit is called by apps (e.g. video players) to prevent screen locking
-func (ss *screenSaverDBus) Inhibit(appName, reason string) (uint32, *dbus.Error) {
+func (ss *screenSaverDBus) Inhibit(sender dbus.Sender, appName, reason string) (uint32, *dbus.Error) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
 	cookie := ss.nextCookie
 	ss.nextCookie++
-	ss.inhibits[cookie] = inhibitEntry{appName: appName, reason: reason}
+	ss.inhibits[cookie] = inhibitEntry{appName: appName, reason: reason, sender: string(sender)}
 
 	log.Printf("ScreenSaver inhibited by %s: %s (cookie=%d)\n", appName, reason, cookie)
 	return cookie, nil
@@ -52,6 +54,51 @@ func (ss *screenSaverDBus) UnInhibit(cookie uint32) *dbus.Error {
 		log.Printf("ScreenSaver uninhibited by %s (cookie=%d)\n", entry.appName, cookie)
 	}
 	return nil
+}
+
+// dropSender forgets the inhibits of an app that left the bus (it quit or
+// crashed without taking them back).
+func (ss *screenSaverDBus) dropSender(name string) {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	for cookie, e := range ss.inhibits {
+		if e.sender == name {
+			delete(ss.inhibits, cookie)
+			log.Printf("ScreenSaver: %s left, its inhibit (cookie=%d) goes with it\n", e.appName, cookie)
+		}
+	}
+}
+
+// watchSenders drops the inhibits of the apps that leave the bus.
+func (ss *screenSaverDBus) watchSenders(conn *dbus.Conn, done <-chan struct{}) {
+	err := conn.AddMatchSignal(
+		dbus.WithMatchInterface("org.freedesktop.DBus"),
+		dbus.WithMatchMember("NameOwnerChanged"),
+	)
+	if err != nil {
+		log.Printf("D-Bus: cannot follow the apps that inhibit the screensaver: %v\n", err)
+		return
+	}
+	signals := make(chan *dbus.Signal, 16)
+	conn.Signal(signals)
+	for {
+		select {
+		case <-done:
+			return
+		case sig, ok := <-signals:
+			if !ok {
+				return
+			}
+			if sig.Name != "org.freedesktop.DBus.NameOwnerChanged" || len(sig.Body) != 3 {
+				continue
+			}
+			name, _ := sig.Body[0].(string)
+			newOwner, _ := sig.Body[2].(string)
+			if newOwner == "" && strings.HasPrefix(name, ":") { // a connection went away
+				ss.dropSender(name)
+			}
+		}
+	}
 }
 
 // IsInhibited returns true if any app has requested screensaver inhibition
@@ -100,4 +147,5 @@ func (s *server) startScreenSaverDBus() {
 	}
 
 	log.Println("D-Bus: org.freedesktop.ScreenSaver registered")
+	go ss.watchSenders(conn, s.shutdown)
 }
