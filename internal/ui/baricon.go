@@ -247,14 +247,17 @@ func (bi *barIcon) Tapped(*fyne.PointEvent) {
 	bi.pressed = true
 	bi.Refresh()
 	action := bi.onTapped
-	go func() {
-		time.Sleep(100 * time.Millisecond)
+	// The action changes the icon and the bar: on the Fyne thread, once the
+	// press has shown.
+	time.AfterFunc(100*time.Millisecond, func() {
 		fyne.Do(func() {
 			bi.pressed = false
 			bi.Refresh()
+			if action != nil {
+				action()
+			}
 		})
-		action()
-	}()
+	})
 }
 
 const dragThreshold = 8 // pixels before drag activates
