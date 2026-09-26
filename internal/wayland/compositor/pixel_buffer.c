@@ -98,3 +98,11 @@ void pixel_buffer_update_rect(struct pixel_buffer *buf, const void *pixels, size
 		}
 	}
 }
+
+void pixel_buffer_show_damaged(struct wlr_scene_buffer *scene_buf, struct pixel_buffer *buf,
+		int x, int y, int w, int h) {
+	pixman_region32_t damage;
+	pixman_region32_init_rect(&damage, x, y, w, h);
+	wlr_scene_buffer_set_buffer_with_damage(scene_buf, &buf->base, &damage);
+	pixman_region32_fini(&damage);
+}

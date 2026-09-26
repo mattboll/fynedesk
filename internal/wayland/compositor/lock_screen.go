@@ -16,14 +16,6 @@ package compositor
 static struct wlr_scene_buffer *scene_buffer_create(struct wlr_scene_tree *parent, struct wlr_buffer *buffer) {
 	return wlr_scene_buffer_create(parent, buffer);
 }
-// scene_buffer_damage_rect shows the buffer again, damaged in (x, y, w, h).
-static void scene_buffer_damage_rect(struct wlr_scene_buffer *buf, struct wlr_buffer *buffer,
-		int x, int y, int w, int h) {
-	pixman_region32_t damage;
-	pixman_region32_init_rect(&damage, x, y, w, h);
-	wlr_scene_buffer_set_buffer_with_damage(buf, buffer, &damage);
-	pixman_region32_fini(&damage);
-}
 static void scene_buffer_set_buffer(struct wlr_scene_buffer *buf, struct wlr_buffer *buffer) {
 	wlr_scene_buffer_set_buffer(buf, buffer);
 }
@@ -488,7 +480,7 @@ func (s *server) updateBuiltinLockScene() {
 		pixBuf := (*C.struct_pixel_buffer)(s.builtinLock.pixBuf)
 		C.pixel_buffer_update_rect(pixBuf, unsafe.Pointer(&img.Pix[0]), C.size_t(img.Stride),
 			C.int(band.Min.X), C.int(band.Min.Y), C.int(band.Dx()), C.int(band.Dy()))
-		C.scene_buffer_damage_rect((*C.struct_wlr_scene_buffer)(s.builtinLock.sceneBuf), &pixBuf.base,
+		C.pixel_buffer_show_damaged((*C.struct_wlr_scene_buffer)(s.builtinLock.sceneBuf), pixBuf,
 			C.int(band.Min.X), C.int(band.Min.Y), C.int(band.Dx()), C.int(band.Dy()))
 		return
 	}

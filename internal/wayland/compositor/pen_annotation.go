@@ -10,36 +10,6 @@ package compositor
 // The ink image is drawn in Go (see pixel_buffer.h).
 #include "pixel_buffer.h"
 
-static struct wlr_scene_buffer *pen_scene_buffer_create(struct wlr_scene_tree *parent, struct wlr_buffer *buffer) {
-	return wlr_scene_buffer_create(parent, buffer);
-}
-static void pen_scene_buffer_set_buffer(struct wlr_scene_buffer *buf, struct wlr_buffer *buffer) {
-	wlr_scene_buffer_set_buffer(buf, buffer);
-}
-// pen_scene_buffer_damage shows the buffer again, damaged in (x, y, w, h)
-// only (buffer coordinates).
-static void pen_scene_buffer_damage(struct wlr_scene_buffer *buf, struct wlr_buffer *buffer,
-		int x, int y, int w, int h) {
-	pixman_region32_t damage;
-	pixman_region32_init_rect(&damage, x, y, w, h);
-	wlr_scene_buffer_set_buffer_with_damage(buf, buffer, &damage);
-	pixman_region32_fini(&damage);
-}
-static void pen_scene_buffer_set_dest_size(struct wlr_scene_buffer *buf, int w, int h) {
-	wlr_scene_buffer_set_dest_size(buf, w, h);
-}
-static void pen_scene_buffer_set_opacity(struct wlr_scene_buffer *buf, float opacity) {
-	wlr_scene_buffer_set_opacity(buf, opacity);
-}
-static void pen_scene_node_set_position(struct wlr_scene_node *node, int x, int y) {
-	wlr_scene_node_set_position(node, x, y);
-}
-static void pen_scene_node_set_enabled(struct wlr_scene_tree *tree, int enabled) {
-	wlr_scene_node_set_enabled(&tree->node, enabled != 0);
-}
-static void pen_scene_node_destroy(struct wlr_scene_node *node) {
-	wlr_scene_node_destroy(node);
-}
 */
 import "C"
 
@@ -218,19 +188,19 @@ func (s *server) commitPenInk() {
 			C.int(dirty.Min.X), C.int(dirty.Min.Y), C.int(dirty.Dx()), C.int(dirty.Dy()))
 		if s.penSceneBuf != nil {
 			sceneBuf := (*C.struct_wlr_scene_buffer)(s.penSceneBuf)
-			C.pen_scene_buffer_damage(sceneBuf, &pixBuf.base,
+			C.pixel_buffer_show_damaged(sceneBuf, pixBuf,
 				C.int(dirty.Min.X), C.int(dirty.Min.Y), C.int(dirty.Dx()), C.int(dirty.Dy()))
-			C.pen_scene_buffer_set_opacity(sceneBuf, 1.0)
+			C.wlr_scene_buffer_set_opacity(sceneBuf, 1.0)
 		}
 	} else if s.penPixBuf != nil {
 		pixBuf := (*C.struct_pixel_buffer)(s.penPixBuf)
 		C.pixel_buffer_update(pixBuf, pixels, C.int(w), C.int(h))
 		if s.penSceneBuf != nil {
 			sceneBuf := (*C.struct_wlr_scene_buffer)(s.penSceneBuf)
-			C.pen_scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
-			C.pen_scene_buffer_set_dest_size(sceneBuf, C.int(w), C.int(h))
-			C.pen_scene_buffer_set_opacity(sceneBuf, 1.0)
-			C.pen_scene_node_set_position(&sceneBuf.node, C.int(s.penOriginX), C.int(s.penOriginY))
+			C.wlr_scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
+			C.wlr_scene_buffer_set_dest_size(sceneBuf, C.int(w), C.int(h))
+			C.wlr_scene_buffer_set_opacity(sceneBuf, 1.0)
+			C.wlr_scene_node_set_position(&sceneBuf.node, C.int(s.penOriginX), C.int(s.penOriginY))
 		}
 	} else {
 		pixBuf := C.pixel_buffer_create(C.int(w), C.int(h))
@@ -239,18 +209,18 @@ func (s *server) commitPenInk() {
 		}
 		C.pixel_buffer_update(pixBuf, pixels, C.int(w), C.int(h))
 		penTreeC := (*C.struct_wlr_scene_tree)(s.penTree)
-		sceneBuf := C.pen_scene_buffer_create(penTreeC, &pixBuf.base)
+		sceneBuf := C.wlr_scene_buffer_create(penTreeC, &pixBuf.base)
 		if sceneBuf == nil {
 			C.pixel_buffer_release(pixBuf)
 			return
 		}
-		C.pen_scene_buffer_set_dest_size(sceneBuf, C.int(w), C.int(h))
-		C.pen_scene_node_set_position(&sceneBuf.node, C.int(s.penOriginX), C.int(s.penOriginY))
+		C.wlr_scene_buffer_set_dest_size(sceneBuf, C.int(w), C.int(h))
+		C.wlr_scene_node_set_position(&sceneBuf.node, C.int(s.penOriginX), C.int(s.penOriginY))
 		s.penPixBuf = unsafe.Pointer(pixBuf)
 		s.penSceneBuf = unsafe.Pointer(sceneBuf)
 	}
 
-	C.pen_scene_node_set_enabled((*C.struct_wlr_scene_tree)(s.penTree), 1)
+	C.wlr_scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.penTree).node, true)
 	s.scheduleAllOutputFrames()
 }
 
@@ -291,7 +261,7 @@ func (s *server) cancelPenFade() {
 	if s.penFadeActive {
 		s.penFadeActive = false
 		if s.penSceneBuf != nil {
-			C.pen_scene_buffer_set_opacity((*C.struct_wlr_scene_buffer)(s.penSceneBuf), 1.0)
+			C.wlr_scene_buffer_set_opacity((*C.struct_wlr_scene_buffer)(s.penSceneBuf), 1.0)
 		}
 	}
 }
@@ -309,7 +279,7 @@ func (s *server) tickPenFade() bool {
 	}
 	opacity := 1 - float32(elapsed)/float32(penFadeDur)
 	if s.penSceneBuf != nil {
-		C.pen_scene_buffer_set_opacity((*C.struct_wlr_scene_buffer)(s.penSceneBuf), C.float(opacity))
+		C.wlr_scene_buffer_set_opacity((*C.struct_wlr_scene_buffer)(s.penSceneBuf), C.float(opacity))
 	}
 	return true
 }
@@ -328,11 +298,11 @@ func (s *server) clearPenInk() {
 // leaving s.penImg untouched.
 func (s *server) discardPenScene() {
 	if s.penSceneBuf != nil {
-		C.pen_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(s.penSceneBuf).node)
+		C.wlr_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(s.penSceneBuf).node)
 		s.penSceneBuf = nil
 		releasePixelBuffer(&s.penPixBuf)
 	}
 	if s.penTree != nil {
-		C.pen_scene_node_set_enabled((*C.struct_wlr_scene_tree)(s.penTree), 0)
+		C.wlr_scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.penTree).node, false)
 	}
 }

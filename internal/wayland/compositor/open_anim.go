@@ -10,21 +10,6 @@ package compositor
 // Images drawn in Go (see pixel_buffer.h).
 #include "pixel_buffer.h"
 
-static struct wlr_scene_buffer *oa_scene_buffer_create(struct wlr_scene_tree *parent, struct wlr_buffer *buffer) {
-	return wlr_scene_buffer_create(parent, buffer);
-}
-static void oa_scene_buffer_set_buffer(struct wlr_scene_buffer *buf, struct wlr_buffer *buffer) {
-	wlr_scene_buffer_set_buffer(buf, buffer);
-}
-static void oa_scene_node_set_position(struct wlr_scene_node *node, int x, int y) {
-	wlr_scene_node_set_position(node, x, y);
-}
-static void oa_scene_node_destroy(struct wlr_scene_node *node) {
-	wlr_scene_node_destroy(node);
-}
-static void oa_scene_tree_set_enabled(struct wlr_scene_tree *tree, bool enabled) {
-	wlr_scene_node_set_enabled(&tree->node, enabled);
-}
 */
 import "C"
 
@@ -72,14 +57,14 @@ func (s *server) startOpenAnimXdg(v *xdgView) {
 	log.Printf("[OPEN-ANIM] XDG: appID=%q decorated=%v maximized=%v id=%s sceneEnabled=%v", appID, v.decorated, v.maximized, v.id, nodeEnabled)
 	if appID == "" {
 		log.Printf("[OPEN-ANIM] XDG: SKIP (empty appID)")
-		C.oa_scene_tree_set_enabled(tree, true)
+		C.wlr_scene_node_set_enabled(&tree.node, true)
 		return
 	}
 
 	icon := s.loadOpenAnimIcon(appID)
 	if icon == nil {
 		log.Printf("[OPEN-ANIM] XDG: SKIP (no icon)")
-		C.oa_scene_tree_set_enabled(tree, true)
+		C.wlr_scene_node_set_enabled(&tree.node, true)
 		return
 	}
 
@@ -91,7 +76,7 @@ func (s *server) startOpenAnimXdg(v *xdgView) {
 	releasePixelBuffer(&v.decoTitlePix)
 	removeCornerNodes(&v.decoCornerBL, &v.decoCornerBR, &v.decoCornerPL, &v.decoCornerPR)
 	if v.decoIconBuf != nil {
-		C.oa_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(v.decoIconBuf).node)
+		C.wlr_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(v.decoIconBuf).node)
 		v.decoIconBuf = nil
 		releasePixelBuffer(&v.decoIconPix)
 	}
@@ -106,7 +91,7 @@ func (s *server) startOpenAnimXdg(v *xdgView) {
 	s.createOpenAnim(icon, v.id, v.x, v.y, w, h)
 	// If createOpenAnim failed, re-enable the tree
 	if s.openAnim == nil {
-		C.oa_scene_tree_set_enabled(tree, true)
+		C.wlr_scene_node_set_enabled(&tree.node, true)
 		v.hideDecorations = false
 	}
 }
@@ -121,13 +106,13 @@ func (s *server) startOpenAnimXway(v *xwayView) {
 	log.Printf("[OPEN-ANIM] XWay: class=%q decorated=%v maximized=%v id=%s", class, v.decorated, v.maximized, v.id)
 	if class == "" {
 		log.Printf("[OPEN-ANIM] XWay: SKIP (empty class)")
-		C.oa_scene_tree_set_enabled(tree, true)
+		C.wlr_scene_node_set_enabled(&tree.node, true)
 		return
 	}
 
 	icon := s.loadOpenAnimIcon(class)
 	if icon == nil {
-		C.oa_scene_tree_set_enabled(tree, true)
+		C.wlr_scene_node_set_enabled(&tree.node, true)
 		return
 	}
 
@@ -139,7 +124,7 @@ func (s *server) startOpenAnimXway(v *xwayView) {
 	releasePixelBuffer(&v.decoTitlePix)
 	removeCornerNodes(&v.decoCornerBL, &v.decoCornerBR, &v.decoCornerPL, &v.decoCornerPR)
 	if v.decoIconBuf != nil {
-		C.oa_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(v.decoIconBuf).node)
+		C.wlr_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(v.decoIconBuf).node)
 		v.decoIconBuf = nil
 		releasePixelBuffer(&v.decoIconPix)
 	}
@@ -152,7 +137,7 @@ func (s *server) startOpenAnimXway(v *xwayView) {
 	s.createOpenAnim(icon, v.id, v.x, v.y, w, h)
 	// If createOpenAnim failed, re-enable the tree
 	if s.openAnim == nil {
-		C.oa_scene_tree_set_enabled(tree, true)
+		C.wlr_scene_node_set_enabled(&tree.node, true)
 		v.hideDecorations = false
 	}
 }
@@ -183,7 +168,7 @@ func (s *server) createOpenAnim(icon *image.NRGBA, viewID string, winX, winY flo
 	C.pixel_buffer_update(pixBuf, unsafe.Pointer(&icon.Pix[0]), C.int(sz), C.int(sz))
 
 	overlayTree := (*C.struct_wlr_scene_tree)(s.overlayTree)
-	sceneBuf := C.oa_scene_buffer_create(overlayTree, &pixBuf.base)
+	sceneBuf := C.wlr_scene_buffer_create(overlayTree, &pixBuf.base)
 	if sceneBuf == nil {
 		C.pixel_buffer_release(pixBuf)
 		return
@@ -208,7 +193,7 @@ func (s *server) createOpenAnim(icon *image.NRGBA, viewID string, winX, winY flo
 	}
 
 	// Set initial position (centered on dock)
-	C.oa_scene_node_set_position(&sceneBuf.node,
+	C.wlr_scene_node_set_position(&sceneBuf.node,
 		C.int(fromX)-C.int(sz/2),
 		C.int(fromY)-C.int(sz/2))
 }
@@ -236,12 +221,12 @@ func (s *server) tickOpenAnim() bool {
 		t := easeOutCubic(raw / 0.60)
 		cx := oa.fromX + (oa.toX-oa.fromX)*t
 		cy := oa.fromY + (oa.toY-oa.fromY)*t
-		C.oa_scene_node_set_position(&sceneBuf.node,
+		C.wlr_scene_node_set_position(&sceneBuf.node,
 			C.int(cx)-C.int(sz/2),
 			C.int(cy)-C.int(sz/2))
 	} else {
 		// Phase 2: icon glitches/destructs at window center
-		C.oa_scene_node_set_position(&sceneBuf.node,
+		C.wlr_scene_node_set_position(&sceneBuf.node,
 			C.int(oa.toX)-C.int(sz/2),
 			C.int(oa.toY)-C.int(sz/2))
 
@@ -251,7 +236,7 @@ func (s *server) tickOpenAnim() bool {
 		C.pixel_buffer_update(pixBuf,
 			unsafe.Pointer(&glitched.Pix[0]),
 			C.int(sz), C.int(sz))
-		C.oa_scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
+		C.wlr_scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
 	}
 
 	return true
@@ -327,7 +312,7 @@ func (s *server) finishOpenAnim() {
 	for _, v := range s.xdgViews {
 		if v.id == oa.viewID {
 			tree := (*C.struct_wlr_scene_tree)(v.sceneTree)
-			C.oa_scene_tree_set_enabled(tree, true)
+			C.wlr_scene_node_set_enabled(&tree.node, true)
 			v.hideDecorations = false
 			// The animation removed every decoration node (borders included):
 			// reconcile recreates the full set, not just the titlebar.
@@ -338,7 +323,7 @@ func (s *server) finishOpenAnim() {
 	for _, v := range s.xwayViews {
 		if v.id == oa.viewID {
 			tree := (*C.struct_wlr_scene_tree)(v.sceneTree)
-			C.oa_scene_tree_set_enabled(tree, true)
+			C.wlr_scene_node_set_enabled(&tree.node, true)
 			v.hideDecorations = false
 			s.reconcileXwayDecorations(v)
 			break
@@ -356,7 +341,7 @@ func (s *server) cleanupOpenAnim() {
 	}
 	if oa.sceneBuf != nil {
 		sceneBuf := (*C.struct_wlr_scene_buffer)(oa.sceneBuf)
-		C.oa_scene_node_destroy(&sceneBuf.node)
+		C.wlr_scene_node_destroy(&sceneBuf.node)
 	}
 	releasePixelBuffer(&oa.pixBuf)
 	s.openAnim = nil

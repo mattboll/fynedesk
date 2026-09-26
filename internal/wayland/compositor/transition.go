@@ -9,24 +9,6 @@ package compositor
 
 #include "pixel_buffer.h"
 
-static struct wlr_scene_buffer *scene_buffer_create(struct wlr_scene_tree *parent, struct wlr_buffer *buffer) {
-	return wlr_scene_buffer_create(parent, buffer);
-}
-static void scene_buffer_set_buffer(struct wlr_scene_buffer *buf, struct wlr_buffer *buffer) {
-	wlr_scene_buffer_set_buffer(buf, buffer);
-}
-static void scene_buffer_set_opacity_t(struct wlr_scene_buffer *buf, float opacity) {
-	wlr_scene_buffer_set_opacity(buf, opacity);
-}
-static void scene_buffer_set_dest_size(struct wlr_scene_buffer *buf, int w, int h) {
-	wlr_scene_buffer_set_dest_size(buf, w, h);
-}
-static void scene_node_set_position(struct wlr_scene_node *node, int x, int y) {
-	wlr_scene_node_set_position(node, x, y);
-}
-static void scene_node_destroy(struct wlr_scene_node *node) {
-	wlr_scene_node_destroy(node);
-}
 */
 import "C"
 
@@ -95,13 +77,13 @@ func (s *server) startSlideTransition() {
 	C.pixel_buffer_update(pixBuf, unsafe.Pointer(&pix[0]), C.int(w), C.int(h))
 
 	ovTree := (*C.struct_wlr_scene_tree)(s.overlayTree)
-	sceneBuf := C.scene_buffer_create(ovTree, &pixBuf.base)
+	sceneBuf := C.wlr_scene_buffer_create(ovTree, &pixBuf.base)
 	if sceneBuf == nil {
 		C.pixel_buffer_release(pixBuf)
 		return
 	}
-	C.scene_buffer_set_dest_size(sceneBuf, C.int(w), C.int(h))
-	C.scene_node_set_position(&sceneBuf.node, C.int(out.layoutX), C.int(out.layoutY))
+	C.wlr_scene_buffer_set_dest_size(sceneBuf, C.int(w), C.int(h))
+	C.wlr_scene_node_set_position(&sceneBuf.node, C.int(out.layoutX), C.int(out.layoutY))
 
 	s.transitionBuf = unsafe.Pointer(sceneBuf)
 	s.transitionPixBuf = unsafe.Pointer(pixBuf)
@@ -159,8 +141,8 @@ func (s *server) tickSlideTransition() bool {
 	// again on the CPU at each frame.
 	sceneBuf := (*C.struct_wlr_scene_buffer)(s.transitionBuf)
 	// (The spring can overshoot: wlroots asserts 0 <= opacity <= 1.)
-	C.scene_buffer_set_opacity_t(sceneBuf, C.float(min(max(1-progress, 0), 1)))
-	C.scene_node_set_position(&sceneBuf.node, C.int(out.layoutX+offsetX), C.int(out.layoutY))
+	C.wlr_scene_buffer_set_opacity(sceneBuf, C.float(min(max(1-progress, 0), 1)))
+	C.wlr_scene_node_set_position(&sceneBuf.node, C.int(out.layoutX+offsetX), C.int(out.layoutY))
 
 	return true
 }
@@ -284,9 +266,9 @@ func (s *server) tickMatrixTransition() bool {
 	pixBuf := (*C.struct_pixel_buffer)(s.transitionPixBuf)
 	C.pixel_buffer_update(pixBuf, unsafe.Pointer(&pix[0]), C.int(w), C.int(h))
 	sceneBuf := (*C.struct_wlr_scene_buffer)(s.transitionBuf)
-	C.scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
+	C.wlr_scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
 	// Keep centered (no sliding)
-	C.scene_node_set_position(&sceneBuf.node, C.int(out.layoutX), C.int(out.layoutY))
+	C.wlr_scene_node_set_position(&sceneBuf.node, C.int(out.layoutX), C.int(out.layoutY))
 
 	return true
 }
@@ -296,7 +278,7 @@ func (s *server) endTransition() {
 	s.transitionActive = false
 	if s.transitionBuf != nil {
 		sceneBuf := (*C.struct_wlr_scene_buffer)(s.transitionBuf)
-		C.scene_node_destroy(&sceneBuf.node)
+		C.wlr_scene_node_destroy(&sceneBuf.node)
 		s.transitionBuf = nil
 	}
 	if s.transitionPixBuf != nil {

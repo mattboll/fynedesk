@@ -385,30 +385,6 @@ static int capture_wlr_thumb(struct wlr_surface *surface,
 	return 1;
 }
 
-static struct wlr_scene_buffer *scene_buffer_create(struct wlr_scene_tree *parent, struct wlr_buffer *buffer) {
-    return wlr_scene_buffer_create(parent, buffer);
-}
-static void scene_buffer_set_buffer(struct wlr_scene_buffer *buf, struct wlr_buffer *buffer) {
-    wlr_scene_buffer_set_buffer(buf, buffer);
-}
-static void scene_buffer_set_dest_size(struct wlr_scene_buffer *buf, int w, int h) {
-    wlr_scene_buffer_set_dest_size(buf, w, h);
-}
-static void scene_node_set_position(struct wlr_scene_node *node, int x, int y) {
-    wlr_scene_node_set_position(node, x, y);
-}
-static void sw_scene_buffer_set_opacity(struct wlr_scene_buffer *buf, float opacity) {
-    wlr_scene_buffer_set_opacity(buf, opacity);
-}
-static void sw_scene_node_destroy(struct wlr_scene_node *node) {
-    wlr_scene_node_destroy(node);
-}
-static struct wlr_scene_rect *sw_scene_rect_create(struct wlr_scene_tree *parent, int w, int h, const float color[4]) {
-    return wlr_scene_rect_create(parent, w, h, color);
-}
-static void sw_scene_rect_set_color(struct wlr_scene_rect *rect, const float color[4]) {
-    wlr_scene_rect_set_color(rect, color);
-}
 */
 import "C"
 
@@ -873,17 +849,17 @@ func (s *server) updateSwitcherScene() {
 		C.pixel_buffer_update(pixBuf, unsafe.Pointer(&img.Pix[0]), C.int(screenW), C.int(screenH))
 		if s.switcherBuf != nil {
 			sceneBuf := (*C.struct_wlr_scene_buffer)(s.switcherBuf)
-			C.scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
-			C.scene_buffer_set_dest_size(sceneBuf, C.int(screenW), C.int(screenH))
-			C.scene_node_set_position(&sceneBuf.node, C.int(screenX), C.int(screenY))
+			C.wlr_scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
+			C.wlr_scene_buffer_set_dest_size(sceneBuf, C.int(screenW), C.int(screenH))
+			C.wlr_scene_node_set_position(&sceneBuf.node, C.int(screenX), C.int(screenY))
 		}
 	} else if s.switcherTree != nil {
 		pixBuf := C.pixel_buffer_create(C.int(screenW), C.int(screenH))
 		if pixBuf != nil {
 			C.pixel_buffer_update(pixBuf, unsafe.Pointer(&img.Pix[0]), C.int(screenW), C.int(screenH))
 			swTree := (*C.struct_wlr_scene_tree)(s.switcherTree)
-			sceneBuf := C.scene_buffer_create(swTree, &pixBuf.base)
-			C.scene_node_set_position(&sceneBuf.node, C.int(screenX), C.int(screenY))
+			sceneBuf := C.wlr_scene_buffer_create(swTree, &pixBuf.base)
+			C.wlr_scene_node_set_position(&sceneBuf.node, C.int(screenX), C.int(screenY))
 			s.switcherBuf = unsafe.Pointer(sceneBuf)
 			s.switcherPixBuf = unsafe.Pointer(pixBuf)
 		}
@@ -896,7 +872,7 @@ func (s *server) updateSwitcherScene() {
 	if s.switcherBuf != nil && (s.switcherFadeIn || s.switcherFadeOut) {
 		opacity := s.switcherFadeOpacity()
 		sceneBuf := (*C.struct_wlr_scene_buffer)(s.switcherBuf)
-		C.sw_scene_buffer_set_opacity(sceneBuf, C.float(opacity))
+		C.wlr_scene_buffer_set_opacity(sceneBuf, C.float(opacity))
 	}
 }
 
@@ -929,7 +905,7 @@ func (s *server) tickSwitcherFade() bool {
 			s.switcherFadeIn = false
 			if s.switcherBuf != nil {
 				sceneBuf := (*C.struct_wlr_scene_buffer)(s.switcherBuf)
-				C.sw_scene_buffer_set_opacity(sceneBuf, 1.0)
+				C.wlr_scene_buffer_set_opacity(sceneBuf, 1.0)
 			}
 			return false
 		}
@@ -945,7 +921,7 @@ func (s *server) tickSwitcherFade() bool {
 	if s.switcherBuf != nil {
 		opacity := s.switcherFadeOpacity()
 		sceneBuf := (*C.struct_wlr_scene_buffer)(s.switcherBuf)
-		C.sw_scene_buffer_set_opacity(sceneBuf, C.float(opacity))
+		C.wlr_scene_buffer_set_opacity(sceneBuf, C.float(opacity))
 	}
 	return true
 }
@@ -1096,9 +1072,9 @@ func (s *server) openOverview() {
 
 	// Create dim overlay (starts transparent for animation)
 	var dimColor [4]C.float // all zeros = transparent black
-	dimRect := C.sw_scene_rect_create(swTree, C.int(outGeo.width), C.int(outGeo.height), &dimColor[0])
+	dimRect := C.wlr_scene_rect_create(swTree, C.int(outGeo.width), C.int(outGeo.height), &dimColor[0])
 	if dimRect != nil {
-		C.scene_node_set_position(&dimRect.node, C.int(outGeo.x), C.int(outGeo.y))
+		C.wlr_scene_node_set_position(&dimRect.node, C.int(outGeo.x), C.int(outGeo.y))
 	}
 	s.overviewDimRect = unsafe.Pointer(dimRect)
 
@@ -1209,11 +1185,11 @@ func overviewThumbBuffer(swTree *C.struct_wlr_scene_tree, thumbImg *image.NRGBA,
 		pb := C.pixel_buffer_create(C.int(tw), C.int(th))
 		if pb != nil {
 			C.pixel_buffer_update(pb, unsafe.Pointer(&thumbImg.Pix[0]), C.int(tw), C.int(th))
-			sb := C.scene_buffer_create(swTree, &pb.base)
+			sb := C.wlr_scene_buffer_create(swTree, &pb.base)
 			if sb != nil {
 				// Start at window's real position and size
-				C.scene_node_set_position(&sb.node, C.int(realX), C.int(realY))
-				C.scene_buffer_set_dest_size(sb, C.int(realW), C.int(realH))
+				C.wlr_scene_node_set_position(&sb.node, C.int(realX), C.int(realY))
+				C.wlr_scene_buffer_set_dest_size(sb, C.int(realW), C.int(realH))
 				sceneBuf = unsafe.Pointer(sb)
 			}
 			pixBuf = unsafe.Pointer(pb)
@@ -1253,7 +1229,7 @@ func (s *server) applyOverviewPositions(progress float64) {
 		dimAlpha := C.float(0.63 * progress)
 		var color [4]C.float
 		color[3] = dimAlpha
-		C.sw_scene_rect_set_color((*C.struct_wlr_scene_rect)(s.overviewDimRect), &color[0])
+		C.wlr_scene_rect_set_color((*C.struct_wlr_scene_rect)(s.overviewDimRect), &color[0])
 	}
 
 	// Update each window thumbnail position and display size
@@ -1274,8 +1250,8 @@ func (s *server) applyOverviewPositions(progress float64) {
 			ch = 1
 		}
 
-		C.scene_node_set_position(&sb.node, C.int(cx), C.int(cy))
-		C.scene_buffer_set_dest_size(sb, C.int(cw), C.int(ch))
+		C.wlr_scene_node_set_position(&sb.node, C.int(cx), C.int(cy))
+		C.wlr_scene_buffer_set_dest_size(sb, C.int(cw), C.int(ch))
 	}
 }
 
@@ -1312,13 +1288,13 @@ func (s *server) createOverviewTitles() {
 		}
 		C.pixel_buffer_update(pb, unsafe.Pointer(&img.Pix[0]), C.int(imgW), C.int(imgH))
 
-		sb := C.scene_buffer_create(swTree, &pb.base)
+		sb := C.wlr_scene_buffer_create(swTree, &pb.base)
 		if sb == nil {
 			C.pixel_buffer_release(pb)
 			continue
 		}
 
-		C.scene_node_set_position(&sb.node, C.int(e.gridX), C.int(e.gridY+e.gridH))
+		C.wlr_scene_node_set_position(&sb.node, C.int(e.gridX), C.int(e.gridY+e.gridH))
 
 		e.titleBuf = unsafe.Pointer(sb)
 		e.titlePix = unsafe.Pointer(pb)
@@ -1338,7 +1314,7 @@ func (s *server) closeOverview() {
 	for i := range s.overviewEntries {
 		e := &s.overviewEntries[i]
 		if e.titleBuf != nil {
-			C.sw_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(e.titleBuf).node)
+			C.wlr_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(e.titleBuf).node)
 			e.titleBuf = nil
 		}
 		if e.titlePix != nil {
@@ -1369,13 +1345,13 @@ func (s *server) finishCloseOverview() {
 	// Destroy per-window scene buffers and pixel buffers
 	for _, e := range s.overviewEntries {
 		if e.sceneBuf != nil {
-			C.sw_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(e.sceneBuf).node)
+			C.wlr_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(e.sceneBuf).node)
 		}
 		if e.pixBuf != nil {
 			C.pixel_buffer_release((*C.struct_pixel_buffer)(e.pixBuf))
 		}
 		if e.titleBuf != nil {
-			C.sw_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(e.titleBuf).node)
+			C.wlr_scene_node_destroy(&(*C.struct_wlr_scene_buffer)(e.titleBuf).node)
 		}
 		if e.titlePix != nil {
 			C.pixel_buffer_release((*C.struct_pixel_buffer)(e.titlePix))
@@ -1384,7 +1360,7 @@ func (s *server) finishCloseOverview() {
 
 	// Destroy dim overlay
 	if s.overviewDimRect != nil {
-		C.sw_scene_node_destroy(&(*C.struct_wlr_scene_rect)(s.overviewDimRect).node)
+		C.wlr_scene_node_destroy(&(*C.struct_wlr_scene_rect)(s.overviewDimRect).node)
 		s.overviewDimRect = nil
 	}
 

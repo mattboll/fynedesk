@@ -8,21 +8,6 @@ package compositor
 #include <drm_fourcc.h>
 
 #include "pixel_buffer.h"
-static struct wlr_scene_buffer *scene_buffer_create(struct wlr_scene_tree *parent, struct wlr_buffer *buffer) {
-	return wlr_scene_buffer_create(parent, buffer);
-}
-static void scene_buffer_set_buffer(struct wlr_scene_buffer *buf, struct wlr_buffer *buffer) {
-	wlr_scene_buffer_set_buffer(buf, buffer);
-}
-static void scene_buffer_set_dest_size(struct wlr_scene_buffer *buf, int w, int h) {
-	wlr_scene_buffer_set_dest_size(buf, w, h);
-}
-static void scene_node_set_position(struct wlr_scene_node *node, int x, int y) {
-	wlr_scene_node_set_position(node, x, y);
-}
-static void scene_node_destroy(struct wlr_scene_node *node) {
-	wlr_scene_node_destroy(node);
-}
 */
 import "C"
 
@@ -130,15 +115,15 @@ func (s *server) createCloseAnim(thumb *image.NRGBA, x, y float64, displayW, dis
 	C.pixel_buffer_update(pixBuf, unsafe.Pointer(&srcImg.Pix[0]), C.int(bufW), C.int(bufH))
 
 	ovTree := (*C.struct_wlr_scene_tree)(s.overlayTree)
-	sceneBuf := C.scene_buffer_create(ovTree, &pixBuf.base)
+	sceneBuf := C.wlr_scene_buffer_create(ovTree, &pixBuf.base)
 	if sceneBuf == nil {
 		// The scene takes its own reference to the buffer; ours is dropped
 		// here, or by destroyCloseAnim once the animation is over.
 		C.pixel_buffer_release(pixBuf)
 		return
 	}
-	C.scene_buffer_set_dest_size(sceneBuf, C.int(displayW), C.int(displayH))
-	C.scene_node_set_position(&sceneBuf.node, C.int(int(x)), C.int(int(y)))
+	C.wlr_scene_buffer_set_dest_size(sceneBuf, C.int(displayW), C.int(displayH))
+	C.wlr_scene_node_set_position(&sceneBuf.node, C.int(int(x)), C.int(int(y)))
 
 	dur := closeAnimDuration
 	if isMatrix {
@@ -195,7 +180,7 @@ func (s *server) tickCloseAnims() bool {
 		pixBuf := (*C.struct_pixel_buffer)(a.pixBuf)
 		C.pixel_buffer_update(pixBuf, unsafe.Pointer(&glitched.Pix[0]), C.int(tw), C.int(th))
 		sceneBuf := (*C.struct_wlr_scene_buffer)(a.buf)
-		C.scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
+		C.wlr_scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
 
 		remaining = append(remaining, a)
 		anyActive = true
@@ -208,7 +193,7 @@ func (s *server) tickCloseAnims() bool {
 func destroyCloseAnim(a *closeAnim) {
 	if a.buf != nil {
 		sceneBuf := (*C.struct_wlr_scene_buffer)(a.buf)
-		C.scene_node_destroy(&sceneBuf.node)
+		C.wlr_scene_node_destroy(&sceneBuf.node)
 	}
 	if a.pixBuf != nil {
 		pixBuf := (*C.struct_pixel_buffer)(a.pixBuf)

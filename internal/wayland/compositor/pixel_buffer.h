@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <wlr/interfaces/wlr_buffer.h>
+#include <wlr/types/wlr_scene.h>
 
 struct pixel_buffer {
 	struct wlr_buffer base;
@@ -32,6 +33,11 @@ void pixel_buffer_update(struct pixel_buffer *buf, const void *pixels, int w, in
 // alpha pixels laid out with stride src_stride, the size of the buffer, into
 // it: only what changed, for pictures drawn a little at a time.
 void pixel_buffer_update_rect(struct pixel_buffer *buf, const void *pixels, size_t src_stride,
+	int x, int y, int w, int h);
+
+// pixel_buffer_show_damaged shows buf again in scene_buf after
+// pixel_buffer_update_rect, damaged in (x, y, w, h) only (buffer coordinates).
+void pixel_buffer_show_damaged(struct wlr_scene_buffer *scene_buf, struct pixel_buffer *buf,
 	int x, int y, int w, int h);
 
 #endif

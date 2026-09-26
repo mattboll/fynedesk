@@ -8,21 +8,6 @@ package compositor
 #include <drm_fourcc.h>
 
 #include "pixel_buffer.h"
-static struct wlr_scene_buffer *scene_buffer_create(struct wlr_scene_tree *parent, struct wlr_buffer *buffer) {
-	return wlr_scene_buffer_create(parent, buffer);
-}
-static void scene_buffer_set_buffer(struct wlr_scene_buffer *buf, struct wlr_buffer *buffer) {
-	wlr_scene_buffer_set_buffer(buf, buffer);
-}
-static void scene_buffer_set_dest_size(struct wlr_scene_buffer *buf, int w, int h) {
-	wlr_scene_buffer_set_dest_size(buf, w, h);
-}
-static void scene_node_set_position(struct wlr_scene_node *node, int x, int y) {
-	wlr_scene_node_set_position(node, x, y);
-}
-static void scene_node_destroy(struct wlr_scene_node *node) {
-	wlr_scene_node_destroy(node);
-}
 */
 import "C"
 
@@ -161,13 +146,13 @@ func (s *server) startBootSequence() {
 	C.pixel_buffer_update(pixBuf, unsafe.Pointer(&pix[0]), C.int(w), C.int(h))
 
 	ovTree := (*C.struct_wlr_scene_tree)(s.overlayTree)
-	sceneBuf := C.scene_buffer_create(ovTree, &pixBuf.base)
+	sceneBuf := C.wlr_scene_buffer_create(ovTree, &pixBuf.base)
 	if sceneBuf == nil {
 		C.pixel_buffer_release(pixBuf)
 		return
 	}
-	C.scene_buffer_set_dest_size(sceneBuf, C.int(w), C.int(h))
-	C.scene_node_set_position(&sceneBuf.node, C.int(minX), C.int(minY))
+	C.wlr_scene_buffer_set_dest_size(sceneBuf, C.int(w), C.int(h))
+	C.wlr_scene_node_set_position(&sceneBuf.node, C.int(minX), C.int(minY))
 
 	s.bootBuf = unsafe.Pointer(sceneBuf)
 	s.bootPixBuf = unsafe.Pointer(pixBuf)
@@ -219,10 +204,10 @@ func (s *server) tickBootSequence() bool {
 			pixBuf := (*C.struct_pixel_buffer)(s.bootPixBuf)
 			C.pixel_buffer_update(pixBuf, unsafe.Pointer(&img.Pix[0]), C.int(newW), C.int(newH))
 		}
-		C.scene_buffer_set_dest_size(sceneBuf, C.int(newW), C.int(newH))
+		C.wlr_scene_buffer_set_dest_size(sceneBuf, C.int(newW), C.int(newH))
 	}
 	// Always update position in case layout shifted
-	C.scene_node_set_position(&sceneBuf.node, C.int(minX), C.int(minY))
+	C.wlr_scene_node_set_position(&sceneBuf.node, C.int(minX), C.int(minY))
 
 	w := img.Bounds().Dx()
 	h := img.Bounds().Dy()
@@ -331,7 +316,7 @@ func (s *server) tickBootSequence() bool {
 	pixBuf := (*C.struct_pixel_buffer)(s.bootPixBuf)
 	C.pixel_buffer_update(pixBuf, unsafe.Pointer(&pix[0]), C.int(w), C.int(h))
 	sceneBuf = (*C.struct_wlr_scene_buffer)(s.bootBuf)
-	C.scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
+	C.wlr_scene_buffer_set_buffer(sceneBuf, &pixBuf.base)
 
 	return true
 }
@@ -341,7 +326,7 @@ func (s *server) endBootSequence() {
 	s.bootActive = false
 	if s.bootBuf != nil {
 		sceneBuf := (*C.struct_wlr_scene_buffer)(s.bootBuf)
-		C.scene_node_destroy(&sceneBuf.node)
+		C.wlr_scene_node_destroy(&sceneBuf.node)
 		s.bootBuf = nil
 	}
 	if s.bootPixBuf != nil {
