@@ -555,6 +555,10 @@ func newServer() *server {
 func (s *server) initBackend() {
 	// Create Wayland display
 	s.display = wlr.CreateDisplay()
+	if !s.display.Valid() {
+		log.Println("Failed to create the Wayland display")
+		os.Exit(1)
+	}
 
 	// Create backend (auto-detects: nested wayland/x11 or DRM)
 	s.backend, s.session = wlr.AutocreateBackend(s.display.EventLoop())
@@ -584,27 +588,46 @@ func (s *server) initBackend() {
 
 	// Create compositor
 	s.compositor = wlr.CreateCompositor(s.display, 6, s.renderer)
+	if !s.compositor.Valid() {
+		log.Println("Failed to create wl_compositor")
+		os.Exit(1)
+	}
 
 	// GPU reset: the renderer is unusable and must be replaced.
 	s.rendererLost = s.renderer.OnLost(s.handleRendererLost)
 
 	// Create subcompositor for subsurfaces
-	wlr.CreateSubcompositor(s.display)
+	if !wlr.CreateSubcompositor(s.display) {
+		log.Println("Failed to create wl_subcompositor")
+		os.Exit(1)
+	}
 
 	// Create data device manager (required for clipboard/GTK apps)
 	s.dataDeviceMgr = wlr.CreateDataDeviceManager(s.display)
+	if !s.dataDeviceMgr.Valid() {
+		log.Println("Failed to create wl_data_device_manager")
+		os.Exit(1)
+	}
 
 	// Create primary selection manager (required for middle-click paste and XWayland clipboard bridge)
 	wlr.CreatePrimarySelectionV1DeviceManager(s.display)
 
 	// Create output layout
 	s.outLayout = wlr.CreateOutputLayout(s.display)
+	if !s.outLayout.Valid() {
+		log.Println("Failed to create the output layout")
+		os.Exit(1)
+	}
 }
 
 // initScene creates the scene graph and its layer trees.
 func (s *server) initScene() {
 	// Create scene graph (wlr_scene handles damage tracking + rendering)
 	s.scene = unsafe.Pointer(C.create_scene())
+	if s.scene == nil {
+		log.Println("Failed to create the scene")
+		os.Exit(1)
+	}
 	scene := (*C.struct_wlr_scene)(s.scene)
 	sceneTree := &scene.tree
 

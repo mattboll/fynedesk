@@ -147,7 +147,8 @@ func (o Output) OnFrame(cb func(Output)) Listener {
 }
 
 // OnRequestState is emitted when the backend asks for a new state (e.g. a
-// nested window was resized). The handler should commit st, possibly amended.
+// nested window was resized). The handler commits st as it is: it belongs to
+// the backend and is const, to be read, never changed.
 func (o Output) OnRequestState(cb func(o Output, st *OutputState)) Listener {
 	return newListener(&o.p.events.request_state, func(data unsafe.Pointer) {
 		event := (*C.struct_wlr_output_event_request_state)(data)
@@ -247,6 +248,9 @@ func (m OutputMode) Preferred() bool { return bool(m.p.preferred) }
 type OutputLayout struct {
 	p *C.struct_wlr_output_layout
 }
+
+// Valid reports whether the layout was created.
+func (l OutputLayout) Valid() bool { return l.p != nil }
 
 // CreateOutputLayout creates an output layout.
 func CreateOutputLayout(display Display) OutputLayout {

@@ -15,10 +15,13 @@ type Display struct {
 	p *C.struct_wl_display
 }
 
-// CreateDisplay creates a new Wayland display.
+// CreateDisplay creates a new Wayland display; check Valid.
 func CreateDisplay() Display {
 	return Display{p: C.wl_display_create()}
 }
+
+// Valid reports whether the display was created.
+func (d Display) Valid() bool { return d.p != nil }
 
 // DisplayFromPtr wraps a struct wl_display pointer.
 func DisplayFromPtr(p unsafe.Pointer) Display {

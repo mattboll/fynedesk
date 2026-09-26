@@ -25,15 +25,22 @@ func CreateCompositor(display Display, version uint32, renderer Renderer) Compos
 // Ptr returns the underlying struct wlr_compositor pointer.
 func (c Compositor) Ptr() unsafe.Pointer { return unsafe.Pointer(c.p) }
 
-// CreateSubcompositor creates the wl_subcompositor global.
-func CreateSubcompositor(display Display) {
-	C.wlr_subcompositor_create(display.p)
+// Valid reports whether the global was created.
+func (c Compositor) Valid() bool { return c.p != nil }
+
+// CreateSubcompositor creates the wl_subcompositor global, and reports
+// whether it could.
+func CreateSubcompositor(display Display) bool {
+	return C.wlr_subcompositor_create(display.p) != nil
 }
 
 // DataDeviceManager wraps struct wlr_data_device_manager.
 type DataDeviceManager struct {
 	p *C.struct_wlr_data_device_manager
 }
+
+// Valid reports whether the global was created.
+func (m DataDeviceManager) Valid() bool { return m.p != nil }
 
 // CreateDataDeviceManager creates the wl_data_device_manager global.
 func CreateDataDeviceManager(display Display) DataDeviceManager {
