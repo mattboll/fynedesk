@@ -264,7 +264,6 @@ func (s *server) detachXwaySurface(v *xwayView) {
 	}
 }
 
-
 // handleXwayMap places, decorates and focuses an XWayland view when its
 // wl_surface is mapped.
 func (s *server) handleXwayMap(v *xwayView, surface wlr.XwaylandSurface, viewTree *C.struct_wlr_scene_tree) {
