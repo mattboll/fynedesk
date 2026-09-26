@@ -7,6 +7,7 @@ package autostart
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -60,8 +61,14 @@ func DefaultEnv() Env {
 	}
 }
 
+// gsettingTimeout bounds gsettings, which waits on dconf (D-Bus) and would
+// otherwise hold up the whole autostart.
+const gsettingTimeout = 2 * time.Second
+
 func gsetting(schema, key string) (bool, error) {
-	out, err := exec.Command("gsettings", "get", schema, key).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), gsettingTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "gsettings", "get", schema, key).Output()
 	if err != nil {
 		return false, err
 	}
