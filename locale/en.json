@@ -390,6 +390,8 @@
   "lock.noUser": "Cannot determine user",
   "lock.typePassword": "Type password to unlock",
   "lock.wrongPassword": "Incorrect password",
+  "logout.cancelled": "Log Out was cancelled by an open application",
+  "logout.title": "Log Out",
   "menu.allDesktops": "All Desktops",
   "menu.cancel": "Cancel",
   "menu.close": "Close",

@@ -390,6 +390,8 @@
   "lock.noUser": "Impossible de déterminer l'utilisateur",
   "lock.typePassword": "Tapez votre mot de passe pour déverrouiller",
   "lock.wrongPassword": "Mot de passe incorrect",
+  "logout.cancelled": "La déconnexion a été annulée par une application ouverte",
+  "logout.title": "Déconnexion",
   "menu.allDesktops": "Tous les bureaux",
   "menu.cancel": "Annuler",
   "menu.close": "Fermer",

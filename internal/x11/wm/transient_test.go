@@ -27,3 +27,21 @@ func TestTransientForget(t *testing.T) {
 		t.Errorf("map = %v, want empty", x.transientMap)
 	}
 }
+
+func TestRootAccessors(t *testing.T) {
+	x := &x11WM{rootIDs: map[string]xproto.Window{}}
+	x.setRoot("eDP-1", 10)
+	x.setRoot("HDMI-1", 11)
+	if got := x.rootFor("HDMI-1"); got != 11 {
+		t.Errorf("rootFor = %d, want 11", got)
+	}
+	if !x.isRoot(10) || x.isRoot(12) {
+		t.Error("isRoot does not match the roots")
+	}
+	if !x.forgetRoot(10) || x.forgetRoot(10) {
+		t.Error("forgetRoot reports a root it did not have, or missed one")
+	}
+	if got := len(x.roots()); got != 1 {
+		t.Errorf("%d roots left, want 1", got)
+	}
+}

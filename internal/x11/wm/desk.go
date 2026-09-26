@@ -6,11 +6,13 @@ package wm // import "fyshos.com/tyde/internal/x11/wm"
 import (
 	"errors"
 	"image"
+	"maps"
 	"math"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BurntSushi/xgb"
@@ -38,6 +40,7 @@ import (
 	"fyshos.com/tyde/internal/wallpaper"
 	"fyshos.com/tyde/internal/x11"
 	xwin "fyshos.com/tyde/internal/x11/win"
+	"fyshos.com/tyde/locale"
 	"fyshos.com/tyde/wm"
 )
 
@@ -59,7 +62,12 @@ type x11WM struct {
 
 	currentBindings []*tyde.Shortcut
 
-	died           bool
+	died bool
+
+	// stateMu guards what the X event loop and the Fyne thread share:
+	// the desktop (root) windows by screen, the overlay and the menu's
+	// place. Use roots, rootFor and the other accessors.
+	stateMu        sync.RWMutex
 	rootIDs        map[string]xproto.Window
 	overlayActive  bool
 	overlayRegions []image.Rectangle
@@ -186,10 +194,14 @@ func NewX11WindowManager(a fyne.App) (tyde.WindowManager, error) {
 }
 
 func (x *x11WM) AddStackListener(l tyde.StackListener) {
+	x.stack.mu.Lock()
+	defer x.stack.mu.Unlock()
 	x.stack.listeners = append(x.stack.listeners, l)
 }
 
 func (x *x11WM) RemoveStackListener(l tyde.StackListener) {
+	x.stack.mu.Lock()
+	defer x.stack.mu.Unlock()
 	for i, cur := range x.stack.listeners {
 		if cur != l {
 			continue
@@ -210,8 +222,10 @@ func (x *x11WM) Blank() {
 	}()
 }
 
+// Close asks every window to close, and ends the session once they have,
+// or gives up after 10 seconds.
 func (x *x11WM) Close() {
-	for _, child := range x.clients {
+	for _, child := range x.list() {
 		child.Close()
 	}
 	if x.died {
@@ -219,25 +233,22 @@ func (x *x11WM) Close() {
 		return
 	}
 
-	cancel := false
-	exit := make(chan interface{})
 	go func() {
-		for !cancel && len(x.clients) > 0 {
-			time.Sleep(time.Millisecond * 100)
-		}
-
-		close(exit)
-	}()
-
-	go func() {
-		select {
-		case <-exit:
-			x.x.Conn().Close()
-			os.Exit(0)
-		case <-time.NewTimer(time.Second * 10).C:
-			notify := wm.NewNotification("Log Out", "Log Out was cancelled by an open application")
-			wm.SendNotification(notify)
-			cancel = true
+		tick := time.NewTicker(100 * time.Millisecond)
+		defer tick.Stop()
+		giveUp := time.After(10 * time.Second)
+		for {
+			select {
+			case <-tick.C:
+				if x.count() == 0 {
+					x.x.Conn().Close()
+					os.Exit(0)
+				}
+			case <-giveUp:
+				notify := wm.NewNotification(locale.T("logout.title"), locale.T("logout.cancelled"))
+				wm.SendNotification(notify)
+				return
+			}
 		}
 	}()
 }
@@ -267,14 +278,17 @@ func (x *x11WM) Run() {
 // back to the top window.
 func (x *x11WM) SetOverlayActive(active bool, regions []image.Rectangle) {
 	// Remember the regions so a frame that re-shapes does not wipe out overlays.
+	x.stateMu.Lock()
 	x.overlayRegions = regions
+	wasActive := x.overlayActive
+	x.overlayActive = active
+	x.stateMu.Unlock()
 	x.updateRootInputShape(active)
 	x.updateFrameInputShapes(active, regions)
 
-	if active == x.overlayActive {
+	if active == wasActive {
 		return
 	}
-	x.overlayActive = active
 
 	x.grabRootButtons(active)
 	if active {
@@ -309,8 +323,9 @@ func (x *x11WM) focusTopWindow() {
 // skipping iconified windows and any that are not on the current desktop.
 func (x *x11WM) topFocusable() tyde.Window {
 	current := tyde.Instance().Desktop()
-	for i := len(x.clients) - 1; i >= 0; i-- {
-		win := x.clients[i]
+	clients := x.list()
+	for i := len(clients) - 1; i >= 0; i-- {
+		win := clients[i]
 		if win.Iconic() || (win.Desktop() != current && !win.Pinned()) {
 			continue
 		}
@@ -342,9 +357,43 @@ func (x *x11WM) grabRootButtons(grab bool) {
 	}
 }
 
+// roots returns a copy of the desktop (root) windows by screen name.
+func (x *x11WM) roots() map[string]xproto.Window {
+	x.stateMu.RLock()
+	defer x.stateMu.RUnlock()
+	return maps.Clone(x.rootIDs)
+}
+
+// rootFor returns the desktop window of a screen, or 0.
+func (x *x11WM) rootFor(screenName string) xproto.Window {
+	x.stateMu.RLock()
+	defer x.stateMu.RUnlock()
+	return x.rootIDs[screenName]
+}
+
+// setRoot records the desktop window of a screen.
+func (x *x11WM) setRoot(screenName string, win xproto.Window) {
+	x.stateMu.Lock()
+	x.rootIDs[screenName] = win
+	x.stateMu.Unlock()
+}
+
+// forgetRoot drops a destroyed desktop window, and reports whether it was one.
+func (x *x11WM) forgetRoot(win xproto.Window) bool {
+	x.stateMu.Lock()
+	defer x.stateMu.Unlock()
+	for name, rootID := range x.rootIDs {
+		if rootID == win {
+			delete(x.rootIDs, name)
+			return true
+		}
+	}
+	return false
+}
+
 // isRoot reports whether win is one of the desktop (root) windows.
 func (x *x11WM) isRoot(win xproto.Window) bool {
-	for _, rootID := range x.rootIDs {
+	for _, rootID := range x.roots() {
 		if rootID == win {
 			return true
 		}
@@ -359,7 +408,7 @@ func (x *x11WM) updateFrameInputShapes(overlayActive bool, regions []image.Recta
 	}
 
 	emptyRect := []xproto.Rectangle{{X: 0, Y: 0, Width: 0, Height: 0}}
-	for _, win := range x.clients {
+	for _, win := range x.list() {
 		xwin := win.(x11.XWin)
 		frameID := xwin.FrameID()
 		fx, fy, fw, fh := xwin.Geometry()
@@ -433,10 +482,13 @@ func (x *x11WM) subtractOverlayRegions(frameID xproto.Window, fx, fy, fw, fh int
 // RefreshOverlayShape re-applies the active overlay's input-transparent regions to a
 // single frame. This ensures that our overlays keep input over real windows.
 func (x *x11WM) RefreshOverlayShape(frameID xproto.Window, fx, fy, fw, fh int) {
-	if !x.overlayActive {
+	x.stateMu.RLock()
+	active, regions := x.overlayActive, x.overlayRegions
+	x.stateMu.RUnlock()
+	if !active {
 		return
 	}
-	x.subtractOverlayRegions(frameID, fx, fy, fw, fh, x.overlayRegions)
+	x.subtractOverlayRegions(frameID, fx, fy, fw, fh, regions)
 }
 
 // updateRootInputShape sets the input shape on all root windows.
@@ -451,7 +503,7 @@ func (x *x11WM) updateRootInputShape(_ bool) {
 	}
 
 	emptyRect := []xproto.Rectangle{{X: 0, Y: 0, Width: 0, Height: 0}}
-	for name, rootID := range x.rootIDs {
+	for name, rootID := range x.roots() {
 		if name == primaryName {
 			// Primary root: accept input everywhere (for bar, widgets, desktop)
 			shape.Mask(x.x.Conn(), shape.SoSet, shape.SkInput, rootID, 0, 0, xproto.PixmapNone)
@@ -468,8 +520,9 @@ func (x *x11WM) ShowOverlay(w fyne.Window, s fyne.Size, p fyne.Position) {
 	w.SetFixedSize(true)
 	w.Resize(s)
 
-	x.menuSize = s
-	x.menuPos = p
+	x.stateMu.Lock()
+	x.menuSize, x.menuPos = s, p
+	x.stateMu.Unlock()
 	w.Show()
 }
 
@@ -701,7 +754,7 @@ func (x *x11WM) configureRoots() {
 		maxX = max(maxX, screen.X+screen.Width)
 		maxY = max(maxY, screen.Y+screen.Height)
 
-		rootID := x.rootIDs[screen.Name]
+		rootID := x.rootFor(screen.Name)
 		if rootID == 0 {
 			continue
 		}
@@ -737,7 +790,7 @@ func (x *x11WM) configureRoots() {
 
 	// Always ensure root windows stay at the bottom of the X11 stack.
 	// Fyne/GLFW may re-raise them during window creation or configuration.
-	for _, rootID := range x.rootIDs {
+	for _, rootID := range x.roots() {
 		xproto.ConfigureWindow(x.x.Conn(), rootID,
 			xproto.ConfigWindowStackMode, []uint32{uint32(xproto.StackModeBelow)})
 	}
@@ -768,7 +821,7 @@ func (x *x11WM) notifyConfigure(ev xproto.ConfigureNotifyEvent) {
 func (x *x11WM) configureWindow(win xproto.Window, ev xproto.ConfigureRequestEvent) {
 	// Check if this is a root window first — Fyne/GLFW may send configure
 	// requests (including restacking) that we must intercept to keep roots below.
-	for _, rootID := range x.rootIDs {
+	for _, rootID := range x.roots() {
 		if rootID == win {
 			x.configureRoots()
 			return
@@ -813,7 +866,7 @@ func (x *x11WM) configureWindow(win xproto.Window, ev xproto.ConfigureRequestEve
 	name := x11.WindowName(x.x, win)
 	if x.isRootTitle(name) {
 		screenName := screenNameFromRootTitle(name)
-		x.rootIDs[screenName] = win
+		x.setRoot(screenName, win)
 
 		x.configureRoots() // we added a root window, so reconfigure
 		return
@@ -828,24 +881,13 @@ func (x *x11WM) configureWindow(win xproto.Window, ev xproto.ConfigureRequestEve
 }
 
 func (x *x11WM) destroyWindow(win xproto.Window) {
-	for name, rootID := range x.rootIDs {
-		if rootID == win {
-			delete(x.rootIDs, name)
-			return
-		}
+	if x.forgetRoot(win) {
+		return
 	}
 
 	c := x.clientForWin(win)
 	if c == nil {
-		// check if it was recently closed
-		for i, w := range x.stack.deleted {
-			if w.(x11.XWin).FrameID() == win || w.(x11.XWin).ChildID() == win {
-				c = w.(x11.XWin)
-
-				x.stack.deleted = append(x.stack.deleted[:i], x.stack.deleted[i+1:]...)
-				break
-			}
-		}
+		c = x.forgetDeleted(win) // it was recently closed
 	}
 	if c == nil || win == c.FrameID() {
 		return
@@ -873,7 +915,7 @@ func (x *x11WM) frameExisting() {
 		}
 		// Also skip by window ID — the title may not be set yet
 		isRoot := false
-		for _, rootID := range x.rootIDs {
+		for _, rootID := range x.roots() {
 			if rootID == child {
 				isRoot = true
 				break
@@ -902,11 +944,11 @@ func (x *x11WM) RootID() xproto.Window {
 	if primary == nil {
 		return 0
 	}
-	return x.rootIDs[primary.Name]
+	return x.rootFor(primary.Name)
 }
 
 func (x *x11WM) RootIDForScreen(screenName string) xproto.Window {
-	return x.rootIDs[screenName]
+	return x.rootFor(screenName)
 }
 
 func (x *x11WM) NotifyWindowMoved(win tyde.Window) {
@@ -936,7 +978,7 @@ func (x *x11WM) isRootTitle(title string) bool {
 }
 
 func (x *x11WM) refreshBorders() {
-	for _, c := range x.clients {
+	for _, c := range x.list() {
 		c.(x11.XWin).SettingsChanged()
 	}
 }
@@ -967,19 +1009,19 @@ func (x *x11WM) setInitialWindowAttributes(win xproto.Window) {
 func (x *x11WM) setupBindings() {
 	tyde.Instance().Settings().AddChangeListener(func(_ tyde.DeskSettings) {
 		// this uses the state from the previous bind call
-		for _, rootID := range x.rootIDs {
+		for _, rootID := range x.roots() {
 			x.unbindShortcuts(rootID)
 		}
-		for _, c := range x.clients {
+		for _, c := range x.list() {
 			x.unbindShortcuts(c.(x11.XWin).ChildID())
 		}
 		x.currentBindings = nil
 
 		// this call sets up the new cache of shortcuts
-		for _, rootID := range x.rootIDs {
+		for _, rootID := range x.roots() {
 			x.bindShortcuts(rootID)
 		}
-		for _, c := range x.clients {
+		for _, c := range x.list() {
 			x.bindShortcuts(c.(x11.XWin).ChildID())
 		}
 
@@ -1048,7 +1090,7 @@ func (x *x11WM) showWindow(win xproto.Window, parent xproto.Window) {
 	name := x11.WindowName(x.x, win)
 	if x.isRootTitle(name) {
 		screenName := screenNameFromRootTitle(name)
-		x.rootIDs[screenName] = win
+		x.setRoot(screenName, win)
 
 		err := xproto.MapWindowChecked(x.x.Conn(), win).Check()
 		if err != nil {
@@ -1066,7 +1108,7 @@ func (x *x11WM) showWindow(win xproto.Window, parent xproto.Window) {
 		if inst := tyde.Instance(); inst != nil {
 			expectedRoots = len(inst.Screens().Screens())
 		}
-		if !x.framedExisting && len(x.rootIDs) >= expectedRoots {
+		if !x.framedExisting && len(x.roots()) >= expectedRoots {
 			x.framedExisting = true
 			go x.frameExisting()
 		}
@@ -1078,8 +1120,11 @@ func (x *x11WM) showWindow(win xproto.Window, parent xproto.Window) {
 		xproto.ChangeWindowAttributes(x.Conn(), win, xproto.CwEventMask, []uint32{xproto.EventMaskLeaveWindow})
 
 		screen := tyde.Instance().Screens().Primary()
-		w, h := x.menuSize.Width*screen.CanvasScale(), x.menuSize.Height*screen.CanvasScale()
-		mx, my := screen.X+int(x.menuPos.X*screen.CanvasScale()), screen.Y+int(x.menuPos.Y*screen.CanvasScale())
+		x.stateMu.RLock()
+		menuSize, menuPos := x.menuSize, x.menuPos
+		x.stateMu.RUnlock()
+		w, h := menuSize.Width*screen.CanvasScale(), menuSize.Height*screen.CanvasScale()
+		mx, my := screen.X+int(menuPos.X*screen.CanvasScale()), screen.Y+int(menuPos.Y*screen.CanvasScale())
 		xproto.ConfigureWindow(x.Conn(), win, xproto.ConfigWindowX|xproto.ConfigWindowY|
 			xproto.ConfigWindowWidth|xproto.ConfigWindowHeight, []uint32{
 			uint32(mx), uint32(my),
