@@ -93,26 +93,15 @@ func getMonoFontFace() font.Face {
 
 // fullLayoutBounds returns the bounding rectangle of all connected outputs
 // in layout coordinates. Used to create overlays that span all monitors.
-func (s *server) fullLayoutBounds() (minX, minY, totalW, totalH int) {
+func (s *server) fullLayoutBounds() (x, y, w, h int) {
 	if len(s.outputs) == 0 {
 		return 0, 0, 0, 0
 	}
-	minX, minY = 1<<30, 1<<30
-	maxX, maxY := -(1 << 30), -(1 << 30)
-	for _, out := range s.outputs {
-		geo := s.getOutputGeometry(out)
-		if geo.x < minX {
-			minX = geo.x
-		}
-		if geo.y < minY {
-			minY = geo.y
-		}
-		if geo.x+geo.width > maxX {
-			maxX = geo.x + geo.width
-		}
-		if geo.y+geo.height > maxY {
-			maxY = geo.y + geo.height
-		}
+	minX, minY, maxX, maxY := math.MaxInt, math.MaxInt, math.MinInt, math.MinInt
+	for _, o := range s.outputs {
+		g := s.getOutputGeometry(o)
+		minX, minY = min(minX, g.x), min(minY, g.y)
+		maxX, maxY = max(maxX, g.x+g.width), max(maxY, g.y+g.height)
 	}
 	return minX, minY, maxX - minX, maxY - minY
 }

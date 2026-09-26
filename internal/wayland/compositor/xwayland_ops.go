@@ -2,6 +2,7 @@ package compositor
 
 import (
 	"log"
+	"math"
 	"strings"
 
 	"fyshos.com/tyde/internal/wayland/wlr"
@@ -30,21 +31,28 @@ func (s *server) positionNewXwayWindow(v *xwayView) {
 	}
 
 	// Place window on the output under the cursor
-	outGeo := s.getActiveOutputGeo()
-	cx, cy, cw, ch := s.contentBounds(outGeo)
+	v.x, v.y, winWidth, winHeight = s.cascadePlace(winWidth, winHeight, v.decorated)
 
-	contentX := cx + 20
-	contentY := cy + 20
-	contentWidth := cw - 40
-	contentHeight := ch - 40
+	// Configure the XWayland surface position and restack to ensure input works
+	log.Printf("[POSITION] XWayland positioned: class=%q at=(%.0f,%.0f) size=%dx%d\n",
+		getXwaylandSurfaceClass(v.surface), v.x, v.y, winWidth, winHeight)
+	v.surface.Configure(int16(v.x), int16(v.y), uint16(winWidth), uint16(winHeight))
+	restackXwaylandSurfaceAbove(v.surface)
+}
 
-	// Reserve space for SSD titlebar so it doesn't go off-screen
-	if v.decorated {
+// cascadePlace returns where a new w×h window goes on the output under the
+// cursor, a little below and right of the last one placed there, and the
+// size it should take to fit.
+func (s *server) cascadePlace(w, h int, decorated bool) (float64, float64, int, int) {
+	cx, cy, cw, ch := s.contentBounds(s.getActiveOutputGeo())
+	contentX, contentY := cx+20, cy+20
+	contentWidth, contentHeight := cw-40, ch-40
+	// Room for the titlebar, so that it does not go off-screen.
+	if decorated {
 		contentY += titlebarHeight
 		contentHeight -= titlebarHeight
 	}
 
-	// Calculate cascade position (per-output)
 	outName := ""
 	if out := s.getActiveOutput(); out != nil {
 		outName = out.output.Name()
@@ -53,44 +61,23 @@ func (s *server) positionNewXwayWindow(v *xwayView) {
 		s.cascadeOffsets = map[string]int{}
 	}
 	offset := s.cascadeOffsets[outName] * cascadeStep
-
-	// Reset cascade if it would put window too far right/down
+	// Back to the corner before windows go too far right or down.
 	if offset > contentWidth/3 || offset > contentHeight/3 {
-		s.cascadeOffsets[outName] = 0
 		offset = 0
 	}
+	s.cascadeOffsets[outName] = (offset/cascadeStep + 1) % maxCascade
 
-	// Constrain oversized windows to fit within content area
-	if winWidth > contentWidth {
-		winWidth = contentWidth
-	}
-	if winHeight > contentHeight {
-		winHeight = contentHeight
-	}
-
-	if winWidth > 0 && winHeight > 0 {
-		v.x = float64(contentX + offset)
-		v.y = float64(contentY + offset)
-		// Ensure window fits in content area
-		if int(v.x)+winWidth > contentX+contentWidth {
-			v.x = float64(contentX)
+	w, h = min(w, contentWidth), min(h, contentHeight)
+	x, y := contentX+offset, contentY+offset
+	if w > 0 && h > 0 {
+		if x+w > contentX+contentWidth {
+			x = contentX
 		}
-		if int(v.y)+winHeight > contentY+contentHeight {
-			v.y = float64(contentY)
+		if y+h > contentY+contentHeight {
+			y = contentY
 		}
-	} else {
-		v.x = float64(contentX + offset)
-		v.y = float64(contentY + offset)
 	}
-
-	// Increment cascade for next window
-	s.cascadeOffsets[outName] = (s.cascadeOffsets[outName] + 1) % maxCascade
-
-	// Configure the XWayland surface position and restack to ensure input works
-	log.Printf("[POSITION] XWayland positioned: class=%q at=(%.0f,%.0f) size=%dx%d content=(%d,%d %dx%d)\n",
-		getXwaylandSurfaceClass(v.surface), v.x, v.y, winWidth, winHeight, contentX, contentY, contentWidth, contentHeight)
-	v.surface.Configure(int16(v.x), int16(v.y), uint16(winWidth), uint16(winHeight))
-	restackXwaylandSurfaceAbove(v.surface)
+	return float64(x), float64(y), w, h
 }
 
 // closeXwayWindow closes an XWayland window
@@ -134,37 +121,11 @@ func (s *server) positionOverlay(v *xwayView, surface wlr.XwaylandSurface) {
 	log.Printf("[OVERLAY] positionOverlay: title=%q req=(%v,%v) size=%vx%v surfaceSize=%dx%d",
 		surface.Title(), pos.X, pos.Y, pos.Width, pos.Height, realW, realH)
 
-	// Panel sends positions in absolute layout coordinates (including output
-	// offsets for secondary monitors). Find the output containing the target
-	// point and clamp to its bounds.
-	x := float64(pos.X)
-	y := float64(pos.Y)
-
-	targetOut := s.getOutputForPosition(x, y)
-	if targetOut == nil {
-		targetOut = s.primaryOutput()
-	}
-	if targetOut == nil {
+	x, y, ok := s.overlayPosition(pos)
+	if !ok {
 		return
 	}
-	outGeo := s.getOutputGeometry(targetOut)
-	outRight := float64(outGeo.x + outGeo.width)
-	outBottom := float64(outGeo.y + outGeo.height)
-	if x+float64(surfW) > outRight {
-		x = outRight - float64(surfW)
-	}
-	if y+float64(surfH) > outBottom {
-		y = outBottom - float64(surfH)
-	}
-	if x < float64(outGeo.x) {
-		x = float64(outGeo.x)
-	}
-	if y < float64(outGeo.y) {
-		y = float64(outGeo.y)
-	}
-
-	log.Printf("[OVERLAY] final pos=(%v,%v) output=(%d,%d %dx%d)",
-		x, y, outGeo.x, outGeo.y, outGeo.width, outGeo.height)
+	log.Printf("[OVERLAY] final pos=(%v,%v)", x, y)
 
 	v.x = x
 	v.y = y
@@ -189,6 +150,24 @@ func (s *server) positionOverlay(v *xwayView, surface wlr.XwaylandSurface) {
 	}
 }
 
+// overlayPosition returns where an overlay goes: the requested position,
+// in layout coordinates (the panel adds the offsets of other outputs), kept
+// on the output that holds it with the requested size.
+func (s *server) overlayPosition(req *wlipc.OverlayRequest) (float64, float64, bool) {
+	x, y := float64(req.X), float64(req.Y)
+	out := s.getOutputForPosition(x, y)
+	if out == nil {
+		out = s.primaryOutput()
+	}
+	if out == nil {
+		return 0, 0, false
+	}
+	g := s.getOutputGeometry(out)
+	x = math.Max(math.Min(x, float64(g.x+g.width)-float64(req.Width)), float64(g.x))
+	y = math.Max(math.Min(y, float64(g.y+g.height)-float64(req.Height)), float64(g.y))
+	return x, y, true
+}
+
 // repositionMappedOverlay moves an already-mapped overlay window to a new position.
 // This is called when an overlay position request arrives via IPC for a window that
 // has already been mapped (e.g. animation frames for sidebar/notification slide-in).
@@ -205,35 +184,11 @@ func (s *server) repositionMappedOverlay(req *wlipc.OverlayRequest) {
 		if title != req.Title && !strings.Contains(title, req.Title) {
 			continue
 		}
-		// Found it — reposition directly
-		x := float64(req.X)
-		y := float64(req.Y)
-		surfW := int(req.Width)
-		surfH := int(req.Height)
-
-		// Clamp to target output bounds
-		targetOut := s.getOutputForPosition(x, y)
-		if targetOut == nil {
-			targetOut = s.primaryOutput()
-		}
-		if targetOut == nil {
+		x, y, ok := s.overlayPosition(req)
+		if !ok {
 			return
 		}
-		outGeo := s.getOutputGeometry(targetOut)
-		outRight := float64(outGeo.x + outGeo.width)
-		outBottom := float64(outGeo.y + outGeo.height)
-		if x+float64(surfW) > outRight {
-			x = outRight - float64(surfW)
-		}
-		if y+float64(surfH) > outBottom {
-			y = outBottom - float64(surfH)
-		}
-		if x < float64(outGeo.x) {
-			x = float64(outGeo.x)
-		}
-		if y < float64(outGeo.y) {
-			y = float64(outGeo.y)
-		}
+		surfW, surfH := int(req.Width), int(req.Height)
 
 		v.x = x
 		v.y = y

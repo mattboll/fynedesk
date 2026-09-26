@@ -112,21 +112,8 @@ func (s *server) tickFocusDim() bool {
 		s.focusDimAlpha = float32(math.Max(float64(s.focusDimAlpha-focusDimStep), float64(target)))
 	}
 
-	lx, ly, lw, lh := s.layoutBounds()
+	lx, ly, lw, lh := s.fullLayoutBounds()
 	C.focus_dim_place((*C.struct_wlr_scene_buffer)(s.focusDim), (*C.struct_wlr_scene_tree)(s.litTree()),
 		C.int(lx), C.int(ly), C.int(lw), C.int(lh), C.float(s.focusDimAlpha))
 	return s.focusDimAlpha != target
-}
-
-// layoutBounds returns the rectangle covering every output.
-func (s *server) layoutBounds() (int, int, int, int) {
-	if len(s.outputs) == 0 {
-		return 0, 0, 0, 0
-	}
-	minX, minY, maxX, maxY := math.MaxInt, math.MaxInt, math.MinInt, math.MinInt
-	for _, o := range s.outputs {
-		minX, minY = min(minX, o.layoutX), min(minY, o.layoutY)
-		maxX, maxY = max(maxX, o.layoutX+o.width), max(maxY, o.layoutY+o.height)
-	}
-	return minX, minY, maxX - minX, maxY - minY
 }

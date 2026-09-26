@@ -448,18 +448,11 @@ func (s *server) handleXdgInitialCommit(v *xdgView) {
 // configureXdgMaximized sizes a view flagged maximized to the content area of
 // the active output.
 func (s *server) configureXdgMaximized(v *xdgView) {
-	outGeo := s.getActiveOutputGeo()
-	cx, cy, cw, ch := s.contentBounds(outGeo)
-	topMargin := 0
-	if v.decorated {
-		topMargin = titlebarHeight
-	}
-	v.x = float64(cx)
-	v.y = float64(cy + topMargin)
-	v.xdgToplevel.SetSize(int32(cw), int32(ch-topMargin))
+	x, y, w, h := s.zoneTarget(s.getActiveOutputGeo(), snapTop, v.decorated)
+	v.x, v.y = x, y
+	v.xdgToplevel.SetSize(int32(w), int32(h))
 	v.xdgToplevel.SetMaximized(true)
-	v.configuredW = cw
-	v.configuredH = ch - topMargin
+	v.configuredW, v.configuredH = w, h
 }
 
 // handleXdgSetParent follows protocol-level parent (transient_for) changes.
@@ -636,62 +629,11 @@ func (s *server) positionNewXdgWindow(v *xdgView, winWidth, winHeight int) {
 		return
 	}
 
-	contentX := cx + 20
-	contentY := cy + 20
-	contentWidth := cw - 40
-	contentHeight := ch - 40
-
-	// Reserve space for SSD titlebar so it doesn't go off-screen
-	if v.decorated {
-		contentY += titlebarHeight
-		contentHeight -= titlebarHeight
+	x, y, w, h := s.cascadePlace(winWidth, winHeight, v.decorated)
+	if w != winWidth || h != winHeight {
+		v.xdgToplevel.SetSize(int32(w), int32(h)) // it would not fit
 	}
-
-	// Calculate cascade position (per-output)
-	outName := ""
-	if out := s.getActiveOutput(); out != nil {
-		outName = out.output.Name()
-	}
-	if s.cascadeOffsets == nil {
-		s.cascadeOffsets = map[string]int{}
-	}
-	offset := s.cascadeOffsets[outName] * cascadeStep
-
-	// Reset cascade if it would put window too far
-	if offset > contentWidth/3 || offset > contentHeight/3 {
-		s.cascadeOffsets[outName] = 0
-		offset = 0
-	}
-
-	// Request smaller size if window exceeds content area
-	resized := false
-	if winWidth > contentWidth {
-		winWidth = contentWidth
-		resized = true
-	}
-	if winHeight > contentHeight {
-		winHeight = contentHeight
-		resized = true
-	}
-	if resized {
-		v.xdgToplevel.SetSize(int32(winWidth), int32(winHeight))
-	}
-
-	if winWidth > 0 && winHeight > 0 {
-		v.x = float64(contentX + offset)
-		v.y = float64(contentY + offset)
-		if int(v.x)+winWidth > contentX+contentWidth {
-			v.x = float64(contentX)
-		}
-		if int(v.y)+winHeight > contentY+contentHeight {
-			v.y = float64(contentY)
-		}
-	} else {
-		v.x = float64(contentX + offset)
-		v.y = float64(contentY + offset)
-	}
-
-	s.cascadeOffsets[outName] = (s.cascadeOffsets[outName] + 1) % maxCascade
+	v.x, v.y = x, y
 }
 
 // isFixedSize reports whether a window cannot be resized: the minimum and

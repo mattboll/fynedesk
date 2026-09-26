@@ -325,85 +325,105 @@ func (s *server) adoptXwayParent(v *xwayView) {
 	}
 }
 
-// classifyXwayOnMap sets up a mapped XWayland view according to its title:
-// panel, secondary bar, panel utility window, overlay or regular window.
+// xwayRole is what the title of one of Tyde's own windows makes of it.
+type xwayRole int
+
+const (
+	xwayRegular xwayRole = iota // an application window
+	xwayPanel                   // the panel ("Tyde:Panel")
+	xwayBar                     // the bar of another output ("Tyde:Bar:<output>")
+	xwayUtility                 // a panel utility: launcher, toasts… ("Tyde:skip")
+	xwayMenu                    // a menu placed from IPC ("Tyde Menu", the emoji picker)
+)
+
+// xwayRoleOf returns the role a title gives, and the output of a bar.
+func xwayRoleOf(title string) (xwayRole, string) {
+	switch {
+	case strings.Contains(title, "Tyde:Panel"):
+		return xwayPanel, ""
+	case strings.HasPrefix(title, "Tyde:Bar:"):
+		return xwayBar, strings.TrimPrefix(title, "Tyde:Bar:")
+	case strings.Contains(title, "Tyde:skip"):
+		return xwayUtility, ""
+	case title == "Tyde Menu" || strings.Contains(title, "Tyde:EmojiPicker"):
+		return xwayMenu, ""
+	}
+	return xwayRegular, ""
+}
+
+// classifyXwayOnMap gives a window being mapped the role its title says, or
+// places it as an application window.
 func (s *server) classifyXwayOnMap(v *xwayView, surface wlr.XwaylandSurface, viewTree *C.struct_wlr_scene_tree, title string, w, h int) {
-	// Check if this is the panel
-	if strings.Contains(title, "Tyde:Panel") {
-		v.isPanel = true
-		v.decorated = false
-		v.wantsSSD = false
-		s.panelXway = v
-		log.Printf("[PANEL] Panel detected on map: title=%q mapped=%v sceneTree=%v\n",
-			title, v.mapped, v.sceneTree != nil)
-		// Remove any leftover decorations (shadows, titlebar, borders)
-		// created before the window was identified as the panel.
-		s.tearDownXwayDecorations(v)
-		// Reparent to panelTree
-		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.panelTree))
-		// Panel uses ARGB8888 DMA-BUF with empty opaque_region,
-		// so alpha blending works natively — no commit listener needed.
-		// Position panel on primary output (both XWayland configure + scene node)
-		s.repositionPanel()
-		s.addBlur(v)
-	} else if strings.HasPrefix(title, "Tyde:Bar:") {
-		// Secondary bar window for a non-primary output
-		outputName := strings.TrimPrefix(title, "Tyde:Bar:")
-		v.isPanel = true
-		v.decorated = false
-		v.wantsSSD = false
-		s.tearDownXwayDecorations(v)
-		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.panelTree))
-		if s.secondaryPanels == nil {
-			s.secondaryPanels = make(map[string]*xwayView)
-		}
-		s.secondaryPanels[outputName] = v
-		log.Printf("[PANEL] Secondary bar detected on map: output=%q title=%q", outputName, title)
-		s.repositionSecondaryPanel(outputName, v)
-		s.addBlur(v)
-	} else if strings.Contains(title, "Tyde:skip") {
-		// Panel utility window (app launcher, etc.) — no decorations
-		v.decorated = false
-		v.wantsSSD = false
-		v.isOverlay = true
-		log.Printf("[OVERLAY] map: title=%q surfW=%d surfH=%d", title, surface.Width(), surface.Height())
-		// Remove any decorations/shadows that may have been created before identification
-		s.stripXwayDecorations(v)
-		// Reparent to overlayTree so it appears above normal windows
-		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.overlayTree))
-		restackXwaylandSurfaceAbove(v.surface)
-		// Enable scene node (may have been hidden by override-redirect handler
-		// when pendingOverlay was set, to avoid flash at wrong position)
-		C.scene_node_set_enabled(&viewTree.node, 1)
-		s.positionOverlay(v, surface)
-		s.addBlur(v)
-		if !strings.Contains(title, "Tyde:nofocus") {
-			s.focusOverlayKeyboard(v)
-		}
-	} else if title == "Tyde Menu" || strings.Contains(title, "Tyde:EmojiPicker") {
-		// Overlay window (context menu or emoji picker) — position from IPC
-		// Save pre-overlay focus so refocusPreOverlayWindow can restore it
-		s.preOverlayXdg = s.activeXdg
-		s.preOverlayXway = s.activeXway
-		// Close any existing overlay first
-		s.closeOverlay()
-		v.decorated = false
-		v.wantsSSD = false
-		v.isOverlay = true
-		s.overlayXway = v
-		// Remove any decorations/shadows that may have been created before identification
-		s.stripXwayDecorations(v)
-		// Reparent to overlayTree
-		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.overlayTree))
-		s.positionOverlay(v, surface)
-		s.addBlur(v)
-		restackXwaylandSurfaceAbove(v.surface)
-		s.focusOverlayKeyboard(v)
-		// Set pointer focus so the first click works without mouse movement
-		s.sendPointerEnterIfOver(v.x, v.y, float64(w), float64(h), v.surface.Surface())
-	} else if !v.isPanel {
+	if !s.takeXwayRole(v, surface, viewTree, title, true) && !v.isPanel {
 		s.mapXwayRegular(v, surface, title, w, h)
 	}
+}
+
+// takeXwayRole makes one of Tyde's windows what its title says, when it is
+// mapped (onMap) or when its title comes after. It reports whether the title
+// gave it a role; utilities and menus take theirs once mapped.
+func (s *server) takeXwayRole(v *xwayView, surface wlr.XwaylandSurface, viewTree *C.struct_wlr_scene_tree, title string, onMap bool) bool {
+	role, output := xwayRoleOf(title)
+	if role == xwayRegular || (!onMap && !v.mapped && (role == xwayUtility || role == xwayMenu)) {
+		return false
+	}
+	when := "title"
+	if onMap {
+		when = "map"
+	}
+	v.decorated = false
+	v.wantsSSD = false
+	// Decorations and shadow may have been made before the title said
+	// what the window is.
+	s.tearDownXwayDecorations(v)
+
+	switch role {
+	case xwayPanel, xwayBar:
+		v.isPanel = true
+		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.panelTree))
+		if role == xwayPanel {
+			s.panelXway = v
+			log.Printf("[PANEL] Panel detected on %s: title=%q mapped=%v\n", when, title, v.mapped)
+			// Its ARGB8888 buffers have an empty opaque region: it blends
+			// as it is.
+			s.repositionPanel()
+		} else {
+			if s.secondaryPanels == nil {
+				s.secondaryPanels = make(map[string]*xwayView)
+			}
+			s.secondaryPanels[output] = v
+			log.Printf("[PANEL] Secondary bar detected on %s: output=%q", when, output)
+			s.repositionSecondaryPanel(output, v)
+		}
+	case xwayUtility, xwayMenu:
+		if role == xwayMenu {
+			// The window focused before the menu gets the focus back when
+			// it closes; one whose title comes after its map took it already.
+			if onMap {
+				s.preOverlayXdg, s.preOverlayXway = s.activeXdg, s.activeXway
+			} else if s.preOverlayXdg == nil && s.preOverlayXway == nil {
+				s.preOverlayXdg, s.preOverlayXway = s.prevRealXdg, s.prevRealXway
+			}
+			s.closeOverlay()
+			s.overlayXway = v
+		}
+		v.isOverlay = true
+		log.Printf("[OVERLAY] %s: title=%q surfW=%d surfH=%d", when, title, surface.Width(), surface.Height())
+		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.overlayTree))
+		// The node may have been kept hidden while its position was pending.
+		C.scene_node_set_enabled(&viewTree.node, 1)
+		restackXwaylandSurfaceAbove(v.surface)
+		s.positionOverlay(v, surface)
+		if role == xwayMenu || !strings.Contains(title, "Tyde:nofocus") {
+			s.focusOverlayKeyboard(v)
+		}
+		if role == xwayMenu {
+			// So that the first click works without moving the mouse.
+			s.sendPointerEnterIfOver(v.x, v.y, float64(surface.Width()), float64(surface.Height()), v.surface.Surface())
+		}
+	}
+	s.addBlur(v)
+	return true
 }
 
 // mapXwayRegular decorates and places a mapped regular XWayland window.
@@ -622,71 +642,7 @@ func processName(pid int) string {
 func (s *server) handleXwaySetTitle(v *xwayView, surface wlr.XwaylandSurface, viewTree *C.struct_wlr_scene_tree, title string) {
 	defer s.captureUpdateXway(v)
 	title = s.trustedTitle(surface, title)
-	if strings.Contains(title, "Tyde:Panel") {
-		v.isPanel = true
-		v.decorated = false
-		s.panelXway = v
-		log.Printf("[PANEL] Panel detected on title: title=%q mapped=%v\n", title, v.mapped)
-		// Remove any leftover decorations
-		s.tearDownXwayDecorations(v)
-		// Reparent to panelTree if not already
-		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.panelTree))
-		// Position panel on primary output (both XWayland configure + scene node)
-		s.repositionPanel()
-		s.addBlur(v)
-	} else if strings.HasPrefix(title, "Tyde:Bar:") {
-		outputName := strings.TrimPrefix(title, "Tyde:Bar:")
-		v.isPanel = true
-		v.decorated = false
-		s.tearDownXwayDecorations(v)
-		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.panelTree))
-		if s.secondaryPanels == nil {
-			s.secondaryPanels = make(map[string]*xwayView)
-		}
-		s.secondaryPanels[outputName] = v
-		log.Printf("[PANEL] Secondary bar detected on title: output=%q title=%q", outputName, title)
-		s.repositionSecondaryPanel(outputName, v)
-		s.addBlur(v)
-	} else if strings.Contains(title, "Tyde:skip") && v.mapped {
-		// Panel utility window title set after map
-		v.decorated = false
-		v.isOverlay = true
-		// Remove any leftover decorations
-		s.tearDownXwayDecorations(v)
-		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.overlayTree))
-		// Enable now — the node may have been kept hidden at map time
-		// (pending overlay position). positionOverlay will set the correct pos.
-		C.scene_node_set_enabled(&viewTree.node, 1)
-		restackXwaylandSurfaceAbove(v.surface)
-		s.positionOverlay(v, surface)
-		s.addBlur(v)
-		if strings.Contains(title, "Tyde:nofocus") {
-			// No focus — e.g. toast notifications
-		} else {
-			s.focusOverlayKeyboard(v)
-		}
-	} else if (title == "Tyde Menu" || strings.Contains(title, "Tyde:EmojiPicker")) && v.mapped {
-		// Overlay window title set after map — reposition from IPC
-		// Save pre-overlay focus (use prevReal since this window already stole focus on map)
-		if s.preOverlayXdg == nil && s.preOverlayXway == nil {
-			s.preOverlayXdg = s.prevRealXdg
-			s.preOverlayXway = s.prevRealXway
-		}
-		s.closeOverlay()
-		v.decorated = false
-		// Remove any leftover decorations
-		s.tearDownXwayDecorations(v)
-		v.isOverlay = true
-		s.overlayXway = v
-		C.scene_node_reparent(&viewTree.node, (*C.struct_wlr_scene_tree)(s.overlayTree))
-		s.positionOverlay(v, surface)
-		s.addBlur(v)
-		restackXwaylandSurfaceAbove(v.surface)
-		s.focusOverlayKeyboard(v)
-		// Set pointer focus so the first click works without mouse movement
-		w, h := surface.Width(), surface.Height()
-		s.sendPointerEnterIfOver(v.x, v.y, float64(w), float64(h), v.surface.Surface())
-	}
+	s.takeXwayRole(v, surface, viewTree, title, false)
 }
 
 // handleXwaySetDecorations follows the MOTIF hints a mapped regular XWayland

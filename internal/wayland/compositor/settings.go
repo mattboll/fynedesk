@@ -760,23 +760,17 @@ func keyboardLayoutsEqual(a, b []wlipc.KeyboardLayout) bool {
 	return true
 }
 
-// refreshMaximizedWindows re-maximizes all maximized windows with current contentBounds.
+// refreshMaximizedWindows fits the maximized windows to the content area
+// again (the bar changed); reSnapAllWindows does the snapped ones.
 func (s *server) refreshMaximizedWindows() {
 	for _, v := range s.xdgViews {
 		if !v.maximized || !v.mapped {
 			continue
 		}
-		outGeo := s.getOutputGeoForView(v.x, v.y)
-		cx, cy, cw, ch := s.contentBounds(outGeo)
-		topMargin := 0
-		if v.decorated {
-			topMargin = titlebarHeight
-		}
-		v.x = float64(cx)
-		v.y = float64(cy + topMargin)
-		v.configuredW = cw
-		v.configuredH = ch - topMargin
-		v.xdgToplevel.SetSize(int32(v.configuredW), int32(v.configuredH))
+		x, y, w, h := s.zoneTarget(s.getOutputGeoForView(v.x, v.y), snapTop, v.decorated)
+		v.x, v.y = x, y
+		v.configuredW, v.configuredH = w, h
+		v.xdgToplevel.SetSize(int32(w), int32(h))
 		setXdgScenePos(v)
 		s.updateXdgViewDecorations(v)
 	}
@@ -784,15 +778,9 @@ func (s *server) refreshMaximizedWindows() {
 		if !v.maximized || !v.mapped {
 			continue
 		}
-		outGeo := s.getOutputGeoForView(v.x, v.y)
-		cx, cy, cw, ch := s.contentBounds(outGeo)
-		topMargin := 0
-		if v.decorated {
-			topMargin = titlebarHeight
-		}
-		v.x = float64(cx)
-		v.y = float64(cy + topMargin)
-		v.surface.Configure(int16(v.x), int16(v.y), uint16(cw), uint16(ch-topMargin))
+		x, y, w, h := s.zoneTarget(s.getOutputGeoForView(v.x, v.y), snapTop, v.decorated)
+		v.x, v.y = x, y
+		v.surface.Configure(int16(x), int16(y), uint16(w), uint16(h))
 		setXwayScenePos(v)
 		s.updateXwayViewDecorations(v)
 	}

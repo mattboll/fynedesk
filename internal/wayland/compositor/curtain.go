@@ -198,6 +198,6 @@ func (s *server) showCurtain(alpha float64) {
 			return
 		}
 	}
-	lx, ly, lw, lh := s.layoutBounds()
+	lx, ly, lw, lh := s.fullLayoutBounds()
 	C.curtain_place((*C.struct_wlr_scene_buffer)(c.node), C.int(lx), C.int(ly), C.int(lw), C.int(lh), C.float(alpha))
 }
