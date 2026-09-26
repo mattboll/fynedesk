@@ -207,6 +207,12 @@ func (s XwaylandSurface) OnSetParent(cb func(XwaylandSurface)) Listener {
 	return newListener(&s.p.events.set_parent, func(unsafe.Pointer) { cb(s) })
 }
 
+// OnSetGeometry is emitted when the window moved or was resized, as an
+// override-redirect window does by itself.
+func (s XwaylandSurface) OnSetGeometry(cb func(XwaylandSurface)) Listener {
+	return newListener(&s.p.events.set_geometry, func(unsafe.Pointer) { cb(s) })
+}
+
 // OnSetDecorations is emitted when the MOTIF hints change.
 func (s XwaylandSurface) OnSetDecorations(cb func(XwaylandSurface)) Listener {
 	return newListener(&s.p.events.set_decorations, func(unsafe.Pointer) { cb(s) })

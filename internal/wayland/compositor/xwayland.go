@@ -190,6 +190,16 @@ func (s *server) handleNewXwaylandSurface(surface wlr.XwaylandSurface) {
 		s.handleXwayRequestFullscreen(v)
 	}))
 
+	// Override-redirect windows (menus, tooltips) move themselves: follow
+	// them, or a menu opened again elsewhere stays where it first was.
+	v.listeners.Add(surface.OnSetGeometry(func(surf wlr.XwaylandSurface) {
+		if !v.overrideRedirect || !v.mapped {
+			return
+		}
+		v.x, v.y = float64(surf.X()), float64(surf.Y())
+		setXwayScenePos(v)
+	}))
+
 	// Listen for parent changes (X11 transient_for / WM_TRANSIENT_FOR)
 	v.listeners.Add(surface.OnSetParent(func(wlr.XwaylandSurface) {
 		s.handleXwaySetParent(v)
