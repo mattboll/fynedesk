@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"time"
 
+	"fyshos.com/tyde/internal/autostart"
 	"fyshos.com/tyde/wlipc"
 )
 
@@ -138,8 +139,10 @@ func (s *server) restoreSession() {
 	s.pendingSession = state.Windows
 	s.sessionMu.Unlock()
 
-	// Launch each unique app_id
+	// Launch each unique app_id, through the application it belongs to: the
+	// app id is whatever the window said, it is never run as a command.
 	launched := make(map[string]bool)
+	dataDirs, env := autostart.DataDirs(), safeEnv()
 	for _, w := range state.Windows {
 		if launched[w.AppID] {
 			continue
@@ -147,14 +150,18 @@ func (s *server) restoreSession() {
 		launched[w.AppID] = true
 
 		appID := w.AppID
-		cmd := exec.Command(appID)
-		if err := cmd.Start(); err != nil {
+		app, ok := autostart.Application(appID, dataDirs, exec.LookPath)
+		if !ok {
+			log.Printf("[SESSION] No application for %q, not restored\n", appID)
+			continue
+		}
+		if err := autostart.Start(app, env); err != nil {
 			log.Printf("[SESSION] Failed to launch %q: %v\n", appID, err)
 			continue
 		}
-		log.Printf("[SESSION] Launched %q (pid=%d)\n", appID, cmd.Process.Pid)
+		log.Printf("[SESSION] Launched %q (%s)\n", appID, app.ID)
 		s.sessionMu.Lock()
-		s.sessionLaunched = append(s.sessionLaunched, appID)
+		s.sessionLaunched = append(s.sessionLaunched, appID, app.Program())
 		s.sessionMu.Unlock()
 	}
 
