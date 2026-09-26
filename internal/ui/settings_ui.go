@@ -237,7 +237,13 @@ func (w *widgetPanel) showSettings(panel string) {
 	if panel != "" {
 		nav.showPanel(panel)
 	}
+	// Closing really closes (it used to hide the window, which kept the
+	// animation running and the D-Bus connections open): it is built again
+	// on the next open.
 	win.SetOnClosed(func() {
+		if w.settings == win {
+			w.settings, w.settingsNav = nil, nil
+		}
 		nav.waveAnim.Stop()
 		if screens != nil {
 			screens.Close()
@@ -257,9 +263,6 @@ func (w *widgetPanel) showSettings(panel string) {
 	win.Resize(fyne.NewSize(760, 640))
 	nav.waveAnim.Start()
 
-	win.SetCloseIntercept(func() {
-		win.Hide()
-	})
 	w.settings = win
 	win.Show()
 	raiseSettingsWindow(win.Title())
