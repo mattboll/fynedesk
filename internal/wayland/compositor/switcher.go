@@ -8,6 +8,7 @@ package compositor
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/render/wlr_texture.h>
 #include <wlr/render/gles2.h>
+#include <GLES2/gl2ext.h>
 #include <wlr/interfaces/wlr_buffer.h>
 #include <drm_fourcc.h>
 #include <EGL/egl.h>
@@ -59,11 +60,11 @@ static uint32_t surface_read_shm(struct wlr_surface *surface,
 	return fmt;
 }
 
-// Lazily-compiled shader program for rendering textures to an FBO.
-// Used by blit_surface_texture to composite subsurfaces and read_single_surface
-// for XWayland windows.
-static GLuint g_thumb_program = 0;
-static GLint g_thumb_loc_tex = -1;
+// Lazily-compiled shader programs for rendering textures to an FBO: one for
+// plain textures, one for external (OES) ones, which video and some dmabuf
+// clients use. Used by blit_surface_scaled and read_single_surface.
+static GLuint g_thumb_programs[2] = {0, 0};
+static GLint g_thumb_locs[2] = {-1, -1};
 
 static const char *thumb_vs_src =
 	"attribute vec2 pos;\n"
@@ -73,42 +74,67 @@ static const char *thumb_vs_src =
 	"  gl_Position = vec4(pos, 0.0, 1.0);\n"
 	"}\n";
 
-static const char *thumb_fs_src =
+static const char *thumb_fs_srcs[2] = {
 	"precision mediump float;\n"
 	"varying vec2 uv;\n"
 	"uniform sampler2D tex;\n"
 	"void main() {\n"
 	"  gl_FragColor = texture2D(tex, uv);\n"
-	"}\n";
+	"}\n",
+	"#extension GL_OES_EGL_image_external : require\n"
+	"precision mediump float;\n"
+	"varying vec2 uv;\n"
+	"uniform samplerExternalOES tex;\n"
+	"void main() {\n"
+	"  gl_FragColor = texture2D(tex, uv);\n"
+	"}\n",
+};
 
+// thumb_program returns the program for a texture target, compiling it the
+// first time, or 0 if the target is not supported.
+static GLuint thumb_program(GLenum target, GLint *loc) {
+	int kind;
+	if (target == GL_TEXTURE_2D) {
+		kind = 0;
+	} else if (target == GL_TEXTURE_EXTERNAL_OES) {
+		kind = 1;
+	} else {
+		return 0;
+	}
+	if (g_thumb_programs[kind] == 0) {
+		GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+		glShaderSource(vs, 1, &thumb_vs_src, NULL);
+		glCompileShader(vs);
+		GLint ok = 0;
+		glGetShaderiv(vs, GL_COMPILE_STATUS, &ok);
+		if (!ok) { glDeleteShader(vs); return 0; }
+
+		GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+		glShaderSource(fs, 1, &thumb_fs_srcs[kind], NULL);
+		glCompileShader(fs);
+		glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
+		if (!ok) { glDeleteShader(vs); glDeleteShader(fs); return 0; }
+
+		GLuint prog = glCreateProgram();
+		glAttachShader(prog, vs);
+		glAttachShader(prog, fs);
+		glBindAttribLocation(prog, 0, "pos");
+		glLinkProgram(prog);
+		glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+		glDeleteShader(vs);
+		glDeleteShader(fs);
+		if (!ok) { glDeleteProgram(prog); return 0; }
+		g_thumb_programs[kind] = prog;
+		g_thumb_locs[kind] = glGetUniformLocation(prog, "tex");
+	}
+	*loc = g_thumb_locs[kind];
+	return g_thumb_programs[kind];
+}
+
+// thumb_compile_shader makes sure the plain texture program exists.
 static int thumb_compile_shader(void) {
-	if (g_thumb_program != 0) return 1;
-
-	GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-	glShaderSource(vs, 1, &thumb_vs_src, NULL);
-	glCompileShader(vs);
-	GLint ok = 0;
-	glGetShaderiv(vs, GL_COMPILE_STATUS, &ok);
-	if (!ok) { glDeleteShader(vs); return 0; }
-
-	GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
-	glShaderSource(fs, 1, &thumb_fs_src, NULL);
-	glCompileShader(fs);
-	glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
-	if (!ok) { glDeleteShader(vs); glDeleteShader(fs); return 0; }
-
-	g_thumb_program = glCreateProgram();
-	glAttachShader(g_thumb_program, vs);
-	glAttachShader(g_thumb_program, fs);
-	glBindAttribLocation(g_thumb_program, 0, "pos");
-	glLinkProgram(g_thumb_program);
-	glGetProgramiv(g_thumb_program, GL_LINK_STATUS, &ok);
-	glDeleteShader(vs);
-	glDeleteShader(fs);
-	if (!ok) { glDeleteProgram(g_thumb_program); g_thumb_program = 0; return 0; }
-
-	g_thumb_loc_tex = glGetUniformLocation(g_thumb_program, "tex");
-	return 1;
+	GLint loc;
+	return thumb_program(GL_TEXTURE_2D, &loc) != 0;
 }
 
 // --- Thumbnail capture: persistent FBO, batch EGL, scaled rendering ---
@@ -170,8 +196,8 @@ static int setup_thumb_fbo(int w, int h) {
 // Forget the thumbnail GL objects: they belong to a GL context that is gone
 // (renderer recreated after a GPU reset) and are rebuilt lazily.
 static void reset_thumb_gl(void) {
-	g_thumb_program = 0;
-	g_thumb_loc_tex = -1;
+	g_thumb_programs[0] = g_thumb_programs[1] = 0;
+	g_thumb_locs[0] = g_thumb_locs[1] = -1;
 	g_thumb_fbo = 0;
 	g_thumb_render_tex = 0;
 	g_thumb_fbo_w = 0;
@@ -205,18 +231,22 @@ static void blit_surface_scaled(struct wlr_surface *surface,
 		return;
 
 	struct wlr_texture *tex = surface->buffer->texture;
-	int tw = tex->width;
-	int th = tex->height;
+	// The surface's size in window coordinates: the texture of a HiDPI
+	// client is larger (scale 2: twice), and would be drawn cropped.
+	int tw = surface->current.width;
+	int th = surface->current.height;
 	if (tw <= 0 || th <= 0) return;
 
 	struct wlr_gles2_texture_attribs attribs;
 	wlr_gles2_texture_get_attribs(tex, &attribs);
-	if (attribs.target != GL_TEXTURE_2D) return;
+	GLint loc;
+	GLuint prog = thumb_program(attribs.target, &loc);
+	if (!prog) return;
 
-	glUseProgram(g_thumb_program);
+	glUseProgram(prog);
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, attribs.tex);
-	glUniform1i(g_thumb_loc_tex, 0);
+	glBindTexture(attribs.target, attribs.tex);
+	glUniform1i(loc, 0);
 
 	// Scale surface rectangle from window space to thumbnail space
 	int vx = sx * thumb_w / win_w;
@@ -321,7 +351,9 @@ static int capture_wlr_thumb(struct wlr_surface *surface,
 
 	struct wlr_gles2_texture_attribs attribs;
 	wlr_gles2_texture_get_attribs(tex, &attribs);
-	if (attribs.target != GL_TEXTURE_2D) return 0;
+	GLint loc;
+	GLuint prog = thumb_program(attribs.target, &loc);
+	if (!prog) return 0;
 
 	int tw, th;
 	thumb_dimensions(win_w, win_h, maxW, maxH, &tw, &th);
@@ -332,10 +364,10 @@ static int capture_wlr_thumb(struct wlr_surface *surface,
 	glDisable(GL_SCISSOR_TEST);
 	glClearColor(0, 0, 0, 0);
 	glClear(GL_COLOR_BUFFER_BIT);
-	glUseProgram(g_thumb_program);
+	glUseProgram(prog);
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, attribs.tex);
-	glUniform1i(g_thumb_loc_tex, 0);
+	glBindTexture(attribs.target, attribs.tex);
+	glUniform1i(loc, 0);
 
 	GLfloat verts[] = { -1,-1, 1,-1, -1,1, 1,1 };
 	glEnableVertexAttribArray(0);
