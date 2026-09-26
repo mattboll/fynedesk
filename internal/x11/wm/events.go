@@ -259,12 +259,14 @@ func (x *x11WM) handleKeyPress(ev xproto.KeyPressEvent) {
 			}
 		}
 	}
-	numlock := ev.State & xproto.ModMask2
+	// Caps Lock, Num Lock and Scroll Lock (Mod3) do not change a shortcut:
+	// bindShortcut grabs the keys with them too.
+	state := ev.State &^ (xproto.ModMaskLock | xproto.ModMask2 | xproto.ModMask3)
 	if desk, ok := tyde.Instance().(wm.ShortcutManager); ok {
 		for _, shortcut := range desk.Shortcuts() {
 			mask := x.modifierToKeyMask(shortcut.Modifier)
 			code := x.keyNameToCode(shortcut.KeyName)
-			if code == ev.Detail && (mask == ev.State-numlock || mask == xproto.ModMaskAny) {
+			if code == ev.Detail && (mask == state || mask == xproto.ModMaskAny) {
 				fyne.Do(func() {
 					desk.TypedShortcut(shortcut)
 				})
@@ -367,9 +369,7 @@ func (x *x11WM) handlePropertyChange(ev xproto.PropertyNotifyEvent) {
 	case "_NET_WM_NAME", "WM_NAME":
 		fyne.Do(c.Refresh)
 	case "WM_NORMAL_HINTS":
-		// Force a reconfigure to make sure the client is constrained to the new size hints
-		x, y, w, h := c.Geometry()
-		c.NotifyGeometry(x, y, w, h)
+		c.NotifySizeHintsChange()
 	case "_MOTIF_WM_HINTS":
 		c.NotifyBorderChange()
 	case "_NET_WM_ICON", "WM_HINTS":

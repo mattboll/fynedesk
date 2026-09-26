@@ -28,6 +28,10 @@ func (w *Window) Geometry() (int, int, uint, uint) {
 	return w.x, w.y, w.width, w.height
 }
 
+// NotifySizeHintsChange is called when the size hints of the window change
+func (w *Window) NotifySizeHintsChange() {
+}
+
 // NotifyBorderChange is called when the border should be shown or hidden
 func (w *Window) NotifyBorderChange() {
 	// no-op

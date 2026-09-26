@@ -4,7 +4,6 @@
 package win
 
 import (
-	"context"
 	"image"
 	"image/color"
 	"image/draw"
@@ -55,10 +54,11 @@ type frame struct {
 	moveOnly, ignoreDrag                bool
 
 	hovered    desktop.Hoverable
-	clickCount int
-	cancelFunc context.CancelFunc
+	clickCount int         // clicks on the title bar, Fyne thread
+	clickTimer *time.Timer // waits for a second click
 
 	pendingGeometry chan *configureGeometry
+	configureDone   chan struct{} // closed when the configure loop ends
 	pendingMu       sync.Mutex
 	transparency    int
 	transparencySet bool
@@ -277,53 +277,90 @@ func (f *frame) checkScale() {
 	}
 }
 
-func (f *frame) configureLoop() {
-	f.pendingMu.Lock()
-	ch := f.pendingGeometry
-	f.pendingMu.Unlock()
-	if ch == nil {
-		return
-	}
+// configureIdle is how long the geometry of a frame has to rest before a
+// drag or resize counts as over.
+const configureIdle = 100 * time.Millisecond
 
-	var lastGeometry *configureGeometry
-	change := false
-
-	blanks := 0
+// configureLoop applies the geometries queued while a frame is dragged or
+// resized, the latest one each time, until they stop coming for
+// configureIdle or endConfigureLoop sends nil; then it syncs the X window
+// and lays the title bar out for the final size.
+func (f *frame) configureLoop(ch chan *configureGeometry, done chan struct{}) {
+	defer close(done)
+	idle := time.NewTimer(configureIdle)
+	defer idle.Stop()
 	for {
 		select {
-		case g, ok := <-ch:
-			if g == nil || !ok {
-				return
-			}
-			lastGeometry = g
-			change = true
-			blanks = 0
-		default:
-			if change && lastGeometry != nil {
-				f.updateGeometry(lastGeometry.x, lastGeometry.y, lastGeometry.width, lastGeometry.height, lastGeometry.force)
-				change = false
-			} else {
-				blanks++
-				if blanks > 1000 { // if 1000 ticks pass no resize pending
-					f.endConfigureLoop()
-					return
+		case g := <-ch:
+			ended := g == nil
+			for more := !ended; more; {
+				select {
+				case next := <-ch:
+					if next == nil {
+						ended, more = true, false
+					} else {
+						g = next
+					}
+				default:
+					more = false
 				}
 			}
+			if g != nil {
+				f.updateGeometry(g.x, g.y, g.width, g.height, g.force)
+			}
+			if ended && f.finishConfigure(ch) {
+				return
+			}
+			idle.Reset(configureIdle)
+		case <-idle.C:
+			if f.finishConfigure(ch) {
+				return
+			}
+			idle.Reset(configureIdle)
 		}
 	}
 }
 
+// finishConfigure ends the configure loop unless a geometry came meanwhile,
+// and reports whether it did.
+func (f *frame) finishConfigure(ch chan *configureGeometry) bool {
+	f.pendingMu.Lock()
+	if len(ch) > 0 {
+		f.pendingMu.Unlock()
+		return false
+	}
+	f.pendingGeometry = nil
+	f.pendingMu.Unlock()
+	f.syncGeometry()
+	return true
+}
+
+// syncGeometry syncs the X window with the frame after a drag or resize and
+// lays the title bar out for the final size.
+func (f *frame) syncGeometry() {
+	f.updateGeometry(f.x, f.y, f.width, f.height, true)
+	fyne.Do(f.renderDecoration)
+}
+
+// endConfigureLoop ends a drag or resize now, once the X window is synced.
 func (f *frame) endConfigureLoop() {
 	f.pendingMu.Lock()
 	if f.pendingGeometry != nil {
-		close(f.pendingGeometry)
-		f.pendingGeometry = nil
+		f.pendingGeometry <- nil
+		done := f.configureDone
+		f.pendingMu.Unlock()
+		<-done
+		return
 	}
 	f.pendingMu.Unlock()
+	f.syncGeometry()
+}
 
-	// Sync the actual X11 window position to match the visual after drag
-	f.updateGeometry(f.x, f.y, f.width, f.height, true)
-	fyne.Do(f.renderDecoration) // lay the title bar out for the final size
+// configuring reports whether a drag or resize is under way.
+func (f *frame) configuring() bool {
+	f.pendingMu.Lock()
+	defer f.pendingMu.Unlock()
+	return f.pendingGeometry != nil
 }
 
 // renderDecoration paints the title bar and resize grip into images that
@@ -342,8 +379,8 @@ func (f *frame) renderDecoration() {
 	f.active = f.client.Focused()
 
 	if f.canvas == nil {
-		canMaximize := !windowSizeFixed(f.client.wm.X(), f.client.win) &&
-			windowSizeCanMaximize(f.client.wm.X(), f.client)
+		canMaximize := !sizeFixed(f.client.sizeHints()) &&
+			sizeCanMaximize(f.client)
 		b := wm.NewBorder(f.client, f.client.Properties().Icon(), canMaximize)
 		b.CloseIntercept = f.client.Close
 
@@ -470,8 +507,8 @@ func (f *frame) getInnerWindowCoordinates(w uint16, h uint16) (uint32, uint32, u
 	if f.client.Fullscreened() || !f.client.Properties().Decorated() {
 		constrainW, constrainH := w, h
 		if !f.client.Properties().Decorated() {
-			adjustedW, adjustedH := windowSizeWithIncrement(f.client.wm.X(), f.client.win, w, h)
-			constrainW, constrainH = windowSizeConstrain(f.client.wm.X(), f.client.win,
+			adjustedW, adjustedH := sizeWithIncrement(f.client.sizeHints(), w, h)
+			constrainW, constrainH = sizeConstrain(f.client.sizeHints(),
 				adjustedW, adjustedH)
 		}
 		f.width = constrainW
@@ -497,8 +534,8 @@ func (f *frame) getInnerWindowCoordinates(w uint16, h uint16) (uint32, uint32, u
 		h = 0
 	}
 
-	adjustedW, adjustedH := windowSizeWithIncrement(f.client.wm.X(), f.client.win, w, h)
-	constrainW, constrainH := windowSizeConstrain(f.client.wm.X(), f.client.win,
+	adjustedW, adjustedH := sizeWithIncrement(f.client.sizeHints(), w, h)
+	constrainW, constrainH := sizeConstrain(f.client.sizeHints(),
 		adjustedW, adjustedH)
 	f.width = constrainW + extraWidth
 	f.height = constrainH + extraHeight
@@ -532,8 +569,8 @@ func (f *frame) maximizeApply() {
 	// Per EWMH, _NET_WM_STATE_FULLSCREEN overrides WM_NORMAL_HINTS size limits,
 	// so only honour the size-hint guards when the request is a maximize.
 	if !f.client.Fullscreened() {
-		if windowSizeFixed(f.client.wm.X(), f.client.win) ||
-			!windowSizeCanMaximize(f.client.wm.X(), f.client) {
+		if sizeFixed(f.client.sizeHints()) ||
+			!sizeCanMaximize(f.client) {
 			return
 		}
 	}
@@ -600,7 +637,7 @@ func (f *frame) mouseDrag(x, y int16) {
 			f.queueGeometry(f.moveX, f.moveY, f.width, f.height, false)
 		}
 	}
-	if f.resizeTop || f.resizeBottom || f.resizeLeft || f.resizeRight && !windowSizeFixed(f.client.wm.X(), f.client.win) {
+	if (f.resizeTop || f.resizeBottom || f.resizeLeft || f.resizeRight) && !sizeFixed(f.client.sizeHints()) {
 		deltaX := x - f.resizeStartX
 		deltaY := y - f.resizeStartY
 		width := int16(f.resizeStartWidth)
@@ -649,7 +686,7 @@ func (f *frame) mouseMotion(x, y int16) {
 	if cur, ok := obj.(desktop.Cursorable); ok && cur.Cursor() == desktop.PointerCursor {
 		cursor = x11.CloseCursor
 	} else if !hoverable && !f.client.Maximized() && !f.client.Fullscreened() &&
-		!windowSizeFixed(f.client.wm.X(), f.client.win) {
+		!sizeFixed(f.client.sizeHints()) {
 		cursor = f.lookupResizeCursor(relX, relY)
 	}
 
@@ -775,7 +812,7 @@ func (f *frame) mousePress(x, y int16, b xproto.Button, mods uint16) {
 
 	if relY < int16(titleHeight) && relX >= int16(borderWidth) && relX < int16(f.width-borderWidth) {
 		f.moveOnly = true
-	} else if !windowSizeFixed(f.client.wm.X(), f.client.win) && !f.client.Maximized() {
+	} else if !sizeFixed(f.client.sizeHints()) && !f.client.Maximized() {
 		if relY < int16(titleHeight) {
 			if relX < int16(borderWidth) {
 				f.resizeLeft = true
@@ -813,44 +850,48 @@ func (f *frame) mouseRelease(x, y int16, b xproto.Button) {
 		return
 	}
 	f.clickCount++
-
-	if f.cancelFunc != nil {
-		f.cancelFunc()
+	if f.clickTimer != nil { // the second click, in time: a double click
+		f.clickTimer.Stop()
+		f.titleClicked(relX, relY)
 		return
 	}
-
-	go f.mouseReleaseWaitForDoubleClick(relX, relY)
+	f.clickTimer = time.AfterFunc(doubleClickDelay, func() {
+		fyne.Do(func() {
+			if f.clickTimer != nil { // not taken by a second click meanwhile
+				f.titleClicked(relX, relY)
+			}
+		})
+	})
 }
 
-func (f *frame) mouseReleaseWaitForDoubleClick(relX, relY int16) {
-	var ctx context.Context
-	ctx, f.cancelFunc = context.WithDeadline(context.TODO(), time.Now().Add(time.Millisecond*300))
-	defer f.cancelFunc()
+// doubleClickDelay is how soon a second click on the title bar makes a
+// double click.
+const doubleClickDelay = 300 * time.Millisecond
 
-	<-ctx.Done()
+// titleClicked taps or double taps what is at (relX, relY) in the title
+// bar, depending on the clicks counted. Fyne thread.
+func (f *frame) titleClicked(relX, relY int16) {
 	clickCount := f.clickCount
 	f.clickCount = 0
-	f.cancelFunc = nil
+	f.clickTimer = nil
 
-	fyne.Do(func() {
-		if clickCount == 2 {
-			obj := f.decorationObjectAt(relX, relY, func(obj fyne.CanvasObject) bool {
-				_, ok := obj.(fyne.DoubleTappable)
-				return ok
-			})
-			if obj != nil {
-				obj.(fyne.DoubleTappable).DoubleTapped(&fyne.PointEvent{})
-			}
-		} else {
-			obj := f.decorationObjectAt(relX, relY, func(obj fyne.CanvasObject) bool {
-				_, ok := obj.(fyne.Tappable)
-				return ok
-			})
-			if obj != nil {
-				obj.(fyne.Tappable).Tapped(&fyne.PointEvent{})
-			}
+	if clickCount == 2 {
+		obj := f.decorationObjectAt(relX, relY, func(obj fyne.CanvasObject) bool {
+			_, ok := obj.(fyne.DoubleTappable)
+			return ok
+		})
+		if obj != nil {
+			obj.(fyne.DoubleTappable).DoubleTapped(&fyne.PointEvent{})
 		}
-	})
+	} else {
+		obj := f.decorationObjectAt(relX, relY, func(obj fyne.CanvasObject) bool {
+			_, ok := obj.(fyne.Tappable)
+			return ok
+		})
+		if obj != nil {
+			obj.(fyne.Tappable).Tapped(&fyne.PointEvent{})
+		}
+	}
 }
 
 // Notify the child window that it's geometry has changed to update menu positions etc.
@@ -922,8 +963,8 @@ func (f *frame) unmaximizeApply(force bool) {
 	// When leaving fullscreen, force is set so we bypass the maximize guards and
 	// always restore the previous geometry, even for fixed-size windows.
 	if !force {
-		if windowSizeFixed(f.client.wm.X(), f.client.win) ||
-			!windowSizeCanMaximize(f.client.wm.X(), f.client) {
+		if sizeFixed(f.client.sizeHints()) ||
+			!sizeCanMaximize(f.client) {
 			return
 		}
 	}
@@ -937,15 +978,18 @@ func (f *frame) unmaximizeApply(force bool) {
 	f.applyTheme()
 }
 
+// queueGeometry hands a geometry to the configure loop, starting it if
+// needed. It is sent with the lock held, so that the loop cannot end in
+// between.
 func (f *frame) queueGeometry(x int16, y int16, width uint16, height uint16, force bool) {
 	f.pendingMu.Lock()
+	defer f.pendingMu.Unlock()
 	if f.pendingGeometry == nil {
 		f.pendingGeometry = make(chan *configureGeometry, 50)
-		go f.configureLoop()
+		f.configureDone = make(chan struct{})
+		go f.configureLoop(f.pendingGeometry, f.configureDone)
 	}
-	ch := f.pendingGeometry
-	f.pendingMu.Unlock()
-	ch <- &configureGeometry{x, y, width, height, force}
+	f.pendingGeometry <- &configureGeometry{x, y, width, height, force}
 }
 
 func (f *frame) updateGeometry(x, y int16, w, h uint16, force bool) {
@@ -959,7 +1003,8 @@ func (f *frame) updateGeometry(x, y int16, w, h uint16, force bool) {
 	}
 
 	currentScreen := tyde.Instance().Screens().ScreenForWindow(f.client)
-	widened := w != f.width && f.pendingGeometry == nil // a drag re-renders when it ends
+	dragging := f.configuring()
+	widened := w != f.width && !dragging // a drag re-renders when it ends
 
 	f.x = x
 	f.y = y
@@ -972,7 +1017,7 @@ func (f *frame) updateGeometry(x, y int16, w, h uint16, force bool) {
 	// During drag (pendingGeometry active) and move-only (no resize),
 	// skip expensive X11 ConfigureWindow and only update the compositor visual.
 	// The actual X11 position is synced when the drag ends.
-	if f.pendingGeometry != nil && move && !resize && x11.VisualMoveCallback != nil {
+	if dragging && move && !resize && x11.VisualMoveCallback != nil {
 		x11.VisualMoveCallback(uint32(f.client.id), f.x, f.y, f.width, f.height)
 		return
 	}

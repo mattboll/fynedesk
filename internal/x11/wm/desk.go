@@ -850,18 +850,13 @@ func (x *x11WM) destroyWindow(win xproto.Window) {
 	if c == nil || win == c.FrameID() {
 		return
 	}
-	transient := x11.WindowTransientForGet(x.x, win)
-	if transient > 0 && transient != win {
-		x.transientChildRemove(transient, win)
-	} else if transient > 0 && transient == win {
-		x.transientLeaderRemove(transient)
-	}
+	x.transientForget(win)
 	windowClientListUpdate(x)
 	windowClientListStackingUpdate(x)
 
 	c.MarkDestroyed()
-	_ = xproto.DestroyWindowChecked(x.x.Conn(), c.FrameID()).Check()
-	_ = xproto.DestroyWindowChecked(x.x.Conn(), c.ChildID()).Check()
+	// The window is gone: its frame is left to destroy, without waiting.
+	xproto.DestroyWindow(x.x.Conn(), c.FrameID())
 }
 
 func (x *x11WM) frameExisting() {

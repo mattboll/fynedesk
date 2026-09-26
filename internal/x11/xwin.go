@@ -37,6 +37,7 @@ type XWin interface {
 
 	NotifyBorderChange()
 	NotifyIconChange()
+	NotifySizeHintsChange()
 	NotifyGeometry(int, int, uint, uint)
 	NotifyMoveResizeEnded()
 

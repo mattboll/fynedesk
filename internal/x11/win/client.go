@@ -5,6 +5,7 @@ package win
 
 import (
 	"image"
+	"sync"
 
 	"github.com/BurntSushi/xgb/xproto"
 	"github.com/BurntSushi/xgbutil/ewmh"
@@ -35,6 +36,10 @@ type client struct {
 	frame *frame
 	wm    x11.XWM
 	desk  int
+
+	hintsMu   sync.Mutex
+	hints     *icccm.NormalHints // WM_NORMAL_HINTS, see sizeHints
+	hintsRead bool
 }
 
 // NewClient creates a new X11 client for the specified window ID and X window manager
@@ -81,10 +86,8 @@ func (c *client) MarkDestroyed() {
 
 // Reframe replaces the current frame with a freshly-built one. This is the
 // same path NotifyUnIconify uses to bring a minimised window back: a brand-new
-// frame X11 window is created, the inner client is reparented into it, and
-// it's shown + themed + geometry-notified. The previous frame is orphaned
-// (not destroyed) to avoid Destroy/Reparent event churn racing with the
-// in-flight MapRequest that triggered the restore.
+// frame X11 window is created and the inner client is reparented into it
+// (see newFrame).
 func (c *client) Reframe() {
 	c.newFrame()
 }
@@ -402,7 +405,7 @@ func (c *client) Resize(s fyne.Size) {
 	}
 	screen := tyde.Instance().Screens().ScreenForWindow(c)
 
-	c.frame.updateGeometry(c.frame.x, c.frame.y, uint16(s.Width*screen.Scale), uint16(s.Height*screen.Scale), false)
+	c.frame.updateGeometry(c.frame.x, c.frame.y, uint16(s.Width*screen.CanvasScale()), uint16(s.Height*screen.CanvasScale()), false)
 }
 
 func (c *client) Size() fyne.Size {
@@ -466,11 +469,34 @@ func (c *client) SettingsChanged() {
 }
 
 func (c *client) SizeMax() (int, int) {
-	return windowSizeMax(c.wm.X(), c.ChildID())
+	return sizeMax(c.sizeHints())
 }
 
 func (c *client) SizeMin() (uint, uint) {
-	return windowSizeMin(c.wm.X(), c.ChildID())
+	return sizeMin(c.sizeHints())
+}
+
+// sizeHints returns the WM_NORMAL_HINTS of the window, or nil. They are read
+// once until they change: a move or resize used to read them several times
+// per step.
+func (c *client) sizeHints() *icccm.NormalHints {
+	c.hintsMu.Lock()
+	defer c.hintsMu.Unlock()
+	if !c.hintsRead {
+		c.hints, _ = icccm.WmNormalHintsGet(c.wm.X(), c.win)
+		c.hintsRead = true
+	}
+	return c.hints
+}
+
+// NotifySizeHintsChange forgets the size hints read and reconfigures the
+// window to fit the new ones.
+func (c *client) NotifySizeHintsChange() {
+	c.hintsMu.Lock()
+	c.hintsRead = false
+	c.hintsMu.Unlock()
+	x, y, w, h := c.Geometry()
+	c.NotifyGeometry(x, y, w, h)
 }
 
 func (c *client) TopWindow() bool {
@@ -518,8 +544,15 @@ func (c *client) maximizeMessage(action x11.WindowStateAction) {
 	}
 }
 
+// newFrame puts the window in a new frame. The old frame X window, empty
+// once the window is reparented into the new one (the requests go in order
+// on the same connection), is destroyed: each restore used to leave one.
 func (c *client) newFrame() {
+	old := c.id
 	c.frame = newFrame(c)
+	if old != 0 && c.frame != nil && c.id != old {
+		xproto.DestroyWindow(c.wm.Conn(), old)
+	}
 }
 
 func (c *client) positionIsValid(x, y int) bool {
@@ -541,8 +574,7 @@ func (c *client) positionNewWindow() {
 	}
 
 	requestPosition := false
-	hints, err := icccm.WmNormalHintsGet(c.wm.X(), c.win)
-	if err == nil {
+	if hints := c.sizeHints(); hints != nil {
 		if (hints.Flags&icccm.SizeHintPPosition != 0 || hints.Flags&icccm.SizeHintUSPosition != 0) && c.Parent() == nil {
 			requestPosition = true
 		}

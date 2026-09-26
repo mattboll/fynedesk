@@ -4,6 +4,8 @@
 package wm
 
 import (
+	"slices"
+
 	"github.com/BurntSushi/xgb/xproto"
 )
 
@@ -16,15 +18,16 @@ func (x *x11WM) transientChildAdd(leader xproto.Window, child xproto.Window) {
 	x.transientMap[leader] = append(x.transientMap[leader], child)
 }
 
-func (x *x11WM) transientChildRemove(leader xproto.Window, child xproto.Window) {
-	for i, win := range x.transientMap[leader] {
-		if win == child {
-			x.transientMap[leader] = append(x.transientMap[leader][:i], x.transientMap[leader][i+1:]...)
-			return
+// transientForget removes a destroyed window from the transient map, as a
+// leader and as a child. Its WM_TRANSIENT_FOR cannot be read any more.
+func (x *x11WM) transientForget(win xproto.Window) {
+	delete(x.transientMap, win)
+	for leader, children := range x.transientMap {
+		kept := slices.DeleteFunc(children, func(c xproto.Window) bool { return c == win })
+		if len(kept) == 0 {
+			delete(x.transientMap, leader)
+		} else {
+			x.transientMap[leader] = kept
 		}
 	}
-}
-
-func (x *x11WM) transientLeaderRemove(leader xproto.Window) {
-	delete(x.transientMap, leader)
 }

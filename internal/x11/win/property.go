@@ -18,7 +18,6 @@ import (
 	"fyne.io/fyne/v2"
 
 	"fyshos.com/tyde"
-	"fyshos.com/tyde/internal/x11"
 )
 
 func windowActiveReq(x *xgbutil.XUtil, win xproto.Window) {
@@ -97,22 +96,22 @@ func windowIconName(x *xgbutil.XUtil, win xproto.Window) string {
 	return icon
 }
 
-func windowSizeCanMaximize(x *xgbutil.XUtil, win tyde.Window) bool {
-	screen := tyde.Instance().Screens().ScreenForWindow(win)
+// sizeCanMaximize reports whether the maximum size of a window, if any,
+// lets it cover its screen.
+func sizeCanMaximize(c *client) bool {
+	screen := tyde.Instance().Screens().ScreenForWindow(c)
 
-	maxWidth, maxHeight := windowSizeMax(x, win.(x11.XWin).ChildID())
+	maxWidth, maxHeight := sizeMax(c.sizeHints())
 	if maxWidth == -1 && maxHeight == -1 {
 		return true
 	}
-	if maxWidth < screen.Width || maxHeight < screen.Height {
-		return false
-	}
-	return true
+	return maxWidth >= screen.Width && maxHeight >= screen.Height
 }
 
-func windowSizeConstrain(x *xgbutil.XUtil, win xproto.Window, width uint16, height uint16) (uint16, uint16) {
-	minWidth, minHeight := windowSizeMin(x, win)
-	maxWidth, maxHeight := windowSizeMax(x, win)
+// sizeConstrain keeps a size within the minimum and maximum of the hints.
+func sizeConstrain(nh *icccm.NormalHints, width uint16, height uint16) (uint16, uint16) {
+	minWidth, minHeight := sizeMin(nh)
+	maxWidth, maxHeight := sizeMax(nh)
 	if width < uint16(minWidth) {
 		width = uint16(minWidth)
 	}
@@ -128,58 +127,42 @@ func windowSizeConstrain(x *xgbutil.XUtil, win xproto.Window, width uint16, heig
 	return width, height
 }
 
-func windowSizeFixed(x *xgbutil.XUtil, win xproto.Window) bool {
-	minWidth, minHeight := windowSizeMin(x, win)
-	maxWidth, maxHeight := windowSizeMax(x, win)
-	if int(minWidth) == maxWidth && int(minHeight) == maxHeight {
-		return true
-	}
-	return false
+// sizeFixed reports whether the hints give the window a single size.
+func sizeFixed(nh *icccm.NormalHints) bool {
+	minWidth, minHeight := sizeMin(nh)
+	maxWidth, maxHeight := sizeMax(nh)
+	return int(minWidth) == maxWidth && int(minHeight) == maxHeight
 }
 
-func windowSizeMax(x *xgbutil.XUtil, win xproto.Window) (int, int) {
-	nh, err := icccm.WmNormalHintsGet(x, win)
-	if err != nil {
-		return -1, -1
-	}
-	if (nh.Flags & icccm.SizeHintPMaxSize) > 0 {
+// sizeMax returns the maximum size of the hints, -1 where there is none.
+func sizeMax(nh *icccm.NormalHints) (int, int) {
+	if nh != nil && nh.Flags&icccm.SizeHintPMaxSize > 0 {
 		return int(nh.MaxWidth), int(nh.MaxHeight)
 	}
 	return -1, -1
 }
 
-func windowSizeMin(x *xgbutil.XUtil, win xproto.Window) (uint, uint) {
-	nh, err := icccm.WmNormalHintsGet(x, win)
-	if err != nil {
-		return 0, 0
-	}
-	if (nh.Flags & icccm.SizeHintPMinSize) > 0 {
+// sizeMin returns the minimum size of the hints, 0 where there is none.
+func sizeMin(nh *icccm.NormalHints) (uint, uint) {
+	if nh != nil && nh.Flags&icccm.SizeHintPMinSize > 0 {
 		return nh.MinWidth, nh.MinHeight
 	}
 	return 0, 0
 }
 
-func windowSizeWithIncrement(x *xgbutil.XUtil, win xproto.Window, width uint16, height uint16) (uint16, uint16) {
-	nh, err := icccm.WmNormalHintsGet(x, win)
-	if err != nil {
-		return width, height
-	}
-	if (nh.Flags & icccm.SizeHintPResizeInc) == 0 {
+// sizeWithIncrement rounds a size to the resize increments of the hints.
+func sizeWithIncrement(nh *icccm.NormalHints, width uint16, height uint16) (uint16, uint16) {
+	if nh == nil || nh.Flags&icccm.SizeHintPResizeInc == 0 {
 		return width, height
 	}
 
-	var baseWidth, baseHeight uint16
+	minWidth, minHeight := sizeMin(nh)
+	baseWidth, baseHeight := uint16(minWidth), uint16(minHeight)
 	if nh.BaseWidth > 0 {
 		baseWidth = uint16(nh.BaseWidth)
-	} else {
-		minWidth, _ := windowSizeMin(x, win)
-		baseWidth = uint16(minWidth)
 	}
 	if nh.BaseHeight > 0 {
 		baseHeight = uint16(nh.BaseHeight)
-	} else {
-		_, minHeight := windowSizeMin(x, win)
-		baseHeight = uint16(minHeight)
 	}
 	// catch uint underflow
 	if width < baseWidth {
