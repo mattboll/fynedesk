@@ -2,7 +2,6 @@ package compositor
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -712,23 +711,13 @@ func (s *server) handleEmojiPaste() {
 
 // showWindowContextMenu writes a context menu request for the panel to display
 func (s *server) showWindowContextMenu(xdgV *xdgView, xwayV *xwayView) {
+	// The stable id, as window actions look windows up by it (a position
+	// in the list named another window once one before it closed).
 	var windowID, title string
 	if xdgV != nil {
-		for i, v := range s.xdgViews {
-			if v == xdgV {
-				windowID = fmt.Sprintf("xdg-%d", i)
-				break
-			}
-		}
-		title = xdgV.xdgToplevel.Title()
+		windowID, title = xdgV.id, xdgV.xdgToplevel.Title()
 	} else if xwayV != nil {
-		for i, v := range s.xwayViews {
-			if v == xwayV {
-				windowID = fmt.Sprintf("xway-%d", i)
-				break
-			}
-		}
-		title = xwayV.surface.Title()
+		windowID, title = xwayV.id, xwayV.surface.Title()
 	}
 	if windowID == "" {
 		return
