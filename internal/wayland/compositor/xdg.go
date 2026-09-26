@@ -782,7 +782,7 @@ func (s *server) fullscreenXdgWindow(v *xdgView, enable bool) {
 		log.Printf("[FULLSCREEN] sceneTree=%v for %q", v.sceneTree != nil, getXdgToplevelAppID(v.xdgToplevel))
 		if v.sceneTree != nil {
 			C.scene_node_reparent(&(*C.struct_wlr_scene_tree)(v.sceneTree).node, (*C.struct_wlr_scene_tree)(s.fullscreenTree))
-			C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.fullscreenTree).node, 1)
+			s.setFullscreenLayer(true)
 			// Position the fullscreen view at (0,0) on the output
 			C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.sceneTree).node, C.int(outGeo.x), C.int(outGeo.y))
 			log.Printf("[FULLSCREEN] Enabled fullscreenTree for %q, sceneTree pos=(%d,%d)", getXdgToplevelAppID(v.xdgToplevel), outGeo.x, outGeo.y)
@@ -810,7 +810,7 @@ func (s *server) fullscreenXdgWindow(v *xdgView, enable bool) {
 		// offset and recreates decorations from wantsSSD).
 		if v.sceneTree != nil {
 			C.scene_node_reparent(&(*C.struct_wlr_scene_tree)(v.sceneTree).node, (*C.struct_wlr_scene_tree)(s.windowsTree))
-			C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.fullscreenTree).node, 0)
+			s.setFullscreenLayer(s.anyFullscreen()) // another screen may still have one
 		}
 
 		// Restore output mode after reparenting

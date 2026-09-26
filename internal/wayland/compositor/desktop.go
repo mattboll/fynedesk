@@ -163,14 +163,15 @@ func (s *server) switchDesk(desk int) {
 	// Update desktop state file for panel
 	s.writeDesktopState()
 
-	// Update scene visibility for all windows based on desktop membership
+	// Update scene visibility for all windows based on desktop membership,
+	// fullscreen ones included (they stayed over every desktop).
 	for _, v := range s.xdgViews {
-		if v.mapped && !v.fullscreen {
+		if v.mapped {
 			setViewSceneEnabled(v.sceneTree, v.onDesk(desk))
 		}
 	}
 	for _, v := range s.xwayViews {
-		if v.mapped && !v.isPanel && !v.overrideRedirect && !v.fullscreen {
+		if v.mapped && !v.isPanel && !v.overrideRedirect {
 			setViewSceneEnabled(v.sceneTree, v.onDesk(desk))
 		}
 	}
@@ -543,13 +544,36 @@ func (s *server) updateFullscreenLayerVisibility(focusingFullscreen bool) {
 	if s.fullscreenLayerEnabled == focusingFullscreen {
 		return
 	}
-	s.fullscreenLayerEnabled = focusingFullscreen
-	if focusingFullscreen {
-		C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.fullscreenTree).node, 1)
-	} else {
-		log.Printf("[FULLSCREEN] Disabling fullscreenTree (focusingFullscreen=%v)", focusingFullscreen)
-		C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.fullscreenTree).node, 0)
+	s.setFullscreenLayer(focusingFullscreen)
+}
+
+// setFullscreenLayer shows or hides the fullscreen scene layer. Everything
+// goes through it, so that the cached state stays true.
+func (s *server) setFullscreenLayer(on bool) {
+	if s.fullscreenTree == nil {
+		return
 	}
+	s.fullscreenLayerEnabled = on
+	enabled := C.int(0)
+	if on {
+		enabled = 1
+	}
+	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.fullscreenTree).node, enabled)
+}
+
+// anyFullscreen reports whether a window is fullscreen.
+func (s *server) anyFullscreen() bool {
+	for _, v := range s.xdgViews {
+		if v.fullscreen {
+			return true
+		}
+	}
+	for _, v := range s.xwayViews {
+		if v.fullscreen {
+			return true
+		}
+	}
+	return false
 }
 
 // runOnMainThread runs fn on the main thread and waits for the result.

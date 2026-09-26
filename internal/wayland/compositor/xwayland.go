@@ -853,7 +853,7 @@ func (s *server) fullscreenXwayWindow(v *xwayView, enable bool) {
 		// Reparent to fullscreen layer
 		if v.sceneTree != nil {
 			C.scene_node_reparent(&(*C.struct_wlr_scene_tree)(v.sceneTree).node, (*C.struct_wlr_scene_tree)(s.fullscreenTree))
-			C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.fullscreenTree).node, 1)
+			s.setFullscreenLayer(true)
 			if v.surfaceTree != nil {
 				C.scene_node_set_position(&(*C.struct_wlr_scene_tree)(v.surfaceTree).node, 0, 0)
 			}
@@ -875,7 +875,7 @@ func (s *server) fullscreenXwayWindow(v *xwayView, enable bool) {
 		// offset and recreates decorations from wantsSSD).
 		if v.sceneTree != nil {
 			C.scene_node_reparent(&(*C.struct_wlr_scene_tree)(v.sceneTree).node, (*C.struct_wlr_scene_tree)(s.windowsTree))
-			C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.fullscreenTree).node, 0)
+			s.setFullscreenLayer(s.anyFullscreen()) // another screen may still have one
 		}
 
 		// Restore output mode after reparenting

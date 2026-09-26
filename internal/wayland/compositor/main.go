@@ -627,7 +627,7 @@ func (s *server) initScene() {
 	// Felt-tip pen annotation layer hidden by default (enabled while ink exists)
 	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.penTree).node, 0)
 	// Fullscreen layer hidden by default
-	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.fullscreenTree).node, 0)
+	s.setFullscreenLayer(false)
 	// Lock layer hidden by default (enabled when lock client connects)
 	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.lockTree).node, 0)
 }
