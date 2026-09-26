@@ -55,12 +55,14 @@ func (u *updates) StatusAreaWidget() fyne.CanvasObject {
 	u.label = widget.NewLabel("")
 	u.root = container.New(&narrowRow{}, u.icon, u.label)
 
-	row := widget.NewButtonWithIcon("", wmtheme.UpdateIcon, func() {
+	// The icon and count, over a button that takes the taps (the row used to
+	// be the bare button, and the count was never shown).
+	tap := &widget.Button{Importance: widget.LowImportance, OnTapped: func() {
 		if d := tyde.Instance(); d != nil {
 			d.ShowSettings("Updates")
 		}
-	})
-	row.ExtendBaseWidget(row)
+	}}
+	row := container.NewStack(tap, u.root)
 
 	// The status area is for things needing attention, so stay out of the way
 	// until there is actually something to report.

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
 )
 
@@ -248,4 +249,33 @@ func (b *blockingBackend) Check(context.Context) (Result, error) {
 	b.runs.Add(1)
 	<-b.release
 	return Result{}, nil
+}
+
+// TestStatusShowsCount checks that the status row shows how many updates
+// are pending.
+func TestStatusShowsCount(t *testing.T) {
+	b := &fakeBackend{res: Result{Updates: []Update{{Name: "a"}, {Name: "b"}, {Name: "c"}}}}
+	c := newTestChecker(b)
+	c.Check()
+	u := &updates{checker: c}
+	saved := autoStart
+	autoStart = false
+	defer func() { autoStart = saved }()
+
+	row := u.StatusAreaWidget()
+	if row == nil || !row.Visible() {
+		t.Fatal("the row is hidden with updates pending")
+	}
+	if u.label.Text != "3 updates" || !u.root.Visible() {
+		t.Errorf("label %q, shown %v", u.label.Text, u.root.Visible())
+	}
+	found := false
+	for _, o := range row.(*fyne.Container).Objects {
+		if o == u.root {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the count is not part of the row")
+	}
 }
