@@ -44,11 +44,11 @@ func (t *transparentTheme) Size(n fyne.ThemeSizeName) float32 {
 			return 0 // a maximized window meets the screen edges squarely
 		}
 	case theme.SizeNameWindowTitleBarHeight:
-		return wmTheme.TitleHeight
+		return wmTheme.TitleHeight()
 	case theme.SizeNameWindowButtonHeight:
-		return wmTheme.TitleButtonHeight
+		return wmTheme.TitleButtonHeight()
 	case theme.SizeNameWindowButtonIcon:
-		return wmTheme.TitleButtonIconSize
+		return wmTheme.TitleButtonIconSize()
 	}
 
 	return t.Theme.Size(n)

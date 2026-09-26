@@ -21,9 +21,9 @@ func TestTransparentTheme_TitleBarSizes(t *testing.T) {
 	for _, touch := range []bool{false, true} {
 		wmTheme.SetTouchScreen(touch)
 
-		assert.Equal(t, wmTheme.TitleHeight, th.Size(theme.SizeNameWindowTitleBarHeight))
-		assert.Equal(t, wmTheme.TitleButtonHeight, th.Size(theme.SizeNameWindowButtonHeight))
-		assert.Equal(t, wmTheme.TitleButtonIconSize, th.Size(theme.SizeNameWindowButtonIcon))
+		assert.Equal(t, wmTheme.TitleHeight(), th.Size(theme.SizeNameWindowTitleBarHeight))
+		assert.Equal(t, wmTheme.TitleButtonHeight(), th.Size(theme.SizeNameWindowButtonHeight))
+		assert.Equal(t, wmTheme.TitleButtonIconSize(), th.Size(theme.SizeNameWindowButtonIcon))
 	}
 
 	assert.Equal(t, theme.DefaultTheme().Size(theme.SizeNamePadding), th.Size(theme.SizeNamePadding))

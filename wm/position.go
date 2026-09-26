@@ -22,7 +22,7 @@ func PositionForNewWindow(win tyde.Window, x, y int, w, h uint, decorated bool,
 	}
 	if decorated {
 		offX -= ScaleToPixels(theme.BorderWidth, target)
-		offY -= ScaleToPixels(theme.TitleHeight, target)
+		offY -= ScaleToPixels(theme.TitleHeight(), target)
 	}
 
 	return offX, offY, w, h

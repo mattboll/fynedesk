@@ -6,6 +6,7 @@ package theme // import "fyshos.com/tyde/theme"
 import (
 	"image/color"
 	"strings"
+	"sync/atomic"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -111,16 +112,8 @@ var (
 
 	// BorderWidth is the width of window frames
 	BorderWidth = float32(4)
-	// ButtonWidth is the width of window buttons
-	ButtonWidth = buttonWidth
 	// NarrowBarWidth is the size for the bars in narrow layout
 	NarrowBarWidth = float32(36)
-	// TitleHeight is the height of a frame titleBar
-	TitleHeight = titleHeight
-	// TitleButtonHeight is the size of the buttons drawn in a frame titleBar
-	TitleButtonHeight = titleButtonHeight
-	// TitleButtonIconSize is the size of the icon inside a titleBar button
-	TitleButtonIconSize = titleButtonIconSize
 	// WidgetPanelWidth defines how wide the large widget panel should be
 	WidgetPanelWidth = float32(196)
 )
@@ -143,22 +136,47 @@ const (
 	titleButtonIconSizeTouch = float32(22)
 )
 
+// touchScreen is whether the frames are sized for fingers: set by the
+// settings, read by the frames as they draw (from other goroutines on X11).
+var touchScreen atomic.Bool
+
 // SetTouchScreen configures the window frame metrics for the input the user
 // has. On a touch screen the title bar and the window buttons drawn in it grow
 // big enough to tap; anywhere else they return to the pointer sizes.
 func SetTouchScreen(touch bool) {
-	if touch {
-		ButtonWidth = buttonWidthTouch
-		TitleHeight = titleHeightTouch
-		TitleButtonHeight = titleButtonHeightTouch
-		TitleButtonIconSize = titleButtonIconSizeTouch
-		return
-	}
+	touchScreen.Store(touch)
+}
 
-	ButtonWidth = buttonWidth
-	TitleHeight = titleHeight
-	TitleButtonHeight = titleButtonHeight
-	TitleButtonIconSize = titleButtonIconSize
+// ButtonWidth is the width of window buttons.
+func ButtonWidth() float32 {
+	if touchScreen.Load() {
+		return buttonWidthTouch
+	}
+	return buttonWidth
+}
+
+// TitleHeight is the height of a frame titleBar.
+func TitleHeight() float32 {
+	if touchScreen.Load() {
+		return titleHeightTouch
+	}
+	return titleHeight
+}
+
+// TitleButtonHeight is the size of the buttons drawn in a frame titleBar.
+func TitleButtonHeight() float32 {
+	if touchScreen.Load() {
+		return titleButtonHeightTouch
+	}
+	return titleButtonHeight
+}
+
+// TitleButtonIconSize is the size of the icon inside a titleBar button.
+func TitleButtonIconSize() float32 {
+	if touchScreen.Load() {
+		return titleButtonIconSizeTouch
+	}
+	return titleButtonIconSize
 }
 
 // WindowShadow returns the shadow drawn beneath a window frame - deeper when

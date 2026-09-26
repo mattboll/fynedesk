@@ -107,7 +107,7 @@ func newFrame(c *client) *frame {
 	maximized := c.Maximized()
 	screen := tyde.Instance().Screens().ScreenForGeometry(int(x), int(y), int(w), int(h))
 	borderWidth := uint16(wm.ScaleToPixels(wmTheme.BorderWidth, screen))
-	titleHeight := uint16(wm.ScaleToPixels(wmTheme.TitleHeight, screen))
+	titleHeight := uint16(wm.ScaleToPixels(wmTheme.TitleHeight(), screen))
 	if full || maximized {
 		// Remember the original geometry so a later unfullscreen/unmaximize
 		// has somewhere to restore to (NotifyFullscreen/NotifyMaximize is not
@@ -365,7 +365,7 @@ func (f *frame) renderDecoration() {
 
 	right := f.topRightPixelWidth()
 	drawWidth := fyne.Max(f.canvas.Content().MinSize().Width, float32(f.width)/scale)
-	f.canvas.Resize(fyne.NewSize(drawWidth, wmTheme.TitleHeight+gripSize))
+	f.canvas.Resize(fyne.NewSize(drawWidth, wmTheme.TitleHeight()+gripSize))
 	img := f.canvas.Capture()
 
 	strip := image.NewRGBA(image.Rect(0, 0, img.Bounds().Dx(), int(x11.TitleHeight(f.client))))

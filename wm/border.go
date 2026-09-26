@@ -27,7 +27,7 @@ func NewBorder(win tyde.Window, ico fyne.Resource, canMaximize bool) *Border {
 		app := icon.FindAppFromWinInfo(win, desk.IconProvider())
 		if app != nil {
 			// load at twice the title bar height, so it is still sharp on touch version.
-			ico = app.Icon(iconTheme, int(wmTheme.TitleHeight*2))
+			ico = app.Icon(iconTheme, int(wmTheme.TitleHeight()*2))
 		}
 	}
 

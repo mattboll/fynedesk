@@ -16,7 +16,7 @@ func TestPositionForNewWindow_Default(t *testing.T) {
 	x, y, _, _ := PositionForNewWindow(w, 0, 0, 100, 100, true, test.NewScreensProvider(screen))
 
 	assert.Equal(t, 250-int(theme.BorderWidth), x)
-	assert.Equal(t, 200-int(theme.TitleHeight), y)
+	assert.Equal(t, 200-int(theme.TitleHeight()), y)
 }
 
 func TestPositionForNewWindow_DefaultBorderless(t *testing.T) {
