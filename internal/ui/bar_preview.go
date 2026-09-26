@@ -89,185 +89,93 @@ func (p *previewPopup) cancelLocked() {
 }
 
 // fetchAndShow requests a thumbnail from the compositor and displays it.
-// Retries once after a short delay if the compositor hasn't captured yet.
 func (p *previewPopup) fetchAndShow(windowID string) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[PREVIEW] PANIC in fetchAndShow: %v", r)
 		}
 	}()
-	log.Printf("[PREVIEW] fetchAndShow: windowID=%s", windowID)
-	client := wlipc.DefaultClient()
-	if client == nil {
-		log.Println("[PREVIEW] fetchAndShow: no IPC client")
+	previews := p.fetchPreviews([]string{windowID})
+	if len(previews) == 0 {
 		return
 	}
-
-	req := struct {
-		WindowID string `json:"window_id"`
-	}{WindowID: windowID}
-
-	resp, err := client.Request(wlipc.ReqWindowPreview, req)
-	respName := "<nil>"
-	respLen := 0
-	if resp != nil {
-		respName = resp.Name
-		respLen = len(resp.Data)
-	}
-	log.Printf("[PREVIEW] fetchAndShow: got response for %s: err=%v name=%q dataLen=%d", windowID, err, respName, respLen)
-	if err != nil || resp == nil || resp.Name == "error" {
-		errMsg := ""
-		if err != nil {
-			errMsg = err.Error()
-		} else if resp != nil {
-			errMsg = string(resp.Data)
-		}
-		log.Printf("[PREVIEW] first request failed for %s: %s", windowID, errMsg)
-		// Compositor may not have captured yet — wait for next render frame and retry
-		time.Sleep(600 * time.Millisecond)
-		p.mu.Lock()
-		if p.windowID != windowID {
-			p.mu.Unlock()
-			return
-		}
-		p.mu.Unlock()
-		resp, err = client.Request(wlipc.ReqWindowPreview, req)
-		if err != nil || resp == nil || resp.Name == "error" {
-			log.Printf("[PREVIEW] retry also failed for %s", windowID)
-			return
-		}
-	}
-
-	var data struct {
-		WindowID string `json:"window_id"`
-		Title    string `json:"title"`
-		Width    int    `json:"width"`
-		Height   int    `json:"height"`
-		PNG      string `json:"png"`
-	}
-	if err := json.Unmarshal(resp.Data, &data); err != nil {
-		log.Printf("[PREVIEW] parse error: %v\n", err)
-		return
-	}
-
-	// Decode base64 PNG
-	pngData, err := base64.StdEncoding.DecodeString(data.PNG)
-	if err != nil {
-		log.Printf("[PREVIEW] base64 decode error: %v", err)
-		return
-	}
-	img, err := png.Decode(bytes.NewReader(pngData))
-	if err != nil {
-		log.Printf("[PREVIEW] png decode error: %v", err)
-		return
-	}
-
-	p.mu.Lock()
-	if p.windowID != windowID {
-		p.mu.Unlock()
-		log.Printf("[PREVIEW] hover moved away: p.windowID=%s windowID=%s", p.windowID, windowID)
-		return // hover moved away while fetching
-	}
-	p.mu.Unlock()
-
-	log.Printf("[PREVIEW] scheduling showWindow for %s (img %dx%d)", windowID, img.Bounds().Dx(), img.Bounds().Dy())
-	fyne.Do(func() {
-		p.showWindow(img, data.Title)
-	})
+	fyne.Do(func() { p.showWindow(previews[0].img, previews[0].title) })
 }
 
 // fetchAndShowGroup fetches thumbnails for multiple windows and shows them side by side.
 func (p *previewPopup) fetchAndShowGroup(windowIDs []string) {
-	client := wlipc.DefaultClient()
-	if client == nil {
-		return
-	}
-
-	// First pass: request all previews, schedule captures for missing ones
-	var previews []previewItem
-	var retryIDs []string
-	for _, wid := range windowIDs {
-		req := struct {
-			WindowID string `json:"window_id"`
-		}{WindowID: wid}
-
-		resp, err := client.Request(wlipc.ReqWindowPreview, req)
-		if err != nil || resp == nil || resp.Name == "error" {
-			retryIDs = append(retryIDs, wid)
-			continue
-		}
-
-		var data struct {
-			WindowID string `json:"window_id"`
-			Title    string `json:"title"`
-			PNG      string `json:"png"`
-		}
-		if err := json.Unmarshal(resp.Data, &data); err != nil {
-			continue
-		}
-
-		pngData, err := base64.StdEncoding.DecodeString(data.PNG)
-		if err != nil {
-			continue
-		}
-		img, err := png.Decode(bytes.NewReader(pngData))
-		if err != nil {
-			continue
-		}
-
-		previews = append(previews, previewItem{img: img, title: data.Title, winID: wid})
-	}
-
-	// Retry failed windows after a delay (compositor may need a render frame to capture)
-	if len(retryIDs) > 0 && len(previews) < len(windowIDs) {
-		time.Sleep(600 * time.Millisecond)
-		p.mu.Lock()
-		stillActive := p.windowID == windowIDs[0]
-		p.mu.Unlock()
-		if stillActive {
-			for _, wid := range retryIDs {
-				req := struct {
-					WindowID string `json:"window_id"`
-				}{WindowID: wid}
-				resp, err := client.Request(wlipc.ReqWindowPreview, req)
-				if err != nil || resp == nil || resp.Name == "error" {
-					continue
-				}
-				var data struct {
-					WindowID string `json:"window_id"`
-					Title    string `json:"title"`
-					PNG      string `json:"png"`
-				}
-				if err := json.Unmarshal(resp.Data, &data); err != nil {
-					continue
-				}
-				pngData, err := base64.StdEncoding.DecodeString(data.PNG)
-				if err != nil {
-					continue
-				}
-				img, err := png.Decode(bytes.NewReader(pngData))
-				if err != nil {
-					continue
-				}
-				previews = append(previews, previewItem{img: img, title: data.Title, winID: wid})
-			}
-		}
-	}
-
+	previews := p.fetchPreviews(windowIDs)
 	if len(previews) == 0 {
 		return
 	}
+	fyne.Do(func() { p.showGroupWindow(previews) })
+}
 
-	p.mu.Lock()
-	if p.windowID != windowIDs[0] {
-		p.mu.Unlock()
-		return
+// fetchPreviews asks the compositor for the thumbnails of the windows. The
+// ones it has not captured yet are asked again after a short delay (it
+// captures them on its next frame). It returns nil if the hover moved away.
+func (p *previewPopup) fetchPreviews(windowIDs []string) []previewItem {
+	client := wlipc.DefaultClient()
+	if client == nil {
+		return nil
 	}
-	p.mu.Unlock()
+	stillHovered := func() bool {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.windowID == windowIDs[0]
+	}
 
-	fyne.Do(func() {
-		p.showGroupWindow(previews)
-	})
+	var previews []previewItem
+	var retry []string
+	for _, wid := range windowIDs {
+		if item, ok := requestPreview(client, wid); ok {
+			previews = append(previews, item)
+		} else {
+			retry = append(retry, wid)
+		}
+	}
+	if len(retry) > 0 {
+		time.Sleep(600 * time.Millisecond)
+		if !stillHovered() {
+			return nil
+		}
+		for _, wid := range retry {
+			if item, ok := requestPreview(client, wid); ok {
+				previews = append(previews, item)
+			}
+		}
+	}
+	if !stillHovered() {
+		return nil
+	}
+	return previews
+}
+
+// requestPreview asks the compositor for the thumbnail of one window.
+func requestPreview(client *wlipc.IPCClient, windowID string) (previewItem, bool) {
+	resp, err := client.Request(wlipc.ReqWindowPreview, struct {
+		WindowID string `json:"window_id"`
+	}{WindowID: windowID})
+	if err != nil || resp == nil || resp.Name == "error" {
+		return previewItem{}, false
+	}
+	var data struct {
+		Title string `json:"title"`
+		PNG   string `json:"png"`
+	}
+	if err := json.Unmarshal(resp.Data, &data); err != nil {
+		return previewItem{}, false
+	}
+	pngData, err := base64.StdEncoding.DecodeString(data.PNG)
+	if err != nil {
+		return previewItem{}, false
+	}
+	img, err := png.Decode(bytes.NewReader(pngData))
+	if err != nil {
+		log.Printf("[PREVIEW] %s: %v", windowID, err)
+		return previewItem{}, false
+	}
+	return previewItem{img: img, title: data.Title, winID: windowID}, true
 }
 
 // showGroupWindow creates a preview window showing multiple window thumbnails.
@@ -369,7 +277,6 @@ func (p *previewPopup) showGroupWindow(previews []previewItem) {
 
 // showWindow creates and displays the preview splash window.
 func (p *previewPopup) showWindow(img image.Image, title string) {
-	log.Printf("[PREVIEW] showWindow called: title=%q imgSize=%dx%d", title, img.Bounds().Dx(), img.Bounds().Dy())
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -693,7 +600,6 @@ func (oi outputInfo) screenDimensions() (screenW, screenH, offsetX, offsetY floa
 // iconMouseIn is called when mouse enters a taskbar icon.
 func iconMouseIn(bi *barIcon, oi outputInfo) {
 	if bi.windowData == nil || bi.windowData.win == nil {
-		log.Printf("[PREVIEW] iconMouseIn: windowData nil or win nil")
 		return
 	}
 
@@ -705,10 +611,8 @@ func iconMouseIn(bi *barIcon, oi outputInfo) {
 		}
 	}
 	if len(windowIDs) == 0 {
-		log.Printf("[PREVIEW] iconMouseIn: no window IDs found")
 		return
 	}
-	log.Printf("[PREVIEW] iconMouseIn: windowIDs=%v", windowIDs)
 
 	preview.outputInfo = oi
 	preview.iconPos = bi.Position()
