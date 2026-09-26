@@ -562,6 +562,7 @@ type xdgView struct {
 	configuredW, configuredH int      // Pending configured size (for decorations before client commits)
 	focusSeq                 uint64   // Global focus ordering
 	everMapped               bool     // mapped before: a new map is the window shown again
+	surfaceMapped            bool     // its surface is mapped (mapped is also false while minimized)
 	opacity                  float32  // Per-window opacity [0.1, 1.0]
 	anim                     viewAnim // Position animation state
 	hideDecorations          bool     // Suppress decorations during open-anim fade-in
@@ -604,6 +605,7 @@ type xwayView struct {
 	x, y             float64
 	mapped           bool
 	everMapped       bool // true after first successful map (skip open anim on remap)
+	surfaceMapped    bool // its surface is mapped (mapped is also false while minimized)
 	isPanel          bool
 	isOverlay        bool // Overlay menu (Tyde Menu)
 	overrideRedirect bool // X11 override-redirect (popups, menus, tooltips)

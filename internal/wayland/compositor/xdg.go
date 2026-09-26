@@ -184,6 +184,7 @@ func (s *server) handleXdgMap(v *xdgView, viewTree *C.struct_wlr_scene_tree, top
 	// its old decorations go before new ones are made.
 	remap := v.everMapped
 	v.everMapped = true
+	v.surfaceMapped = true
 
 	// Assign to current desktop by default
 	v.desk = s.currentDesk
@@ -277,6 +278,7 @@ func (s *server) handleXdgMap(v *xdgView, viewTree *C.struct_wlr_scene_tree, top
 func (s *server) handleXdgUnmap(v *xdgView, viewTree *C.struct_wlr_scene_tree) {
 	s.ensureThumbXdg(v) // capture thumbnail before unmap for close animation
 	v.mapped = false
+	v.surfaceMapped = false
 	s.captureHideXdg(v)
 	destroyModalScrim(&v.scrimRect)
 	C.scene_node_set_enabled(&viewTree.node, 0)
@@ -841,9 +843,17 @@ func (s *server) fullscreenXdgWindow(v *xdgView, enable bool) {
 	s.reconcileXdgDecorations(v)
 }
 
+// restoreXdgWindow shows a minimized window again, on the current desktop,
+// unless its application hid it meanwhile (it shows again when it maps).
 func (s *server) restoreXdgWindow(v *xdgView) {
 	v.minimized = false
-	v.mapped = true
+	v.mapped = v.surfaceMapped
+	if !v.mapped {
+		return
+	}
+	if !v.pinned {
+		v.desk = s.currentDesk
+	}
 	setViewSceneEnabled(v.sceneTree, true)
 	s.focusXdgView(v)
 }

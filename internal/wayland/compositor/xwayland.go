@@ -278,6 +278,7 @@ func (s *server) detachXwaySurface(v *xwayView) {
 // wl_surface is mapped.
 func (s *server) handleXwayMap(v *xwayView, surface wlr.XwaylandSurface, viewTree *C.struct_wlr_scene_tree) {
 	v.mapped = true
+	v.surfaceMapped = true
 	title := surface.Title()
 	w, h := surface.Width(), surface.Height()
 	// Assign to current desktop by default
@@ -520,6 +521,7 @@ func (s *server) finishXwayMap(v *xwayView, viewTree *C.struct_wlr_scene_tree, w
 func (s *server) handleXwayUnmap(v *xwayView, viewTree *C.struct_wlr_scene_tree) {
 	s.ensureThumbXway(v) // capture thumbnail before unmap for close animation
 	v.mapped = false
+	v.surfaceMapped = false
 	s.captureHideXway(v)
 	destroyModalScrim(&v.scrimRect)
 	C.scene_node_set_enabled(&viewTree.node, 0)

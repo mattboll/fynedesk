@@ -272,10 +272,18 @@ func (s *server) minimizeXwayWindow(v *xwayView) {
 	setViewSceneEnabled(v.sceneTree, false)
 }
 
+// restoreXwayWindow shows a minimized window again, on the current desktop,
+// unless its application hid it meanwhile (it shows again when it maps).
 func (s *server) restoreXwayWindow(v *xwayView) {
 	v.surface.SetMinimized(false)
 	v.minimized = false
-	v.mapped = true
+	v.mapped = v.surfaceMapped
+	if !v.mapped {
+		return
+	}
+	if !v.pinned {
+		v.desk = s.currentDesk
+	}
 	setViewSceneEnabled(v.sceneTree, true)
 	s.focusXwayView(v)
 }
