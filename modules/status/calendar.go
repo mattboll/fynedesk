@@ -2,7 +2,7 @@ package status
 
 import (
 	"fmt"
-	"os/exec"
+	"log"
 	"sync"
 	"time"
 
@@ -211,14 +211,13 @@ func meetingIcon(_ cal.Event, until time.Duration) fyne.Resource {
 	return theme.HistoryIcon()
 }
 
-// openCalendarURL launches a URL in the user's default browser via
-// xdg-open. Detached: we don't wait for the browser process.
+// openCalendarURL opens the link of an event (https only, see
+// cal.OpenLink).
 func openCalendarURL(target string) {
 	if target == "" {
 		return
 	}
-	cmd := exec.Command("xdg-open", target)
-	if err := cmd.Start(); err == nil {
-		go cmd.Wait()
+	if err := cal.OpenLink(target); err != nil {
+		log.Printf("[calendar] link not opened: %v", err)
 	}
 }

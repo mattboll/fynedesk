@@ -197,7 +197,7 @@ var meetURLPattern = regexp.MustCompile(`https://(?:` +
 func extractMeetingURL(ev *gcal.Event) string {
 	if ev.ConferenceData != nil {
 		for _, ep := range ev.ConferenceData.EntryPoints {
-			if ep.EntryPointType == "video" && ep.Uri != "" {
+			if ep.EntryPointType == "video" && calendar.IsWebLink(ep.Uri) {
 				return ep.Uri
 			}
 		}

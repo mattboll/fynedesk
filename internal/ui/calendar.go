@@ -3,7 +3,7 @@ package ui
 import (
 	"fmt"
 	"image/color"
-	"os/exec"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -567,11 +567,9 @@ func centeredHint(text string) fyne.CanvasObject {
 	return container.NewCenter(lbl)
 }
 
-// openURL launches a URL in the user's default browser via xdg-open.
-// Detached on purpose: we don't want to wait on the browser process.
+// openURL opens the link of an event (https only, see calendar.OpenLink).
 func openURL(target string) {
-	cmd := exec.Command("xdg-open", target)
-	if err := cmd.Start(); err == nil {
-		go cmd.Wait()
+	if err := calendar.OpenLink(target); err != nil {
+		log.Printf("[calendar] link not opened: %v", err)
 	}
 }
