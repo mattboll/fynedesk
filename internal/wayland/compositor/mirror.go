@@ -21,6 +21,8 @@ struct mirror {
 	struct wlr_output *src, *dst;
 	struct wlr_buffer *frame; // last frame committed on src, locked
 	uintptr_t handle;         // Go side, for the destroy callbacks
+	bool fresh;               // a frame came since the last one shown
+	int drawn_w, drawn_h;     // the target's size when last drawn
 
 	struct wl_listener src_commit, src_destroy, dst_frame, dst_destroy;
 };
@@ -36,6 +38,7 @@ static void mirror_src_commit(struct wl_listener *listener, void *data) {
 		wlr_buffer_unlock(m->frame);
 	}
 	m->frame = frame;
+	m->fresh = true;
 	wlr_output_schedule_frame(m->dst);
 }
 
@@ -59,6 +62,11 @@ static struct wlr_box mirror_fit(int pw, int ph, int dw, int dh) {
 static void mirror_dst_frame(struct wl_listener *listener, void *data) {
 	struct mirror *m = wl_container_of(listener, m, dst_frame);
 	if (!m->dst->enabled) {
+		return;
+	}
+	// Nothing new to show: no commit, so no frame event follows and the
+	// target rests (it was redrawn at every one of its refreshes).
+	if (!m->fresh && m->drawn_w == m->dst->width && m->drawn_h == m->dst->height) {
 		return;
 	}
 
@@ -102,8 +110,10 @@ static void mirror_dst_frame(struct wl_listener *listener, void *data) {
 	if (texture) {
 		wlr_texture_destroy(texture);
 	}
-	if (ok) {
-		wlr_output_commit_state(m->dst, &state);
+	if (ok && wlr_output_commit_state(m->dst, &state)) {
+		m->fresh = false;
+		m->drawn_w = dw;
+		m->drawn_h = dh;
 	}
 	wlr_output_state_finish(&state);
 }
