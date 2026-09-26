@@ -2,9 +2,12 @@ package status
 
 import (
 	"errors"
+	"fmt"
 	"image/color"
+	"math"
 	"strconv"
 	"strings"
+	"sync"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -33,6 +36,19 @@ type brightness struct {
 
 	bar  *statusBar
 	done chan struct{} // closed to stop IPC watcher goroutines
+
+	backlightOnce sync.Once
+	backlight     bool
+}
+
+// hasBacklight reports whether the brightness can be read and is set, asked
+// once.
+func (b *brightness) hasBacklight() bool {
+	b.backlightOnce.Do(func() {
+		val, err := b.bright.Get()
+		b.backlight = err == nil && val > 0
+	})
+	return b.backlight
 }
 
 // brightnessDriver reads and sets the screen brightness, between 0 and 1.
@@ -48,36 +64,36 @@ func (b *brightness) Destroy() {
 	}
 }
 
-func (b *brightness) offsetValue(diff int) {
+// offsetValue moves the brightness by diff percent and returns the new
+// value (in [0, 1]).
+func (b *brightness) offsetValue(diff int) float64 {
 	floatVal, _ := b.bright.Get()
 	if floatVal <= 0.01 { // don't start doing 6, 11 etc just because we were on 1 (min)
 		floatVal = 0
 	}
-	value := int(floatVal*100) + diff
+	value := int(math.Round(floatVal*100)) + diff
 
-	b.setValue(value)
+	return b.setValue(value)
 }
 
-func (b *brightness) setValue(value int) {
+// setValue sets the brightness in percent and returns it (in [0, 1]); the
+// value set is shown, rather than asked for again.
+func (b *brightness) setValue(value int) float64 {
 	if value < 1 {
 		value = 1
 	} else if value > 100 {
 		value = 100
 	}
 
-	_ = b.bright.Set(float64(value) / 100)
-
-	newVal, _ := b.bright.Get()
+	newVal := float64(value) / 100
+	_ = b.bright.Set(newVal)
 	fyne.Do(func() {
 		b.bar.SetValue(newVal)
 	})
+	return newVal
 }
 
 func (b *brightness) LaunchSuggestions(input string) []tyde.LaunchSuggestion {
-	if val, err := b.bright.Get(); err != nil || val == 0 {
-		return nil // don't load if not present
-	}
-
 	lower := strings.ToLower(input)
 	matches := false
 	val := lower
@@ -104,7 +120,9 @@ func (b *brightness) LaunchSuggestions(input string) []tyde.LaunchSuggestion {
 		}
 	}
 
-	if !matches {
+	// Only now, and once: whether there is a backlight (it ran brightnessctl
+	// twice at every key typed in the launcher).
+	if !matches || !b.hasBacklight() {
 		return nil
 	}
 
@@ -124,16 +142,10 @@ func (b *brightness) Metadata() tyde.ModuleMetadata {
 func (b *brightness) Shortcuts() map[*tyde.Shortcut]func() {
 	return map[*tyde.Shortcut]func(){
 		tyde.NewShortcut("Reduce Screen Brightness", tyde.KeyBrightnessDown, tyde.AnyModifier): func() {
-			b.offsetValue(-5)
-			if val, err := b.bright.Get(); err == nil {
-				showOSD(wmtheme.BrightnessIcon, val*100)
-			}
+			showOSD(wmtheme.BrightnessIcon, b.offsetValue(-5)*100)
 		},
 		tyde.NewShortcut("Increase Screen Brightness", tyde.KeyBrightnessUp, tyde.AnyModifier): func() {
-			b.offsetValue(5)
-			if val, err := b.bright.Get(); err == nil {
-				showOSD(wmtheme.BrightnessIcon, val*100)
-			}
+			showOSD(wmtheme.BrightnessIcon, b.offsetValue(5)*100)
 		},
 	}
 }
@@ -163,7 +175,11 @@ func (b *brightness) StatusAreaWidget() fyne.CanvasObject {
 
 	bright := container.NewBorder(nil, nil, less, more, b.bar)
 
-	go b.offsetValue(0)
+	go func() { // shown, not written back
+		if val, err := b.bright.Get(); err == nil {
+			fyne.Do(func() { b.bar.SetValue(val) })
+		}
+	}()
 
 	if wlipc.IsWaylandSession() {
 		b.done = make(chan struct{})
@@ -194,20 +210,28 @@ func newBrightness() tyde.Module {
 // brightnessCtl drives the backlight with brightnessctl.
 type brightnessCtl struct{}
 
+// Get reads the brightness in one call: "brightnessctl -m" prints
+// device,class,current,percent,max.
 func (brightnessCtl) Get() (float64, error) {
-	out, err := wm.ExecOutput("brightnessctl", "get")
+	out, err := wm.ExecOutput("brightnessctl", "-m")
 	if err != nil {
 		return 0, err
 	}
-	maxOut, err := wm.ExecOutput("brightnessctl", "max")
+	return parseBrightnessctlMachine(string(out))
+}
+
+// parseBrightnessctlMachine reads the first line of "brightnessctl -m".
+func parseBrightnessctlMachine(out string) (float64, error) {
+	line, _, _ := strings.Cut(strings.TrimSpace(out), "\n")
+	f := strings.Split(line, ",")
+	if len(f) < 5 {
+		return 0, fmt.Errorf("unexpected brightnessctl output %q", line)
+	}
+	val, err := strconv.ParseFloat(f[2], 64)
 	if err != nil {
 		return 0, err
 	}
-	val, err := strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
-	if err != nil {
-		return 0, err
-	}
-	max, err := strconv.ParseFloat(strings.TrimSpace(string(maxOut)), 64)
+	max, err := strconv.ParseFloat(f[4], 64)
 	if err != nil || max <= 0 {
 		return 0, errors.New("invalid maximum brightness")
 	}

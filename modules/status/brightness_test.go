@@ -24,3 +24,13 @@ func TestBrightItem_Icon(t *testing.T) {
 	i := &brightItem{input: "50"}
 	assert.NotNil(t, i.Icon())
 }
+
+func TestParseBrightnessctlMachine(t *testing.T) {
+	v, err := parseBrightnessctlMachine("intel_backlight,backlight,12000,50%,24000\n")
+	if err != nil || v != 0.5 {
+		t.Errorf("got %v, %v", v, err)
+	}
+	if _, err := parseBrightnessctlMachine("garbage"); err == nil {
+		t.Error("garbage parsed")
+	}
+}
