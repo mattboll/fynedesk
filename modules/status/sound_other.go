@@ -4,6 +4,7 @@
 package status
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +39,9 @@ func (b *sound) value() (int, error) {
 		return 0, err
 	}
 
-	return int(volume * 100), nil
+	// Rounded: 0.29999 is 30 %, and writing back a truncated value lowered
+	// the volume by 1 % each time.
+	return int(math.Round(float64(volume) * 100)), nil
 }
 
 // pulseAddress returns the PulseAudio (or pipewire-pulse) socket of the
@@ -69,8 +72,11 @@ func (b *sound) setValue(vol int) {
 		return
 	}
 
-	b.updateIcon(vol, b.muted())
-	b.bar.SetValue(float64(vol))
+	muted := b.muted()
+	fyne.Do(func() {
+		b.updateIcon(vol, muted)
+		b.bar.SetValue(float64(vol))
+	})
 }
 
 func (b *sound) toggleMute() {
@@ -81,5 +87,5 @@ func (b *sound) toggleMute() {
 	}
 
 	val, _ := b.value()
-	b.updateIcon(val, toggle)
+	fyne.Do(func() { b.updateIcon(val, toggle) })
 }

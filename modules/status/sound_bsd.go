@@ -62,8 +62,10 @@ func (b *sound) setValue(vol int) {
 		return
 	}
 
-	b.bar.SetValue(float64(vol))
-	b.updateIcon(vol, muted)
+	fyne.Do(func() {
+		b.bar.SetValue(float64(vol))
+		b.updateIcon(vol, muted)
+	})
 }
 
 func (b *sound) toggleMute() {

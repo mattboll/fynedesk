@@ -132,7 +132,7 @@ func (b *sound) StatusAreaWidget() fyne.CanvasObject {
 
 	sound := container.NewBorder(nil, nil, less, more, b.bar)
 
-	go b.offsetValue(0)
+	go b.showValue() // only shown: writing it back changed it
 
 	// Poll volume changes periodically to catch external changes
 	// (e.g. volume keys handled by host compositor, wpctl, etc.)
@@ -181,6 +181,20 @@ func (b *sound) watchVolume() {
 // Metadata returns ModuleMetadata
 func (b *sound) Metadata() tyde.ModuleMetadata {
 	return soundMeta
+}
+
+// showValue shows the current volume.
+func (b *sound) showValue() {
+	vol, err := b.value()
+	if err != nil {
+		fyne.LogError("Failed to get volume", err)
+		return
+	}
+	muted := b.muted()
+	fyne.Do(func() {
+		b.bar.SetValue(float64(vol))
+		b.updateIcon(vol, muted)
+	})
 }
 
 func (b *sound) offsetValue(diff int) {
