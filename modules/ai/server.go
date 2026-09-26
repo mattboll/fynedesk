@@ -169,9 +169,10 @@ func cachePath(name string) string {
 }
 
 // recoverAI turns a panic into a logged, survivable event so the AI module -
-// which runs inside the compositor process - can never take the whole desktop
-// down. The trace goes to the app log and to aiPanicLogPath so it can be read
-// back after the fact. Use as the first line of a goroutine or handler:
+// which runs inside the desktop process (the panel under Wayland) - can never
+// take the whole desktop down. The trace goes to the app log and to
+// aiPanicLogPath so it can be read back after the fact. Use as the first line
+// of a goroutine or handler:
 //
 //	defer recoverAI("chat stream render")
 func recoverAI(where string) {

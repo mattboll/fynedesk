@@ -330,9 +330,8 @@ var fynePrimaryColorHex = map[string]string{
 	"gray":   "#9e9e9e",
 }
 
-// watchFynePrimaryColor polls ~/.config/fyne/settings.json for Main Color changes.
-// We cannot use app.Settings().AddListener() because Fyne disables its file watcher
-// when a custom theme is set via SetTheme() (themeSpecified=true).
+// watchFynePrimaryColor follows the Main Color chosen in Fyne's settings and
+// carries it into theme.json and the colours derived from it.
 func watchFynePrimaryColor(app fyne.App, settings *deskSettings) {
 	// theme.json sits next to the app storage: ~/.config/fyne/theme.json
 	themeDest := filepath.Join(filepath.Dir(app.Storage().RootURI().Path()), "theme.json")

@@ -255,7 +255,7 @@ type server struct {
 	powerBlankTimeout   int    // default 6
 	powerSuspendTimeout int    // default 0 (disabled)
 	powerSuspendAction  string // "suspend", "hibernate", "hybrid-sleep", "nothing"
-	nestedMode          bool   // true when running inside another compositor (WLR_BACKENDS set)
+	nestedMode          bool   // true when started inside another graphical session (WAYLAND_DISPLAY or DISPLAY set)
 	privateDBusPid      int    // PID of private dbus-daemon (nested mode only)
 	shuttingDown        atomic.Bool
 	wantRestart         atomic.Bool   // true if shutdown was triggered by a "restart" IPC; runner will restart on exit code 5

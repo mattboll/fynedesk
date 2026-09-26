@@ -377,8 +377,6 @@ func init() {
 	runtime.LockOSThread()
 }
 
-// Run starts the Wayland compositor. It takes over the calling goroutine
-// and does not return until the compositor shuts down.
 // wlrDebugEnabled reports whether wlroots-level debug logging should be turned
 // on. True if TYDE_WLR_DEBUG=1 or the marker file ~/.config/tyde/wlr-debug
 // exists. The marker file is the reliable toggle for display-manager-launched
@@ -395,6 +393,8 @@ func wlrDebugEnabled() bool {
 	return err == nil
 }
 
+// Run starts the Wayland compositor. It takes over the calling goroutine
+// and does not return until the compositor shuts down.
 func Run() {
 	// Reduce GC frequency to avoid pauses on the main thread (locked to OS
 	// thread for EGL). Default GOGC=100 can cause 10-50ms stalls; 200 halves

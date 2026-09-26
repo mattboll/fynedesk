@@ -141,8 +141,9 @@ func (c *chatUI) submit() {
 
 	// The model call performs network IO - keep it off the render thread and
 	// marshal only the UI updates back with fyne.Do. The whole thing is guarded:
-	// this module runs inside the compositor process, so a panic here (a bad
-	// stream from a local server, a render fault) must not crash the desktop.
+	// this module runs inside the desktop process (the panel under Wayland), so
+	// a panic here (a bad stream from a local server, a render fault) must not
+	// crash the desktop.
 	go func() {
 		defer recoverAI("chat goroutine")
 		defer cancel()

@@ -832,7 +832,6 @@ func bindingsEqual(a, b []wlipc.KeyBinding) bool {
 	return true
 }
 
-// migrateModules adds newly introduced modules to the user's saved module list.
 // migrateModules turns on, once, modules that appeared after the user's
 // configuration was made; turned off later, they stay off.
 func (d *deskSettings) migrateModules(names ...string) {

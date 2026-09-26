@@ -132,8 +132,8 @@ func (s *server) createCloseAnim(thumb *image.NRGBA, x, y float64, displayW, dis
 	ovTree := (*C.struct_wlr_scene_tree)(s.overlayTree)
 	sceneBuf := C.scene_buffer_create(ovTree, &pixBuf.base)
 	if sceneBuf == nil {
-		// scene_buffer_create takes ownership of the buffer on success only;
-		// on failure we still own pixBuf and must release it.
+		// The scene takes its own reference to the buffer; ours is dropped
+		// here, or by destroyCloseAnim once the animation is over.
 		C.pixel_buffer_release(pixBuf)
 		return
 	}

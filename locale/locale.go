@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"path"
+	"slices"
 	"sync"
 )
 
@@ -59,19 +60,15 @@ func Language() string {
 func Languages() []string {
 	mu.RLock()
 	defer mu.RUnlock()
+	// en first, then the others in alphabetical order.
 	langs := make([]string, 0, len(catalogs))
 	for k := range catalogs {
-		langs = append(langs, k)
-	}
-	// Stable order: en first, then alphabetical
-	sorted := make([]string, 0, len(langs))
-	for _, l := range langs {
-		if l == "en" {
-			continue
+		if k != "en" {
+			langs = append(langs, k)
 		}
-		sorted = append(sorted, l)
 	}
-	return append([]string{"en"}, sorted...)
+	slices.Sort(langs)
+	return append([]string{"en"}, langs...)
 }
 
 // LanguageLabel returns a human-readable label for a locale code.

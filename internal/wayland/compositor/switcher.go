@@ -464,7 +464,8 @@ func (s *server) captureViewThumbnails() bool {
 	}
 	defer C.end_thumb_capture()
 
-	// Reusable buffer for thumbnail pixels (maxW * maxH * 4 = ~107KB)
+	// Scratch buffer for thumbnail pixels (maxW * maxH * 4 = ~107KB),
+	// shared by the captures of this pass.
 	pix := make([]byte, thumbMaxW*thumbMaxH*4)
 
 	changed := false
@@ -496,7 +497,7 @@ func (s *server) captureViewThumbnails() bool {
 		}
 	}
 
-	// Log capture stats periodically (once per ~30 seconds)
+	// Log capture stats every 60 captures
 	if s.thumbCaptureCount%60 == 1 {
 		xdgWithThumb, xwayWithThumb := 0, 0
 		for _, v := range s.xdgViews {
