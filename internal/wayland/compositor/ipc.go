@@ -9,7 +9,6 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
-	"time"
 
 	"fyshos.com/tyde/wlipc"
 )
@@ -93,54 +92,7 @@ func (s *server) writeWindowsState() {
 // views are not thread-safe), then hands JSON marshaling + disk I/O off to
 // the background ipcFlusher goroutine so the render path is not blocked.
 func (s *server) flushWindowsState() {
-	var windows []wlipc.WindowInfo
-
-	// Build windows list in correct z-order using scene tree traversal.
-	// getViewsInZOrder() returns enabled (visible) views in topmost-first order.
-	// The pager iterates in reverse, so wins[0] (topmost) is drawn last (on top).
-	zOrder := s.getViewsInZOrder()
-	seen := make(map[string]bool, len(zOrder))
-
-	for _, entry := range zOrder {
-		if entry.xdg != nil {
-			v := entry.xdg
-			if !v.mapped && !v.minimized {
-				continue
-			}
-			seen[v.id] = true
-			windows = append(windows, s.xdgWindowInfo(v))
-		} else if entry.xway != nil {
-			v := entry.xway
-			if (!v.mapped && !v.minimized) || v.isPanel || v.isOverlay || v.overrideRedirect {
-				continue
-			}
-			seen[v.id] = true
-			windows = append(windows, s.xwayWindowInfo(v))
-		}
-	}
-
-	// Append windows NOT in the z-order list: minimized windows and
-	// windows on other desktops (their scene nodes are disabled).
-	// Their relative order doesn't matter for the pager since they're
-	// filtered by desktop and drawn below visible windows.
-	for _, v := range s.xdgViews {
-		if seen[v.id] || (!v.mapped && !v.minimized) {
-			continue
-		}
-		windows = append(windows, s.xdgWindowInfo(v))
-	}
-	for _, v := range s.xwayViews {
-		if seen[v.id] || (!v.mapped && !v.minimized) || v.isPanel || v.isOverlay || v.overrideRedirect {
-			continue
-		}
-		windows = append(windows, s.xwayWindowInfo(v))
-	}
-
-	state := wlipc.WindowsState{
-		Version:   wlipc.IPCStateVersion,
-		Windows:   windows,
-		Timestamp: time.Now().UnixNano(),
-	}
+	state := s.buildWindowsState()
 
 	// Send to background flusher (non-blocking: if flusher is busy,
 	// drain the stale state and replace with the latest snapshot).

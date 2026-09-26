@@ -224,7 +224,6 @@ func (s *server) hidePanelHotspot() {
 	}
 
 	log.Printf("[HOTSPOT] Panel hidden (z-order restored)\n")
-	s.dumpSceneOrder("after-hide")
 }
 
 // resizeFullscreenToOutput finds the active fullscreen window and resizes it

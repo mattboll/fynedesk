@@ -281,14 +281,17 @@ type viewZEntry struct {
 // getViewsInZOrder returns views from windowsTree in topmost-first z-order.
 // Only returns enabled nodes (visible on current desktop).
 func (s *server) getViewsInZOrder() []viewZEntry {
-	var dataArr [64]unsafe.Pointer
-	count := int(C.get_views_z_order(
-		(*C.struct_wlr_scene_tree)(s.windowsTree),
-		&dataArr[0], 64))
+	tree := (*C.struct_wlr_scene_tree)(s.windowsTree)
+	n := int(C.wl_list_length(&tree.children))
+	if n == 0 {
+		return nil
+	}
+	data := make([]unsafe.Pointer, n)
+	count := int(C.get_views_z_order(tree, &data[0], C.int(n)))
 
 	entries := make([]viewZEntry, 0, count)
-	for i := 0; i < count; i++ {
-		xdgV, xwayV := s.viewFromNodeData(dataArr[i])
+	for _, d := range data[:count] {
+		xdgV, xwayV := s.viewFromNodeData(d)
 		if xdgV != nil || xwayV != nil {
 			entries = append(entries, viewZEntry{xdg: xdgV, xway: xwayV})
 		}
@@ -330,14 +333,8 @@ func (s *server) isDragActive() bool {
 func (s *server) cursorNearBorder(x, y float64) (wlr.Edges, *xdgView, *xwayView) {
 	var occluded bool
 
-	// Get views in actual z-order from the scene tree (topmost first).
-	var dataArr [64]unsafe.Pointer
-	count := int(C.get_views_z_order(
-		(*C.struct_wlr_scene_tree)(s.windowsTree),
-		&dataArr[0], 64))
-
-	for i := 0; i < count; i++ {
-		xdgV, xwayV := s.viewFromNodeData(dataArr[i])
+	for _, e := range s.getViewsInZOrder() {
+		xdgV, xwayV := e.xdg, e.xway
 
 		if xdgV != nil {
 			edges, occ := s.xdgViewNearBorder(xdgV, x, y)
@@ -496,14 +493,8 @@ func (s *server) xwayViewNearBorder(v *xwayView, x, y float64) (wlr.Edges, bool)
 // Iterates views in actual scene tree z-order (topmost first) so that a foreground
 // window's content area occludes background window decorations.
 func (s *server) viewAtDecoration(x, y float64) (*xdgView, *xwayView, decoZone) {
-	// Get views in actual z-order from the scene tree (topmost first).
-	var dataArr [64]unsafe.Pointer
-	count := int(C.get_views_z_order(
-		(*C.struct_wlr_scene_tree)(s.windowsTree),
-		&dataArr[0], 64))
-
-	for i := 0; i < count; i++ {
-		xdgV, xwayV := s.viewFromNodeData(dataArr[i])
+	for _, e := range s.getViewsInZOrder() {
+		xdgV, xwayV := e.xdg, e.xway
 
 		if xdgV != nil {
 			v := xdgV

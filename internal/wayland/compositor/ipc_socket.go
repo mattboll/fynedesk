@@ -584,9 +584,13 @@ func (s *server) raiseByClass(class string) {
 	log.Printf("[IPC] raiseByClass: no raisable window found for class=%q", class)
 }
 
-// buildWindowsState creates a wlipc.WindowsState snapshot for socket responses.
+// buildWindowsState snapshots the window list, for windows-state.json and
+// socket responses. Main thread: wlroots views are not thread-safe.
 func (s *server) buildWindowsState() wlipc.WindowsState {
 	var windows []wlipc.WindowInfo
+
+	// The windows shown, in z-order (topmost first). The pager iterates in
+	// reverse, so wins[0] (topmost) is drawn last (on top).
 	zOrder := s.getViewsInZOrder()
 	seen := make(map[string]bool, len(zOrder))
 
@@ -608,6 +612,9 @@ func (s *server) buildWindowsState() wlipc.WindowsState {
 		}
 	}
 
+	// Then the windows not in the z-order list: minimized ones and those
+	// on other desktops (their scene nodes are disabled). Their order does
+	// not matter to the pager, which draws them below the visible ones.
 	for _, v := range s.xdgViews {
 		if seen[v.id] || (!v.mapped && !v.minimized) {
 			continue
@@ -622,6 +629,7 @@ func (s *server) buildWindowsState() wlipc.WindowsState {
 	}
 
 	return wlipc.WindowsState{
+		Version:   wlipc.IPCStateVersion,
 		Windows:   windows,
 		Timestamp: time.Now().UnixNano(),
 	}
