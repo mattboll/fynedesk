@@ -287,10 +287,10 @@ func (s *server) isSwitcherModReleased(mods wlr.KeyboardModifier) bool {
 // because wlroots may still report the modifier as held in GetModifiers()
 // at the moment the modifier key itself is released.
 func (s *server) isSwitcherModKeySym(syms []xkb.KeySym) bool {
-	altL := xkb.SymFromName("Alt_L", xkb.KeySymNoFlags)
-	altR := xkb.SymFromName("Alt_R", xkb.KeySymNoFlags)
-	superL := xkb.SymFromName("Super_L", xkb.KeySymNoFlags)
-	superR := xkb.SymFromName("Super_R", xkb.KeySymNoFlags)
+	altL := symAltL
+	altR := symAltR
+	superL := symSuperL
+	superR := symSuperR
 
 	for _, sym := range syms {
 		if s.wmModifier == wlr.KeyboardModifierAlt {

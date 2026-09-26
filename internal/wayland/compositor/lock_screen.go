@@ -16,6 +16,14 @@ package compositor
 static struct wlr_scene_buffer *scene_buffer_create(struct wlr_scene_tree *parent, struct wlr_buffer *buffer) {
 	return wlr_scene_buffer_create(parent, buffer);
 }
+// scene_buffer_damage_rect shows the buffer again, damaged in (x, y, w, h).
+static void scene_buffer_damage_rect(struct wlr_scene_buffer *buf, struct wlr_buffer *buffer,
+		int x, int y, int w, int h) {
+	pixman_region32_t damage;
+	pixman_region32_init_rect(&damage, x, y, w, h);
+	wlr_scene_buffer_set_buffer_with_damage(buf, buffer, &damage);
+	pixman_region32_fini(&damage);
+}
 static void scene_buffer_set_buffer(struct wlr_scene_buffer *buf, struct wlr_buffer *buffer) {
 	wlr_scene_buffer_set_buffer(buf, buffer);
 }
@@ -126,6 +134,13 @@ type builtinLockState struct {
 	clockDone   chan struct{} // closed by deactivateBuiltinLock to terminate the clock goroutine
 	blurredBg   *image.NRGBA
 	checking    bool // a password is being checked: one attempt at a time
+
+	// The composed picture, kept from one key to the next, and what its
+	// last full upload showed: when only the password line changed, only
+	// that band is copied and redrawn (each key used to allocate and upload
+	// a few screen-sized images).
+	img       *image.NRGBA
+	shownTime string
 }
 
 // zeroPassword overwrites a password rune slice with zeros before discarding.
@@ -359,8 +374,13 @@ func (s *server) updateBuiltinLockScene() {
 		return
 	}
 
-	// Start with blurred background or solid dark
-	img := image.NewNRGBA(image.Rect(0, 0, screenW, screenH))
+	// Start with blurred background or solid dark, in the kept picture
+	img := s.builtinLock.img
+	if img == nil || img.Rect.Dx() != screenW || img.Rect.Dy() != screenH {
+		img = image.NewNRGBA(image.Rect(0, 0, screenW, screenH))
+		s.builtinLock.img = img
+		s.builtinLock.shownTime = ""
+	}
 	if s.builtinLock.blurredBg != nil {
 		draw.Draw(img, img.Bounds(), s.builtinLock.blurredBg, image.Point{}, draw.Src)
 	} else {
@@ -456,6 +476,18 @@ func (s *server) updateBuiltinLockScene() {
 		return
 	}
 	lockTreeC := (*C.struct_wlr_scene_tree)(s.lockTree)
+	shownTime := now.Format("15:04 Monday, January 2")
+	if s.builtinLock.pixBuf != nil && s.builtinLock.sceneBuf != nil && shownTime == s.builtinLock.shownTime {
+		// Same clock: only the password dots and the status below changed.
+		band := image.Rect(0, dotsY-lockAvatarRadius, screenW, dotsY+80).Intersect(img.Rect)
+		pixBuf := (*C.struct_pixel_buffer)(s.builtinLock.pixBuf)
+		C.pixel_buffer_update_rect(pixBuf, unsafe.Pointer(&img.Pix[0]), C.size_t(img.Stride),
+			C.int(band.Min.X), C.int(band.Min.Y), C.int(band.Dx()), C.int(band.Dy()))
+		C.scene_buffer_damage_rect((*C.struct_wlr_scene_buffer)(s.builtinLock.sceneBuf), &pixBuf.base,
+			C.int(band.Min.X), C.int(band.Min.Y), C.int(band.Dx()), C.int(band.Dy()))
+		return
+	}
+	s.builtinLock.shownTime = shownTime
 	if s.builtinLock.pixBuf != nil {
 		pixBuf := (*C.struct_pixel_buffer)(s.builtinLock.pixBuf)
 		C.pixel_buffer_update(pixBuf, unsafe.Pointer(&img.Pix[0]), C.int(screenW), C.int(screenH))
@@ -489,8 +521,8 @@ func (s *server) handleBuiltinLockKey(sym xkb.KeySym, mods uint32) {
 	}
 
 	switch {
-	case sym == xkb.SymFromName("Return", xkb.KeySymNoFlags) ||
-		sym == xkb.SymFromName("KP_Enter", xkb.KeySymNoFlags):
+	case sym == symReturn ||
+		sym == symKPEnter:
 		// Submit password — one attempt at a time, or they would get past
 		// the delay PAM puts after a wrong password.
 		if len(s.builtinLock.password) == 0 || s.builtinLock.checking {
@@ -503,7 +535,7 @@ func (s *server) handleBuiltinLockKey(sym xkb.KeySym, mods uint32) {
 		}
 		go s.tryBuiltinLockAuth(secret)
 
-	case sym == xkb.SymFromName("BackSpace", xkb.KeySymNoFlags):
+	case sym == symBackSpace:
 		if len(s.builtinLock.password) > 0 {
 			s.builtinLock.password = s.builtinLock.password[:len(s.builtinLock.password)-1]
 			s.builtinLock.showError = false
@@ -511,7 +543,7 @@ func (s *server) handleBuiltinLockKey(sym xkb.KeySym, mods uint32) {
 			s.updateBuiltinLockScene()
 		}
 
-	case sym == xkb.SymFromName("Escape", xkb.KeySymNoFlags):
+	case sym == symEscape:
 		// Clear password (zero memory before discarding)
 		zeroPassword(s.builtinLock.password)
 		s.builtinLock.password = nil

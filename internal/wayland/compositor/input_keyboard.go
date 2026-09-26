@@ -121,7 +121,7 @@ func (s *server) handleKeyboardKey(keyboard, kb wlr.Keyboard, t time.Time, keyCo
 	// Cancel region screenshot selection on Escape
 	if s.regionSelectActive && state == wlr.KeyStatePressed {
 		for _, sym := range syms {
-			if sym == xkb.SymFromName("Escape", xkb.KeySymNoFlags) {
+			if sym == symEscape {
 				s.cancelRegionSelect()
 				return
 			}
@@ -131,8 +131,8 @@ func (s *server) handleKeyboardKey(keyboard, kb wlr.Keyboard, t time.Time, keyCo
 	// Super-alone detection: track bare Super press/release for launcher toggle
 	isSuperSym := false
 	for _, sym := range syms {
-		if sym == xkb.SymFromName("Super_L", xkb.KeySymNoFlags) ||
-			sym == xkb.SymFromName("Super_R", xkb.KeySymNoFlags) {
+		if sym == symSuperL ||
+			sym == symSuperR {
 			isSuperSym = true
 			break
 		}
@@ -242,8 +242,8 @@ func (s *server) handleSwitcherKeyEvent(kb wlr.Keyboard, syms []xkb.KeySym, stat
 func (s *server) handleOverviewKeyEvent(syms []xkb.KeySym, state wlr.KeyState) {
 	isSuperKey := false
 	for _, sym := range syms {
-		if sym == xkb.SymFromName("Super_L", xkb.KeySymNoFlags) ||
-			sym == xkb.SymFromName("Super_R", xkb.KeySymNoFlags) {
+		if sym == symSuperL ||
+			sym == symSuperR {
 			isSuperKey = true
 			break
 		}
