@@ -1,12 +1,14 @@
 package compositor
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/godbus/dbus/v5"
@@ -19,8 +21,9 @@ import (
 // FileChooser is NOT implemented here — zenity (GTK4) cannot display a file
 // dialog inside a wlroots compositor. xdg-desktop-portal-gtk handles it.
 type portalDBus struct {
-	srv  *server
-	conn *dbus.Conn
+	srv       *server
+	conn      *dbus.Conn
+	capturing sync.Mutex // a screenshot is being chosen
 }
 
 func newPortalDBus(srv *server) *portalDBus {
@@ -36,14 +39,13 @@ func (p *portalDBus) Screenshot(handle, appID, parentWindow string,
 ) (uint32, map[string]dbus.Variant, *dbus.Error) {
 	log.Printf("[PORTAL] Screenshot request from %q (handle=%s)\n", appID, handle)
 
-	interactive := false
-	if v, ok := options["interactive"]; ok {
-		if b, ok := v.Value().(bool); ok {
-			interactive = b
-		}
+	// One at a time: a second request while the user is choosing is refused.
+	if !p.capturing.TryLock() {
+		return 2, nil, nil
 	}
+	defer p.capturing.Unlock()
 
-	filename, err := p.captureScreenshot(interactive)
+	filename, err := p.captureScreenshot()
 	if err != nil {
 		log.Printf("[PORTAL] Screenshot failed: %v\n", err)
 		return 2, nil, nil // 2 = cancelled/failed
@@ -66,8 +68,16 @@ func (p *portalDBus) PickColor(handle, appID, parentWindow string,
 	return 2, nil, nil // not implemented
 }
 
-// captureScreenshot takes a screenshot and returns the file path.
-func (p *portalDBus) captureScreenshot(interactive bool) (string, error) {
+// screenshotChoiceTimeout bounds how long the user has to choose what an
+// application captures.
+const screenshotChoiceTimeout = 2 * time.Minute
+
+// captureScreenshot takes a screenshot and returns the file path. The user
+// always chooses what is captured, whether the application asked for an
+// interactive screenshot or not: clicking a screen takes all of it,
+// dragging takes a region, Escape refuses. Without that, any application
+// could read the screen silently.
+func (p *portalDBus) captureScreenshot() (string, error) {
 	homeDir, _ := os.UserHomeDir()
 	picturesDir := filepath.Join(homeDir, "Pictures")
 	os.MkdirAll(picturesDir, 0o755)
@@ -75,29 +85,23 @@ func (p *portalDBus) captureScreenshot(interactive bool) (string, error) {
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 	filename := filepath.Join(picturesDir, fmt.Sprintf("screenshot_%s.png", timestamp))
 
-	if interactive {
-		// Region selection with slurp
-		slurpCmd := exec.Command("slurp")
-		slurpCmd.Env = os.Environ()
-		output, err := slurpCmd.Output()
-		if err != nil {
-			return "", fmt.Errorf("region selection failed: %w", err)
-		}
-		region := strings.TrimSpace(string(output))
-		grimCmd := exec.Command("grim", "-g", region, filename)
-		grimCmd.Env = os.Environ()
-		if err := grimCmd.Run(); err != nil {
-			return "", fmt.Errorf("grim capture failed: %w", err)
-		}
-	} else {
-		// Full screen capture
-		cmd := exec.Command("grim", filename)
-		cmd.Env = os.Environ()
-		if err := cmd.Run(); err != nil {
-			return "", fmt.Errorf("grim capture failed: %w", err)
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), screenshotChoiceTimeout)
+	defer cancel()
+	slurpCmd := exec.CommandContext(ctx, findBinary("slurp"), "-o")
+	slurpCmd.Env = safeEnv()
+	output, err := slurpCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("nothing chosen: %w", err)
 	}
+	region := strings.TrimSpace(string(output))
 
+	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	grimCmd := exec.CommandContext(ctx, findBinary("grim"), "-g", region, filename)
+	grimCmd.Env = safeEnv()
+	if err := grimCmd.Run(); err != nil {
+		return "", fmt.Errorf("grim capture failed: %w", err)
+	}
 	return filename, nil
 }
 
