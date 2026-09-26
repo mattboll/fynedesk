@@ -1,0 +1,152 @@
+package compositor
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"time"
+
+	"fyshos.com/tyde/wlipc"
+)
+
+// Screenshots are taken by grim, saved in ~/Pictures, announced to the panel
+// and put in the clipboard.
+
+// screenshotPath creates a new, empty file in ~/Pictures for a screenshot,
+// named after the time (with a number when there is already one that
+// second), and returns its path. Creating it reserves the name: two captures
+// in the same second do not get the same file. Remove it if the capture
+// fails.
+func screenshotPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(home, "Pictures")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	base := filepath.Join(dir, "screenshot_"+time.Now().Format("2006-01-02_15-04-05"))
+	name := base + ".png"
+	for i := 2; ; i++ {
+		f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err == nil {
+			return name, f.Close()
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return "", err
+		}
+		name = fmt.Sprintf("%s_%d.png", base, i)
+	}
+}
+
+// captureScreen saves a screenshot of region (a grim geometry, "" for every
+// screen), then notifies it. It does not wait for grim.
+func (s *server) captureScreen(region string) {
+	filename, err := screenshotPath()
+	if err != nil {
+		log.Printf("[SCREENSHOT] no place for it: %v", err)
+		return
+	}
+	args := []string{filename}
+	if region != "" {
+		args = []string{"-g", region, filename}
+	}
+	cmd := exec.Command(findBinary("grim"), args...)
+	cmd.Env = safeEnv()
+	if err := cmd.Start(); err != nil {
+		log.Printf("[SCREENSHOT] grim could not start (apt install grim slurp): %v", err)
+		os.Remove(filename)
+		return
+	}
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			log.Printf("[SCREENSHOT] grim failed: %v", err)
+			os.Remove(filename)
+			return
+		}
+		log.Printf("[SCREENSHOT] saved to %s", filename)
+		_ = s.enqueueAction(func() { s.notifyScreenshot(filename) })
+	}()
+}
+
+// takeScreenshot captures every screen, or lets the user pick a region or
+// a window first.
+func (s *server) takeScreenshot(regionSelect, windowCapture bool) {
+	switch {
+	case regionSelect:
+		// The overlay lets the user drag a rectangle; finishRegionSelect
+		// captures it.
+		_ = s.enqueueAction(s.startRegionSelect)
+	case windowCapture:
+		// The next click captures the window under it.
+		_ = s.enqueueAction(s.startWindowPick)
+	default:
+		s.captureScreen("")
+	}
+}
+
+// startWindowPick enters a mode where the next click captures the clicked window.
+func (s *server) startWindowPick() {
+	s.windowPickMode = true
+	log.Println("[SCREENSHOT] Window pick mode: click a window to capture")
+}
+
+// captureClickedWindow captures the window at the given coordinates, with
+// its titlebar. Called from the pointer click handler when windowPickMode is
+// active.
+func (s *server) captureClickedWindow(x, y float64) {
+	s.windowPickMode = false
+
+	var (
+		vx, vy    float64
+		w, h      int
+		decorated bool
+	)
+	switch xdgV, xwayV, _, _, _ := s.viewAt(x, y); {
+	case xdgV != nil:
+		state := xdgV.xdgToplevel.Base().Surface().Current()
+		vx, vy, w, h, decorated = xdgV.x, xdgV.y, state.Width(), state.Height(), xdgV.decorated
+	case xwayV != nil && !xwayV.isPanel:
+		state := xwayV.surface.Surface().Current()
+		vx, vy, w, h, decorated = xwayV.x, xwayV.y, state.Width(), state.Height(), xwayV.decorated
+	default:
+		log.Println("[SCREENSHOT] No window at click position")
+		return
+	}
+	rx, ry := int(vx), int(vy)
+	if decorated {
+		ry -= titlebarHeight
+		h += titlebarHeight
+	}
+	s.captureScreen(fmt.Sprintf("%d,%d %dx%d", rx, ry, w, h))
+}
+
+// notifyScreenshot tells the panel, which shows a notification, and copies
+// the picture to the clipboard. The event goes through the socket, or a file
+// for a panel that polls.
+func (s *server) notifyScreenshot(filePath string) {
+	evt := wlipc.ScreenshotEvent{FilePath: filePath, Timestamp: time.Now().UnixMilli()}
+	if s.ipcServer == nil || s.ipcServer.Broadcast(wlipc.EventScreenshot, evt) == 0 {
+		data, _ := json.Marshal(evt)
+		writeAtomic(filepath.Join(s.getConfigDir(), "screenshot-event.json"), data)
+	}
+
+	// Copy to Wayland clipboard (best-effort)
+	go func() {
+		cmd := exec.Command(findBinary("wl-copy"), "--type", "image/png")
+		f, err := os.Open(filePath)
+		if err != nil {
+			return
+		}
+		cmd.Stdin = f
+		cmd.Env = safeEnv()
+		cmd.Run()
+		f.Close()
+	}()
+}

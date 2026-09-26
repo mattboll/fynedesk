@@ -19,10 +19,6 @@ import "C"
 import (
 	"fmt"
 	"log"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"time"
 	"unsafe"
 )
 
@@ -228,31 +224,7 @@ func (s *server) finishRegionSelect() {
 
 	// Capture the region with grim
 	region := fmt.Sprintf("%d,%d %dx%d", int(x1), int(y1), selW, selH)
-	go s.captureRegion(region)
-}
-
-// captureRegion runs grim with the specified geometry string.
-func (s *server) captureRegion(region string) {
-	homeDir, _ := os.UserHomeDir()
-	picturesDir := filepath.Join(homeDir, "Pictures")
-	os.MkdirAll(picturesDir, 0o755)
-	timestamp := time.Now().Format("2006-01-02_15-04-05")
-	filename := filepath.Join(picturesDir, fmt.Sprintf("screenshot_%s.png", timestamp))
-
-	grimCmd := exec.Command(findBinary("grim"), "-g", region, filename)
-	grimCmd.Env = safeEnv()
-	if err := grimCmd.Start(); err != nil {
-		log.Printf("[SCREENSHOT] grim region capture failed to start: %v", err)
-		return
-	}
-	go func() {
-		if err := grimCmd.Wait(); err != nil {
-			log.Printf("[SCREENSHOT] grim region capture failed: %v", err)
-			return
-		}
-		log.Printf("[SCREENSHOT] Region saved to %s", filename)
-		s.enqueueAction(func() { s.notifyScreenshot(filename) })
-	}()
+	s.captureScreen(region)
 }
 
 // cancelRegionSelect cleans up the region selection overlay without capturing.

@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -78,12 +77,10 @@ const screenshotChoiceTimeout = 2 * time.Minute
 // dragging takes a region, Escape refuses. Without that, any application
 // could read the screen silently.
 func (p *portalDBus) captureScreenshot() (string, error) {
-	homeDir, _ := os.UserHomeDir()
-	picturesDir := filepath.Join(homeDir, "Pictures")
-	os.MkdirAll(picturesDir, 0o755)
-
-	timestamp := time.Now().Format("2006-01-02_15-04-05")
-	filename := filepath.Join(picturesDir, fmt.Sprintf("screenshot_%s.png", timestamp))
+	filename, err := screenshotPath()
+	if err != nil {
+		return "", err
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), screenshotChoiceTimeout)
 	defer cancel()
@@ -91,6 +88,7 @@ func (p *portalDBus) captureScreenshot() (string, error) {
 	slurpCmd.Env = safeEnv()
 	output, err := slurpCmd.Output()
 	if err != nil {
+		os.Remove(filename)
 		return "", fmt.Errorf("nothing chosen: %w", err)
 	}
 	region := strings.TrimSpace(string(output))
@@ -100,6 +98,7 @@ func (p *portalDBus) captureScreenshot() (string, error) {
 	grimCmd := exec.CommandContext(ctx, findBinary("grim"), "-g", region, filename)
 	grimCmd.Env = safeEnv()
 	if err := grimCmd.Run(); err != nil {
+		os.Remove(filename)
 		return "", fmt.Errorf("grim capture failed: %w", err)
 	}
 	return filename, nil
