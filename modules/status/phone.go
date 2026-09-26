@@ -60,6 +60,7 @@ type kdeLink interface {
 	ShareFiles(ctx context.Context, id string, paths []string) error
 	MountFiles(ctx context.Context, id string) (string, error)
 	Watch(ctx context.Context, changed func()) error
+	Close() error
 }
 
 // phoneModule shows the phones, linked with KDE Connect or connected with
@@ -98,9 +99,20 @@ func (p *phoneModule) Metadata() tyde.ModuleMetadata {
 	return phoneMeta
 }
 
+// Destroy stops the module's work, closes its window and its D-Bus
+// connection to KDE Connect (a new one is made with the next instance).
 func (p *phoneModule) Destroy() {
 	if p.cancel != nil {
 		p.cancel()
+	}
+	if p.pairCancel != nil {
+		p.pairCancel()
+	}
+	if p.win != nil {
+		p.win.Close()
+	}
+	if p.kde != nil {
+		_ = p.kde.Close() // an action still running then fails; kde stays set for it
 	}
 }
 

@@ -99,6 +99,14 @@ var defaultConnectKDE = connectKDE
 type fakeKDE struct {
 	mu       sync.Mutex
 	accepted []string
+	closed   bool
+}
+
+func (f *fakeKDE) Close() error {
+	f.mu.Lock()
+	f.closed = true
+	f.mu.Unlock()
+	return nil
 }
 
 func (f *fakeKDE) Devices(context.Context) ([]phone.KDEDevice, error) {
