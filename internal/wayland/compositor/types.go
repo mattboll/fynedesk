@@ -446,7 +446,8 @@ type server struct {
 	sessionLaunched []string // the app ids the restored session started (sessionMu)
 
 	// Dynamic wallpaper: tracks current time slot to detect changes
-	dynamicWallpaperSlot string
+	dynamicWallpaperSlot  string
+	dynamicWallpaperTimer bool // the minute check of the dynamic wallpaper runs (main thread)
 
 	// Auto accent color from wallpaper (Material You style)
 	autoAccentColor bool

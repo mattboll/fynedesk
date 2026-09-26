@@ -141,6 +141,7 @@ import (
 	_ "image/png"
 	"log"
 	"os"
+	"slices"
 	"time"
 	"unsafe"
 
@@ -789,21 +790,33 @@ func (s *server) loadWallpaperFromPath(out *outputState, bgPath string) {
 	w, h := out.width, out.height
 	isPrimary := s.isPrimaryOutput(s.getOutputGeometry(out))
 	fill, bg := s.backgroundFill, wallpaperBackgroundColor(s.backgroundColor)
+	autoAccent := s.autoAccentColor
+
+	// onMain applies the result on the main thread, if the output is still
+	// there at the size the image was made for (unplugged or resized
+	// meanwhile, another load is on its way).
+	onMain := func(apply func()) {
+		_ = s.enqueueAction(func() {
+			if !slices.Contains(s.outputs, out) || out.width != w || out.height != h {
+				log.Printf("[WALLPAPER] %s gone or resized, wallpaper dropped\n", outName)
+				return
+			}
+			apply()
+		})
+	}
 
 	go func() {
 		f, err := os.Open(bgPath)
 		if err != nil {
 			log.Printf("[WALLPAPER] open error for %s: %v, using solid color\n", outName, err)
-			s.mainThreadActions <- func() { s.loadDefaultBackground(out) }
-			s.triggerWakeup()
+			onMain(func() { s.loadDefaultBackground(out) })
 			return
 		}
 		defer f.Close()
 		img, _, err := image.Decode(f)
 		if err != nil {
 			log.Printf("[WALLPAPER] decode error for %s: %v, using solid color\n", outName, err)
-			s.mainThreadActions <- func() { s.loadDefaultBackground(out) }
-			s.triggerWakeup()
+			onMain(func() { s.loadDefaultBackground(out) })
 			return
 		}
 
@@ -811,13 +824,10 @@ func (s *server) loadWallpaperFromPath(out *outputState, bgPath string) {
 		nrgba := renderWallpaperImage(img, w, h, fill, bg)
 
 		log.Printf("[WALLPAPER] scaled %s %dx%d, applying immediately\n", outName, w, h)
-		s.mainThreadActions <- func() {
-			s.applyWallpaper(out, nrgba)
-		}
-		s.triggerWakeup()
+		onMain(func() { s.applyWallpaper(out, nrgba) })
 
 		// Extract accent color in background (primary output only)
-		if isPrimary && s.autoAccentColor {
+		if isPrimary && autoAccent {
 			go func() {
 				accent := dynwp.ExtractAccentColor(img)
 				hex := dynwp.ColorToHex(accent)
@@ -830,9 +840,14 @@ func (s *server) loadWallpaperFromPath(out *outputState, bgPath string) {
 	}()
 }
 
-// startDynamicWallpaperTimer starts a background goroutine that checks every minute
-// if the time-of-day slot changed and reloads the wallpaper if needed.
+// startDynamicWallpaperTimer starts, once, a background goroutine that
+// every minute has the main thread check whether the time-of-day slot of
+// the dynamic wallpaper changed. Main thread.
 func (s *server) startDynamicWallpaperTimer() {
+	if s.dynamicWallpaperTimer {
+		return
+	}
+	s.dynamicWallpaperTimer = true
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
@@ -842,25 +857,25 @@ func (s *server) startDynamicWallpaperTimer() {
 				return
 			case <-ticker.C:
 			}
-			if s.backgroundType != "dynamic" || s.shuttingDown.Load() {
-				return
-			}
-			slot := dynwp.CurrentSlotName(time.Now().Hour())
-			if slot == s.dynamicWallpaperSlot {
-				continue
-			}
-			log.Printf("[WALLPAPER] Dynamic slot changed: %s → %s\n", s.dynamicWallpaperSlot, slot)
-			s.mainThreadActions <- func() {
-				if s.backgroundType != "dynamic" {
-					return
-				}
-				for _, out := range s.outputs {
-					s.loadWallpaperForNewOutput(out)
-				}
-			}
-			s.triggerWakeup()
+			_ = s.enqueueAction(s.checkDynamicWallpaper)
 		}
 	}()
+}
+
+// checkDynamicWallpaper reloads the dynamic wallpaper when its time-of-day
+// slot changed. Main thread.
+func (s *server) checkDynamicWallpaper() {
+	if s.backgroundType != "dynamic" {
+		return
+	}
+	slot := dynwp.CurrentSlotName(time.Now().Hour())
+	if slot == s.dynamicWallpaperSlot {
+		return
+	}
+	log.Printf("[WALLPAPER] Dynamic slot changed: %s → %s\n", s.dynamicWallpaperSlot, slot)
+	for _, out := range s.outputs {
+		s.loadWallpaperForNewOutput(out)
+	}
 }
 
 // loadDefaultBackground loads the embedded default wallpaper for an output (fallback when no custom wallpaper)
