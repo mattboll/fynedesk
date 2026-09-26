@@ -14,6 +14,7 @@ package wlipc
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -584,7 +585,8 @@ func (c *IPCClient) readPump() {
 			c.dispatch(&msg)
 		}
 	}
-	if err := scanner.Err(); err != nil {
+	// A connection closed by Close ends the pump too, which is no error.
+	if err := scanner.Err(); err != nil && !errors.Is(err, net.ErrClosed) {
 		log.Printf("[IPC] client: %v", err)
 	}
 	c.conn.Close() // a pump that stopped (message too long) must not leave it open

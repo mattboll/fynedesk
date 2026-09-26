@@ -1,8 +1,10 @@
 package wlipc
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -550,5 +552,29 @@ func TestReadEvent(t *testing.T) {
 	c.Close()
 	if msg := c.ReadEvent(); msg != nil {
 		t.Fatalf("ReadEvent after close = %+v", msg)
+	}
+}
+
+// TestClientCloseLogsNothing checks that closing a client does not log the
+// end of its connection as an error: tyde_wmctl prints JSON on the same
+// output.
+func TestClientCloseLogsNothing(t *testing.T) {
+	testServer(t, func(*Message) (json.RawMessage, error) { return nil, nil })
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	c := testConnect(t)
+	if _, err := c.Request("ping", nil); err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	select {
+	case <-c.Closed():
+	case <-time.After(2 * time.Second):
+		t.Fatal("the connection did not end")
+	}
+	if buf.Len() != 0 {
+		t.Errorf("closing logged %q", buf.String())
 	}
 }
