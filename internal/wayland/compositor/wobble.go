@@ -761,6 +761,7 @@ type wobbleState struct {
 	last         time.Time
 	stiffness    []float64
 	hold         []float64 // how firmly the hand holds each point, 1 under it
+	drawnAtRest  bool      // the picture at rest is drawn: held still, nothing to redraw
 }
 
 // wobbleEnabled reports whether windows wobble.
@@ -906,6 +907,7 @@ func (s *server) tickWobble() bool {
 			}
 		}
 		w.lastX, w.lastY = x, y
+		w.drawnAtRest = false
 	}
 
 	now := time.Now()
@@ -915,23 +917,29 @@ func (s *server) tickWobble() bool {
 		w.step(wobbleStep.Seconds())
 	}
 
-	settled := w.anchor < 0
+	atRest := true
 	for k := range w.dx {
 		if math.Abs(float64(w.dx[k])) > 0.5 || math.Abs(float64(w.dy[k])) > 0.5 ||
 			math.Abs(w.vx[k]) > 6 || math.Abs(w.vy[k]) > 6 {
-			settled = false
+			atRest = false
 			break
 		}
 	}
-	if settled {
-		s.stopWobble()
+	if atRest && w.anchor < 0 {
+		s.stopWobble() // let go and settled
+		return false
+	}
+	if atRest && w.drawnAtRest {
+		// Held still: the last picture stands, and no frame is needed
+		// until the window moves again.
 		return false
 	}
 	if !s.drawWobble() {
 		s.stopWobble()
 		return false
 	}
-	return true
+	w.drawnAtRest = atRest
+	return !atRest
 }
 
 // step integrates the springs over dt seconds.
