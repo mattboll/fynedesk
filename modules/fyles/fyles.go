@@ -108,23 +108,19 @@ func (f *fyles) tapped(u fyne.URI) {
 		tyde.Instance().ShowSettings("")
 		return
 	}
-	p, err := execabs.LookPath("fyles")
-	if p != "" && err == nil {
-		if ok, _ := storage.CanList(u); ok {
-			err := wm.StartDetached(p, u.Path())
-			if err != nil {
-				log.Println("Error opening Fyles", err)
+	// Folders open in Fyles when it is installed; anything else, and
+	// folders without Fyles, with the default application (it used to give
+	// up on everything without Fyles).
+	if ok, _ := storage.CanList(u); ok {
+		if p, err := execabs.LookPath("fyles"); err == nil {
+			if err := wm.StartDetached(p, u.Path()); err == nil {
+				return
 			}
-			return
+			log.Println("Error opening Fyles", err)
 		}
-	} else {
-		log.Println("Error opening folder in Fyles app", err)
-		return
 	}
-
-	err = lib.Open(u)
-	if err != nil {
-		log.Println("Error opening file", err)
+	if err := lib.Open(u); err != nil {
+		log.Println("Error opening", u, err)
 	}
 }
 
