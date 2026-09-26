@@ -46,7 +46,8 @@ const (
 	ProviderLocal  = "Local AI"
 )
 
-// Preference keys. Cloud keys are stored per-provider so switching provider
+// Preference keys. The cloud keys name their entry in the keyring (see
+// loadKey). Cloud keys are stored per-provider so switching provider
 // does not discard the other provider's token; Local AI stores its server URL.
 // Model overrides are per-provider for the same reason - and because a model
 // name only means anything to the provider it was chosen for.
@@ -327,7 +328,7 @@ func loadConfig() config {
 	c := config{provider: prov, model: strings.TrimSpace(p.String(modelPref(prov)))}
 	switch prov {
 	case ProviderOpenAI:
-		c.key = p.String(prefOpenAIKey)
+		c.key = loadKey(p, prefOpenAIKey)
 	case ProviderLocal:
 		// A managed kronk server lives at a fixed address we own; only a
 		// user-run server needs a configurable URL.
@@ -338,7 +339,7 @@ func loadConfig() config {
 		}
 		c.thinking = p.Bool(prefLocalThinking)
 	default:
-		c.key = p.String(prefClaudeKey)
+		c.key = loadKey(p, prefClaudeKey)
 	}
 	return c
 }

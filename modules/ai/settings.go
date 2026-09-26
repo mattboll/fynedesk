@@ -67,8 +67,8 @@ func SettingsContent() fyne.CanvasObject {
 func cloudSettings(p fyne.Preferences, provider, keyPref string) fyne.CanvasObject {
 	key := widget.NewPasswordEntry()
 	key.SetPlaceHolder("API key / token")
-	key.SetText(p.String(keyPref))
-	key.OnChanged = func(s string) { p.SetString(keyPref, s) }
+	key.SetText(loadKey(p, keyPref))
+	key.OnChanged = func(s string) { saveKey(p, keyPref, s) }
 
 	modelKey := modelPref(provider)
 	model := widget.NewEntry()
