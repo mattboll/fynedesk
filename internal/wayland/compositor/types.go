@@ -334,7 +334,8 @@ type server struct {
 	hotspotClickLatched bool                 // true = click occurred in bar area, keep panel visible
 	lastHotspotCheck    time.Time            // throttle: last time checkPanelHotspot() ran
 	revealRestoreScale  float32              // output scale to restore when hiding panel (0 = no restore)
-	lastFrameTime       atomic.Int64         // UnixNano of the last renderOutput call, read by the watchdog
+	lastDesktopTick     time.Time            // when the per-frame desktop work last ran (main thread)
+	animActive          bool                 // an animation ran at the last desktop tick (main thread)
 	lastLoopTime        atomic.Int64         // UnixNano the main loop last ran (wakeup or frame), read by the watchdog
 	animTimerPending    atomic.Bool          // true = animation wakeup timer already scheduled
 

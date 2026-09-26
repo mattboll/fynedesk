@@ -678,18 +678,14 @@ func (s *server) drainMainThreadActions() {
 	}
 }
 
+// desktopTickMin is the least time between two runs of the desktop's
+// per-frame work: less than a refresh at 240 Hz.
+const desktopTickMin = 4 * time.Millisecond
+
 func (s *server) renderOutput(output wlr.Output) {
 	frameStart := time.Now()
-
-	// Diagnostic: detect event loop stalls (>1s between frames)
-	if last := s.lastFrameTime.Load(); last != 0 {
-		gap := frameStart.Sub(time.Unix(0, last))
-		if gap > 1*time.Second {
-			log.Printf("[STALL] Event loop gap: %v (no frame for %v)\n", gap, gap)
-		}
-	}
-	s.lastFrameTime.Store(frameStart.UnixNano())
 	s.lastLoopTime.Store(frameStart.UnixNano())
+	// (No frame for a while is normal now: a quiet desktop renders none.)
 
 	// Execute pending actions from goroutines on the main thread (wlroots is not thread-safe)
 	s.drainMainThreadActions()
@@ -703,18 +699,27 @@ func (s *server) renderOutput(output wlr.Output) {
 		return
 	}
 
-	// Flush debounced IPC writes (batches rapid state changes into one write per frame)
+	// The work of the whole desktop (IPC flush, animations) runs once per
+	// frame, whichever screen's frame comes first: with two screens it ran
+	// twice a refresh. The others reuse whether an animation runs.
 	var ipcDur time.Duration
-	if s.windowsStateDirty {
-		s.windowsStateDirty = false
-		t0 := time.Now()
-		s.flushWindowsState()
-		ipcDur = time.Since(t0)
-	}
+	animActive := s.animActive
+	if frameStart.Sub(s.lastDesktopTick) >= desktopTickMin {
+		s.lastDesktopTick = frameStart
 
-	// Tick all animations (snap, transitions, close effects, etc.)
-	// Each returns true if still running, used to decide frame scheduling.
-	animActive := s.tickAnimations()
+		// Flush debounced IPC writes (batches rapid state changes into one write per frame)
+		if s.windowsStateDirty {
+			s.windowsStateDirty = false
+			t0 := time.Now()
+			s.flushWindowsState()
+			ipcDur = time.Since(t0)
+		}
+
+		// Tick all animations (snap, transitions, close effects, etc.)
+		// Each returns true if still running, used to decide frame scheduling.
+		animActive = s.tickAnimations()
+		s.animActive = animActive
+	}
 	if s.displayBlanked.Load() {
 		return // the curtain came down and the idle action blanked the outputs
 	}
