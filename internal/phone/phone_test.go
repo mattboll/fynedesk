@@ -2,10 +2,12 @@ package phone
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -180,5 +182,36 @@ func TestKnownPhonesAreKept(t *testing.T) {
 	}
 	if again.phones[0].Model != "Pixel 8" {
 		t.Errorf("model lost: %+v", again.phones[0])
+	}
+}
+
+// failingNet fails its first searches, like a network not up yet.
+type failingNet struct {
+	fakeNet
+	fails *atomic.Int32
+}
+
+func (n failingNet) Browse(ctx context.Context, service string, found func(Service)) error {
+	if n.fails.Add(-1) >= 0 {
+		return errors.New("no network")
+	}
+	return n.fakeNet.Browse(ctx, service, found)
+}
+
+func TestKeepSearchesAgainAfterAFailure(t *testing.T) {
+	saved := keepRetry
+	keepRetry = 10 * time.Millisecond
+	defer func() { keepRetry = saved }()
+	adb, calls := fakeADB(t)
+	fails := &atomic.Int32{}
+	fails.Store(2)
+	net := failingNet{fakeNet{services: map[string][]Service{ConnectService: {
+		{Instance: "adb-KNOWN-1", Addr: "192.168.1.20:41235"},
+	}}}, fails}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	_ = Keep(ctx, adb, net, func() []string { return []string{"adb-KNOWN-1"} }, func(string, string) {})
+	if got := calls(); len(got) != 1 {
+		t.Errorf("the phone was not connected once the network came: %q", got)
 	}
 }

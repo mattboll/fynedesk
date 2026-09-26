@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -231,19 +232,40 @@ func waitFor(ctx context.Context, b Browser, service string, match func(Service)
 	}
 }
 
+// keepRetry is how long Keep first waits to search the network again after
+// the search failed (doubling up to keepRetryMax): at login the network is
+// often not up yet.
+var keepRetry, keepRetryMax = 5 * time.Second, 2 * time.Minute
+
 // Keep connects again the paired phones (their guids, from known) whenever
-// they show up on the network, until ctx is done.
+// they show up on the network, until ctx is done. A search that fails is
+// started again.
 func Keep(ctx context.Context, adb ADB, b Browser, known func() []string, connected func(guid, addr string)) error {
 	last := map[string]time.Time{}
-	return b.Browse(ctx, ConnectService, func(s Service) {
-		if !contains(known(), s.Instance) || time.Since(last[s.Instance]) < 30*time.Second {
-			return
+	wait := keepRetry
+	for {
+		err := b.Browse(ctx, ConnectService, func(s Service) {
+			if !contains(known(), s.Instance) || time.Since(last[s.Instance]) < 30*time.Second {
+				return
+			}
+			last[s.Instance] = time.Now()
+			if err := adb.Connect(ctx, s.Addr); err == nil {
+				connected(s.Instance, s.Addr)
+			}
+		})
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
-		last[s.Instance] = time.Now()
-		if err := adb.Connect(ctx, s.Addr); err == nil {
-			connected(s.Instance, s.Addr)
+		if err != nil {
+			log.Printf("[phone] searching the network: %v (again in %s)", err, wait)
 		}
-	})
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(wait):
+		}
+		wait = min(wait*2, keepRetryMax)
+	}
 }
 
 func contains(list []string, s string) bool {
