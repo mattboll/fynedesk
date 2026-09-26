@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -27,12 +28,11 @@ var googleEndpoint = oauth2.Endpoint{
 	TokenURL: "https://oauth2.googleapis.com/token",
 }
 
-// requiredScopes are the OAuth scopes we need: read-only calendar +
-// the user's email so we can label the account.
+// requiredScopes are the OAuth scopes we need: reading the calendars and
+// their events (the account's email is the id of its primary calendar, see
+// fetchUserEmail).
 var requiredScopes = []string{
 	gcal.CalendarReadonlyScope,
-	gcal.CalendarEventsReadonlyScope,
-	"https://www.googleapis.com/auth/userinfo.email",
 }
 
 // OAuthConfig is the user-supplied OAuth client identifier. ClientSecret
@@ -99,24 +99,33 @@ func AuthorizeOAuth(ctx context.Context, oauthCfg OAuthConfig, openBrowser func(
 		err  error
 	}
 	resCh := make(chan cbResult, 1)
+	// deliver hands the first answer over; later ones (a reload of the
+	// page) are dropped instead of blocking their request forever.
+	deliver := func(r cbResult) {
+		select {
+		case resCh <- r:
+		default:
+		}
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/cb", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		if errStr := q.Get("error"); errStr != "" {
-			http.Error(w, "Authorization denied: "+errStr, http.StatusBadRequest)
-			resCh <- cbResult{err: fmt.Errorf("authorization denied: %s", errStr)}
+		// Anything on this machine can call the port: a request without our
+		// state is not the browser coming back, and changes nothing.
+		if subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(state)) != 1 {
+			http.Error(w, "State mismatch", http.StatusBadRequest)
 			return
 		}
-		if q.Get("state") != state {
-			http.Error(w, "State mismatch", http.StatusBadRequest)
-			resCh <- cbResult{err: errors.New("OAuth state mismatch")}
+		if errStr := q.Get("error"); errStr != "" {
+			http.Error(w, "Authorization denied: "+errStr, http.StatusBadRequest)
+			deliver(cbResult{err: fmt.Errorf("authorization denied: %s", errStr)})
 			return
 		}
 		code := q.Get("code")
 		if code == "" {
 			http.Error(w, "Missing code", http.StatusBadRequest)
-			resCh <- cbResult{err: errors.New("missing authorization code")}
+			deliver(cbResult{err: errors.New("missing authorization code")})
 			return
 		}
 		// Show a friendly closing page so the user knows they can return
@@ -127,7 +136,7 @@ func AuthorizeOAuth(ctx context.Context, oauthCfg OAuthConfig, openBrowser func(
 <title>Tyde · Calendar connected</title>
 <style>body{font-family:system-ui,sans-serif;margin:6em auto;max-width:32em;text-align:center}</style>
 <h1>Tyde Calendar</h1><p>Account connected. You can close this window.</p>`))
-		resCh <- cbResult{code: code}
+		deliver(cbResult{code: code})
 	})
 
 	srv := &http.Server{
@@ -218,9 +227,8 @@ func OAuthToken(ctx context.Context, account calendar.Account) (string, time.Tim
 	return tok.AccessToken, expiry, nil
 }
 
-// fetchUserEmail calls the userinfo endpoint to learn the email tied to
-// the new token. We hit `https://openidconnect.googleapis.com/v1/userinfo`
-// because it works with our minimal scope set.
+// fetchUserEmail learns the email tied to the new token, from the calendar
+// API alone (no userinfo scope needed).
 func fetchUserEmail(ctx context.Context, tok *oauth2.Token) (string, error) {
 	src := oauth2.StaticTokenSource(tok)
 	svc, err := gcal.NewService(ctx, option.WithTokenSource(src))
