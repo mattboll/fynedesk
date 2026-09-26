@@ -795,6 +795,7 @@ func (s *server) handleXwayRequestResize(v *xwayView, edges wlr.Edges) {
 // forgetXwayView drops every server reference to a destroyed view.
 func (s *server) forgetXwayView(v *xwayView) {
 	s.captureHideXway(v)
+	s.forgetSwitcherView(v)
 	if s.prevRealXway == v {
 		s.prevRealXway = nil
 	}

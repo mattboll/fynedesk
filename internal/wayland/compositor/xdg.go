@@ -469,6 +469,7 @@ func (s *server) handleXdgSetParent(child *xdgView) {
 // forgetXdgView drops every server reference to a destroyed view.
 func (s *server) forgetXdgView(v *xdgView) {
 	s.captureHideXdg(v)
+	s.forgetSwitcherView(v)
 	if s.prevRealXdg == v {
 		s.prevRealXdg = nil
 	}

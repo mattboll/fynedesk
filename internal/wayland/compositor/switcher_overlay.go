@@ -151,9 +151,41 @@ func (s *server) focusSwitcherSelection() {
 	}
 }
 
+// forgetSwitcherView drops a destroyed window from Alt-Tab and from the
+// overview, which would otherwise show, focus or re-enable it after it was
+// freed.
+func (s *server) forgetSwitcherView(view any) {
+	for i := range s.overviewEntries {
+		if e := &s.overviewEntries[i]; e.view == view {
+			e.view = nil      // untyped: selecting it does nothing
+			e.sceneTree = nil // freed with the view
+		}
+	}
+	for i, w := range s.switcherWindows {
+		if w != view {
+			continue
+		}
+		if s.switcherActive {
+			s.removeSwitcherWindow(i)
+		} else {
+			s.dropSwitcherWindow(i)
+		}
+		return
+	}
+}
+
+// dropSwitcherWindow takes the window at idx out of the switcher list, with
+// its thumbnail (the two lists go together).
+func (s *server) dropSwitcherWindow(idx int) {
+	s.switcherWindows = append(s.switcherWindows[:idx], s.switcherWindows[idx+1:]...)
+	if idx < len(s.switcherThumbImgs) {
+		s.switcherThumbImgs = append(s.switcherThumbImgs[:idx], s.switcherThumbImgs[idx+1:]...)
+	}
+}
+
 // removeSwitcherWindow removes a window from the switcher at the given index
 func (s *server) removeSwitcherWindow(idx int) {
-	s.switcherWindows = append(s.switcherWindows[:idx], s.switcherWindows[idx+1:]...)
+	s.dropSwitcherWindow(idx)
 	if len(s.switcherWindows) < 2 {
 		s.confirmSwitcher()
 		return
