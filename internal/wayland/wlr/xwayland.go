@@ -155,6 +155,10 @@ func (s XwaylandSurface) RestackAbove() {
 	C.wlr_xwayland_surface_restack(s.p, nil, C.XCB_STACK_MODE_ABOVE)
 }
 
+// Pid returns the process id of the client, as the X server knows it
+// (0 if unknown).
+func (s XwaylandSurface) Pid() int { return int(s.p.pid) }
+
 // OnDestroy is emitted when the X11 window is destroyed.
 func (s XwaylandSurface) OnDestroy(cb func(XwaylandSurface)) Listener {
 	return newListener(&s.p.events.destroy, func(unsafe.Pointer) { cb(s) })

@@ -79,8 +79,12 @@ static void try_map_xway_surface(struct wlr_surface *surface) {
 import "C"
 
 import (
+	"bytes"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"unsafe"
 
@@ -279,7 +283,7 @@ func (s *server) detachXwaySurface(v *xwayView) {
 func (s *server) handleXwayMap(v *xwayView, surface wlr.XwaylandSurface, viewTree *C.struct_wlr_scene_tree) {
 	v.mapped = true
 	v.surfaceMapped = true
-	title := surface.Title()
+	title := s.trustedTitle(surface, surface.Title())
 	w, h := surface.Width(), surface.Height()
 	// Assign to current desktop by default
 	v.desk = s.currentDesk
@@ -546,10 +550,96 @@ func (s *server) handleXwayUnmap(v *xwayView, viewTree *C.struct_wlr_scene_tree)
 	}
 }
 
+// panelTitleMarkers are the parts of a title with which the panel's windows
+// ask to be the panel, a bar, an overlay or a menu.
+var panelTitleMarkers = []string{"Tyde:Panel", "Tyde:Bar:", "Tyde:skip", "Tyde:nofocus", "Tyde:EmojiPicker"}
+
+// trustedTitle returns the title of an X11 window to classify it by: as is,
+// unless it names a panel role and the window is not the panel's (nor, for
+// the emoji picker, tyde_emoji's) - any application could otherwise make
+// itself the panel or an overlay by its title. The markers are then removed.
+func (s *server) trustedTitle(surface wlr.XwaylandSurface, title string) string {
+	special := title == "Tyde Menu"
+	for _, m := range panelTitleMarkers {
+		special = special || strings.Contains(title, m)
+	}
+	if !special {
+		return title
+	}
+	pid := surface.Pid()
+	if s.fromPanel(pid) {
+		return title
+	}
+	if strings.Contains(title, "Tyde:EmojiPicker") && processName(pid) == "tyde_emoji" {
+		return title
+	}
+	log.Printf("[XWAYLAND] pid %d is not the panel: title %q taken as a plain one", pid, title)
+	for _, m := range panelTitleMarkers {
+		title = strings.ReplaceAll(title, m, "")
+	}
+	if title == "Tyde Menu" {
+		title = "Menu"
+	}
+	return title
+}
+
+// fromPanel reports whether pid is the panel's process, or one it started;
+// a panel started by hand (development) is known by its program's name.
+func (s *server) fromPanel(pid int) bool {
+	panel := int(s.panelPID.Load())
+	for i := 0; i < 4 && pid > 1; i++ {
+		if pid == panel || processName(pid) == panelProgram() {
+			return true
+		}
+		pid = parentPid(pid)
+	}
+	return false
+}
+
+// panelProgram is the name of the panel's executable.
+func panelProgram() string {
+	if p := findPanelBinary(); p != "" {
+		return filepath.Base(p)
+	}
+	return "tyde_panel"
+}
+
+// parentPid returns the parent of a process, or 0.
+func parentPid(pid int) int {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return 0
+	}
+	// pid (comm) state ppid ...: comm may hold spaces and parentheses.
+	i := bytes.LastIndexByte(data, ')')
+	if i < 0 {
+		return 0
+	}
+	fields := strings.Fields(string(data[i+1:]))
+	if len(fields) < 2 {
+		return 0
+	}
+	ppid, _ := strconv.Atoi(fields[1])
+	return ppid
+}
+
+// processName returns the name of a process's executable, or "".
+func processName(pid int) string {
+	if pid <= 0 {
+		return ""
+	}
+	exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid))
+	if err != nil {
+		return ""
+	}
+	return filepath.Base(exe)
+}
+
 // handleXwaySetTitle turns an XWayland view into a panel, secondary bar,
 // panel utility window or overlay when its title identifies it as one.
 func (s *server) handleXwaySetTitle(v *xwayView, surface wlr.XwaylandSurface, viewTree *C.struct_wlr_scene_tree, title string) {
 	defer s.captureUpdateXway(v)
+	title = s.trustedTitle(surface, title)
 	if strings.Contains(title, "Tyde:Panel") {
 		v.isPanel = true
 		v.decorated = false
