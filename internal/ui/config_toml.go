@@ -135,6 +135,14 @@ type InputConfig struct {
 	KeyboardModifier string   `toml:"keyboard_modifier"`
 	NaturalScroll    bool     `toml:"natural_scroll"`
 	KeyboardLayouts  []string `toml:"keyboard_layouts"`
+	// NumLock turns Num Lock on when the session starts; unset means on.
+	NumLock *bool `toml:"numlock,omitempty"`
+}
+
+// NumLockOn reports whether Num Lock is on when the session starts (the
+// default).
+func (i InputConfig) NumLockOn() bool {
+	return i.NumLock == nil || *i.NumLock
 }
 
 // NightLightConfig holds night light (blue light filter) settings.
@@ -506,6 +514,7 @@ func syncToFynePrefs(cfg *Config) {
 	}
 	p.SetInt("keyboardmodifier", modInt)
 	p.SetBool("naturalscroll", cfg.Input.NaturalScroll)
+	p.SetBool("numlock", cfg.Input.NumLockOn())
 	p.SetString("keyboardlayouts", strings.Join(cfg.Input.KeyboardLayouts, "|"))
 
 	p.SetBool("nightlightenabled", cfg.NightLight.Enabled)

@@ -540,6 +540,8 @@ func newServer() *server {
 		glows:             map[any]*glow{},
 		shadows:           map[any]*glow{},
 		wobblyWindows:     true,
+		numLockOn:         true,
+		numLockPref:       true,
 		blurBehind:        true,
 		windowShadows:     true,
 		clockFormat:       "12h", // as the panel shows it by default

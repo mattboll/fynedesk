@@ -84,6 +84,7 @@
   "advanced.input": "Input",
   "advanced.kbLayout": "Keyboard Layout",
   "advanced.naturalScroll": "Natural Scroll",
+  "advanced.numLock": "Num Lock on at startup",
   "advanced.network": "Network",
   "advanced.performance": "Performance",
   "advanced.power": "Power",

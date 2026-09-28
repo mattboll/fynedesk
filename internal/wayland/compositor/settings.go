@@ -130,6 +130,7 @@ type compositorConfig struct {
 		KeyboardModifier string   `toml:"keyboard_modifier"`
 		NaturalScroll    bool     `toml:"natural_scroll"`
 		KeyboardLayouts  []string `toml:"keyboard_layouts"`
+		NumLock          *bool    `toml:"numlock"`
 	} `toml:"input"`
 	Screensaver struct {
 		Type  string `toml:"type"`
@@ -216,6 +217,7 @@ func readTOMLAsPrefs(path string) (map[string]interface{}, error) {
 	prefs["narrowpanel"] = cfg.Panel.NarrowWidget
 	prefs["naturalscroll"] = cfg.Input.NaturalScroll
 	prefs["keyboardlayouts"] = strings.Join(cfg.Input.KeyboardLayouts, "|")
+	prefs["numlock"] = cfg.Input.NumLock == nil || *cfg.Input.NumLock
 
 	// Keyboard modifier
 	if cfg.Input.KeyboardModifier == "Alt" {
@@ -408,6 +410,18 @@ func (s *server) applyKeyboardLayoutPrefs(prefs map[string]interface{}) {
 		if s.activeLayoutIndex >= len(layouts) {
 			s.activeLayoutIndex = 0
 		}
+	}
+
+	// Num Lock, on unless the option says otherwise. Only a change of the
+	// option sets it: saving another setting must not undo the Num Lock
+	// key.
+	numLock := true
+	if on, ok := prefs["numlock"].(bool); ok {
+		numLock = on
+	}
+	if numLock != s.numLockPref {
+		s.numLockPref = numLock
+		s.setNumLock(numLock)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"fyshos.com/tyde/locale"
+	"fyshos.com/tyde/wlipc"
 	"fyshos.com/tyde/wm"
 )
 
@@ -20,7 +21,14 @@ func (d *settingsUI) loadAdvancedScreen() fyne.CanvasObject {
 	naturalScroll := widget.NewCheck(locale.T("advanced.naturalScroll"), nil)
 	naturalScroll.Checked = d.settings.NaturalScroll()
 
-	inputCard := widget.NewCard(locale.T("advanced.input"), "", container.NewVBox(naturalScroll))
+	inputBox := container.NewVBox(naturalScroll)
+	// Num Lock is the compositor's: X11 leaves it to the X server.
+	numLock := widget.NewCheck(locale.T("advanced.numLock"), nil)
+	numLock.Checked = d.settings.cfg.Input.NumLockOn()
+	if wlipc.IsWaylandSession() {
+		inputBox.Add(numLock)
+	}
+	inputCard := widget.NewCard(locale.T("advanced.input"), "", inputBox)
 
 	// Window gaps
 	innerGapLabel := widget.NewLabel(fmt.Sprintf("%s %d px", locale.T("advanced.innerGap"), d.settings.InnerGap()))
@@ -63,8 +71,11 @@ func (d *settingsUI) loadAdvancedScreen() fyne.CanvasObject {
 
 	applyButton := container.NewHBox(layout.NewSpacer(),
 		&widget.Button{Text: locale.T("settings.apply"), Importance: widget.HighImportance, OnTapped: func() {
-			d.settings.beginBatch() // one apply for the five, not five
+			d.settings.beginBatch() // one apply for them all, not one each
 			d.settings.setNaturalScroll(naturalScroll.Checked)
+			if wlipc.IsWaylandSession() {
+				d.settings.setNumLock(numLock.Checked)
+			}
 			d.settings.setWindowGaps(int(innerGapSlider.Value), int(outerGapSlider.Value))
 			d.settings.setWobblyWindows(wobbly.Checked)
 			d.settings.setBlurBehind(blur.Checked)

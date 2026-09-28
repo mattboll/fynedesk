@@ -139,3 +139,34 @@ func TestXKB(t *testing.T) {
 	}
 	km.Unref()
 }
+
+func TestKeyboardLocks(t *testing.T) {
+	kb := NewStandaloneKeyboard()
+	defer FreeStandaloneKeyboard(kb)
+	if kb.NumLockMask() != 0 || kb.CapsLockMask() != 0 {
+		t.Fatal("a keyboard without keymap has no lock")
+	}
+
+	ctx := xkb.NewContext(xkb.ContextNoFlags)
+	defer ctx.Unref()
+	km := xkb.NewKeymapFromNames(ctx, &xkb.RuleNames{Layout: "us"}, xkb.KeymapCompileNoFlags)
+	if !km.Valid() {
+		t.Skip("no XKB data available to compile a keymap")
+	}
+	defer km.Unref()
+	kb.SetKeymap(km)
+
+	num, caps := kb.NumLockMask(), kb.CapsLockMask()
+	if num == 0 || caps == 0 || num == caps {
+		t.Fatalf("masks num=%#x caps=%#x", num, caps)
+	}
+	kb.NotifyModifiers(0, 0, num|caps, 0)
+	if got := kb.Modifiers().Locked(); got != num|caps {
+		t.Fatalf("locked = %#x, want %#x", got, num|caps)
+	}
+	// A new keymap starts from a new state: the compositor puts the locks back.
+	kb.SetKeymap(km)
+	if got := kb.Modifiers().Locked(); got != 0 {
+		t.Fatalf("locked after SetKeymap = %#x, want 0", got)
+	}
+}

@@ -36,6 +36,10 @@ static void handle_vk_manager_destroy(struct wl_listener *listener, void *data) 
     vk_backend = NULL;
 }
 
+static bool is_virtual_keyboard(struct wlr_keyboard *kb) {
+    return wlr_input_device_get_virtual_keyboard(&kb->base) != NULL;
+}
+
 static void setup_virtual_keyboard(struct wl_display *display, struct wlr_backend *backend) {
     vk_manager = wlr_virtual_keyboard_manager_v1_create(display);
     restrict_global(vk_manager->global);
@@ -50,7 +54,15 @@ import "C"
 
 import (
 	"log"
+
+	"fyshos.com/tyde/internal/wayland/wlr"
 )
+
+// isVirtualKeyboard reports whether kb is a client's virtual keyboard: its
+// client sets its modifiers, locks included.
+func isVirtualKeyboard(kb wlr.Keyboard) bool {
+	return bool(C.is_virtual_keyboard((*C.struct_wlr_keyboard)(kb.Ptr())))
+}
 
 // setupVirtualKeyboard registers the wlr_virtual_keyboard_v1 protocol so
 // clients implementing zwp_virtual_keyboard_v1 (e.g. wtype, on-screen

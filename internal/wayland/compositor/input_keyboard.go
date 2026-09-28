@@ -253,6 +253,7 @@ func (s *server) handleOverviewKeyEvent(syms []xkb.KeySym, state wlr.KeyState) {
 
 // handleKeyboardModifiers handles a modifiers change of a keyboard.
 func (s *server) handleKeyboardModifiers(keyboard, kb wlr.Keyboard) {
+	s.followNumLock(keyboard)
 	// Check switcher dismiss in the modifiers callback too, as this fires
 	// reliably when modifier state changes and GetModifiers() is accurate here.
 	if s.switcherActive && s.isSwitcherModReleased(kb.GetModifiers()) {
@@ -345,7 +346,63 @@ func (s *server) applyKeyboardLayoutTo(keyboard wlr.Keyboard) {
 	}
 	defer keymap.Unref()
 
+	// A new keymap starts from a new xkb state, locks off: put them back.
+	capsOn := capsLockOn(keyboard)
+	s.keymapChanging = true
 	keyboard.SetKeymap(keymap)
+	s.keymapChanging = false
+	s.applyLocks(keyboard, capsOn)
+}
+
+// capsLockOn reports whether Caps Lock is on on keyboard.
+func capsLockOn(keyboard wlr.Keyboard) bool {
+	return keyboard.Modifiers().Locked()&keyboard.CapsLockMask() != 0
+}
+
+// applyLocks sets Num Lock on a physical keyboard to the shared state and
+// Caps Lock to capsOn, the LEDs following. Virtual keyboards are left to
+// their clients.
+func (s *server) applyLocks(keyboard wlr.Keyboard, capsOn bool) {
+	if !keyboardValid(keyboard) || isVirtualKeyboard(keyboard) {
+		return
+	}
+	mods := keyboard.Modifiers()
+	locked := withMask(mods.Locked(), keyboard.NumLockMask(), s.numLockOn)
+	locked = withMask(locked, keyboard.CapsLockMask(), capsOn)
+	if locked != mods.Locked() {
+		keyboard.NotifyModifiers(mods.Depressed(), mods.Latched(), locked, mods.Group())
+	}
+}
+
+// withMask returns mods with mask set or cleared.
+func withMask(mods, mask uint32, set bool) uint32 {
+	if set {
+		return mods | mask
+	}
+	return mods &^ mask
+}
+
+// setNumLock turns Num Lock on or off on all the physical keyboards.
+func (s *server) setNumLock(on bool) {
+	s.numLockOn = on
+	for _, kb := range s.keyboards {
+		s.applyLocks(kb, capsLockOn(kb))
+	}
+}
+
+// followNumLock makes the Num Lock of a physical keyboard, toggled by its
+// key, the shared state, passing it on to the other keyboards.
+func (s *server) followNumLock(keyboard wlr.Keyboard) {
+	if s.keymapChanging || isVirtualKeyboard(keyboard) {
+		return
+	}
+	mask := keyboard.NumLockMask()
+	if mask == 0 {
+		return
+	}
+	if on := keyboard.Modifiers().Locked()&mask != 0; on != s.numLockOn {
+		s.setNumLock(on)
+	}
 }
 
 // applyKeyboardLayout re-applies the current keyboard layout to all connected keyboards

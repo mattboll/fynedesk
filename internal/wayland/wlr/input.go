@@ -2,7 +2,9 @@ package wlr
 
 /*
 #include <linux/input-event-codes.h>
+#include <stdlib.h>
 #include <wayland-server-protocol.h>
+#include <wlr/interfaces/wlr_keyboard.h>
 #include <wlr/types/wlr_input_device.h>
 #include <wlr/types/wlr_keyboard.h>
 #include <wlr/types/wlr_pointer.h>
@@ -113,6 +115,34 @@ func (k Keyboard) SetRepeatInfo(rate, delay int32) {
 	C.wlr_keyboard_set_repeat_info(k.p, C.int32_t(rate), C.int32_t(delay))
 }
 
+// NotifyModifiers sets the keyboard's modifier state (and so its LEDs),
+// emitting the modifiers event if it changed.
+func (k Keyboard) NotifyModifiers(depressed, latched, locked, group uint32) {
+	C.wlr_keyboard_notify_modifiers(k.p, C.uint32_t(depressed), C.uint32_t(latched),
+		C.uint32_t(locked), C.uint32_t(group))
+}
+
+// NumLockMask returns the mask of Num Lock in the keyboard's keymap, 0 if
+// it has none (or no keymap).
+func (k Keyboard) NumLockMask() uint32 { return k.modMask(C.XKB_MOD_NAME_NUM) }
+
+// CapsLockMask returns the mask of Caps Lock in the keyboard's keymap, 0 if
+// it has none (or no keymap).
+func (k Keyboard) CapsLockMask() uint32 { return k.modMask(C.XKB_MOD_NAME_CAPS) }
+
+func (k Keyboard) modMask(name string) uint32 {
+	if k.p.keymap == nil {
+		return 0
+	}
+	cname := C.CString(name)
+	defer C.free(unsafe.Pointer(cname))
+	idx := C.xkb_keymap_mod_get_index(k.p.keymap, cname)
+	if idx == C.XKB_MOD_INVALID || idx >= 32 {
+		return 0
+	}
+	return 1 << uint32(idx)
+}
+
 // XKBState returns the keyboard's xkb state.
 func (k Keyboard) XKBState() xkb.State {
 	return xkb.StateFromPtr(unsafe.Pointer(k.p.xkb_state))
@@ -155,6 +185,18 @@ type KeyboardModifiers struct {
 
 // Ptr returns the underlying struct wlr_keyboard_modifiers pointer.
 func (m KeyboardModifiers) Ptr() unsafe.Pointer { return unsafe.Pointer(m.p) }
+
+// Depressed returns the mask of the modifiers held down.
+func (m KeyboardModifiers) Depressed() uint32 { return uint32(m.p.depressed) }
+
+// Latched returns the mask of the latched modifiers.
+func (m KeyboardModifiers) Latched() uint32 { return uint32(m.p.latched) }
+
+// Locked returns the mask of the locked modifiers (Caps Lock, Num Lock).
+func (m KeyboardModifiers) Locked() uint32 { return uint32(m.p.locked) }
+
+// Group returns the active layout group.
+func (m KeyboardModifiers) Group() uint32 { return uint32(m.p.group) }
 
 // CursorButton is a Linux input event button code (BTN_*).
 type CursorButton uint32

@@ -361,6 +361,11 @@ func (d *deskSettings) setNaturalScroll(natural bool) {
 	d.saveAndApply()
 }
 
+func (d *deskSettings) setNumLock(on bool) {
+	d.cfg.Input.NumLock = &on
+	d.saveAndApply()
+}
+
 func (d *deskSettings) setWobblyWindows(on bool) {
 	d.cfg.Windows.Wobbly = &on
 	d.saveAndApply()

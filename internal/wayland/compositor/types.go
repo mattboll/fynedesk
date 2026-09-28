@@ -363,6 +363,13 @@ type server struct {
 	activeLayoutIndex int
 	keyboards         []wlr.Keyboard
 
+	// Num Lock, shared by the physical keyboards: numLockOn is its state,
+	// numLockPref the option it starts from; keymapChanging tells the
+	// modifiers handler that a keymap change reset the locks, not a key.
+	numLockOn      bool
+	numLockPref    bool
+	keymapChanging bool
+
 	// Icon cache: app_id -> wlr texture (nil = lookup failed, don't retry)
 	iconCache map[string]*iconEntry
 
