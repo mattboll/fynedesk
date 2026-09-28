@@ -99,7 +99,7 @@ func (p *previewPopup) fetchAndShow(windowID string) {
 	if len(previews) == 0 {
 		return
 	}
-	fyne.Do(func() { p.showWindow(previews[0].img, previews[0].title) })
+	fyne.Do(func() { p.showWindow(windowID, previews[0].img, previews[0].title) })
 }
 
 // fetchAndShowGroup fetches thumbnails for multiple windows and shows them side by side.
@@ -108,7 +108,7 @@ func (p *previewPopup) fetchAndShowGroup(windowIDs []string) {
 	if len(previews) == 0 {
 		return
 	}
-	fyne.Do(func() { p.showGroupWindow(previews) })
+	fyne.Do(func() { p.showGroupWindow(windowIDs[0], previews) })
 }
 
 // fetchPreviews asks the compositor for the thumbnails of the windows. The
@@ -179,10 +179,14 @@ func requestPreview(client *wlipc.IPCClient, windowID string) (previewItem, bool
 	return previewItem{img: img, title: data.Title, winID: windowID}, true
 }
 
-// showGroupWindow creates a preview window showing multiple window thumbnails.
-func (p *previewPopup) showGroupWindow(previews []previewItem) {
+// showGroupWindow creates a preview window showing multiple window
+// thumbnails, those of the icon key still hovered.
+func (p *previewPopup) showGroupWindow(key string, previews []previewItem) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.windowID != key {
+		return // the hover moved away while the thumbnails came
+	}
 
 	if p.win != nil {
 		p.win.Close()
@@ -276,10 +280,14 @@ func (p *previewPopup) showGroupWindow(previews []previewItem) {
 	p.win = win
 }
 
-// showWindow creates and displays the preview splash window.
-func (p *previewPopup) showWindow(img image.Image, title string) {
+// showWindow creates and displays the preview splash window of the window
+// key, if its icon is still hovered.
+func (p *previewPopup) showWindow(key string, img image.Image, title string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.windowID != key {
+		return // the hover moved away while the thumbnail came
+	}
 
 	if p.win != nil {
 		p.win.Close()

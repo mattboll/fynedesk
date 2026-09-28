@@ -341,6 +341,11 @@ func (e *embededWM) setupSocketEventHandlers(client *wlipc.IPCClient) {
 	client.OnEvent(wlipc.EventPanelHotspot, func(data json.RawMessage) {
 		var evt wlipc.PanelHotspotEvent
 		if json.Unmarshal(data, &evt) == nil {
+			if !evt.Raised {
+				// The bar went back under the window: the pointer may never
+				// leave it for the panel, so close what its hover opened.
+				iconMouseOut()
+			}
 			fyne.Do(func() {
 				if d, ok := tyde.Instance().(*desktop); ok {
 					d.setScreenAreaVisible(!evt.Raised)
