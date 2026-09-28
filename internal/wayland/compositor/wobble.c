@@ -60,7 +60,9 @@ struct wobble {
     int ml, mt, mr, mb;  // room around it (left, top, right, bottom) for the bends
     float scale;         // buffer pixels per layout pixel
     int gx, gy;          // cells of the springs mesh
-    GLfloat *verts;      // mesh drawn: x, y, u, v per vertex
+    GLfloat *verts;      // mesh drawn: x, y, u, v per point of the grid
+    GLushort *indices;   // two triangles per piece of the grid, made once
+    int nindices;
 };
 
 // The picture lets the clicks through: the window is there, below it.
@@ -429,27 +431,24 @@ static struct wlr_buffer *render_bent(struct wobble *wb, const float *mx, const 
         glDisable(GL_BLEND);
         glDisable(GL_SCISSOR_TEST);
 
-        // Two triangles per piece of the mesh; positions in the out buffer
-        // (row 0 at the top, like the textures wlroots samples), texture
-        // coordinates in the flat picture.
+        // Each point of the grid once: its position in the out buffer (row
+        // 0 at the top, like the textures wlroots samples) and its texture
+        // coordinates in the flat picture. The triangles share them through
+        // wb->indices.
         int nx = wb->gx * WOBBLE_SUBDIV, ny = wb->gy * WOBBLE_SUBDIV;
         double W = out->width / wb->scale, H = out->height / wb->scale;
         GLfloat *v = wb->verts;
-        int nv = 0;
-        for (int j = 0; j < ny; j++) {
-            for (int i = 0; i < nx; i++) {
-                int corners[6][2] = { {i, j}, {i + 1, j}, {i, j + 1}, {i + 1, j}, {i + 1, j + 1}, {i, j + 1} };
-                for (int k = 0; k < 6; k++) {
-                    double u = (double)corners[k][0] / nx, t = (double)corners[k][1] / ny;
-                    double dx, dy;
-                    mesh_at(wb, mx, my, u * wb->gx, t * wb->gy, &dx, &dy);
-                    double x = wb->ml + u * wb->w + dx, y = wb->mt + t * wb->h + dy;
-                    v[nv * 4 + 0] = (GLfloat)(2 * x / W - 1);
-                    v[nv * 4 + 1] = (GLfloat)(2 * y / H - 1);
-                    v[nv * 4 + 2] = (GLfloat)(u * wb->w * wb->scale / wb->flat_w);
-                    v[nv * 4 + 3] = (GLfloat)(t * wb->h * wb->scale / wb->flat_h);
-                    nv++;
-                }
+        for (int j = 0; j <= ny; j++) {
+            double t = (double)j / ny;
+            for (int i = 0; i <= nx; i++) {
+                double u = (double)i / nx, dx, dy;
+                mesh_at(wb, mx, my, u * wb->gx, t * wb->gy, &dx, &dy);
+                double x = wb->ml + u * wb->w + dx, y = wb->mt + t * wb->h + dy;
+                GLfloat *p = v + (j * (nx + 1) + i) * 4;
+                p[0] = (GLfloat)(2 * x / W - 1);
+                p[1] = (GLfloat)(2 * y / H - 1);
+                p[2] = (GLfloat)(u * wb->w * wb->scale / wb->flat_w);
+                p[3] = (GLfloat)(t * wb->h * wb->scale / wb->flat_h);
             }
         }
 
@@ -463,13 +462,12 @@ static struct wlr_buffer *render_bent(struct wobble *wb, const float *mx, const 
         glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), v + 2);
         glEnableVertexAttribArray(0);
         glEnableVertexAttribArray(1);
-        glDrawArrays(GL_TRIANGLES, 0, nv);
+        glDrawElements(GL_TRIANGLES, wb->nindices, GL_UNSIGNED_SHORT, wb->indices);
         glDisableVertexAttribArray(0);
         glDisableVertexAttribArray(1);
         glBindTexture(attribs.target, 0);
         glUseProgram(0);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glFlush();
+        glBindFramebuffer(GL_FRAMEBUFFER, 0); // gl_end flushes
     }
     if (!ok) {
         wlr_buffer_unlock(out);
@@ -540,14 +538,28 @@ struct wobble *wobble_create(struct wlr_scene_tree *view, struct wlr_output *out
     wb->scale = scale;
     wb->gx = (int)fmin(fmax(round(wb->w / cell), 3), 40);
     wb->gy = (int)fmin(fmax(round(wb->h / cell), 3), 40);
-    wb->verts = calloc(wb->gx * wb->gy * WOBBLE_SUBDIV * WOBBLE_SUBDIV * 6 * 4, sizeof(GLfloat));
+    // The grid has at most (40*3+1)² points: GLushort indices reach them.
+    int nx = wb->gx * WOBBLE_SUBDIV, ny = wb->gy * WOBBLE_SUBDIV;
+    wb->verts = calloc((nx + 1) * (ny + 1) * 4, sizeof(GLfloat));
+    wb->nindices = nx * ny * 6;
+    wb->indices = calloc(wb->nindices, sizeof(GLushort));
+    if (wb->indices) {
+        GLushort *ix = wb->indices;
+        for (int j = 0; j < ny; j++) {
+            for (int i = 0; i < nx; i++) {
+                GLushort a = j * (nx + 1) + i, b = a + 1, c = a + nx + 1, d = c + 1;
+                *ix++ = a; *ix++ = b; *ix++ = c;
+                *ix++ = b; *ix++ = d; *ix++ = c;
+            }
+        }
+    }
     wb->flat_w = (int)ceil(wb->w * scale);
     wb->flat_h = (int)ceil(wb->h * scale);
     wb->out_chain = wlr_swapchain_create(allocator, (int)ceil((wb->w + wb->ml + wb->mr) * scale),
         (int)ceil((wb->h + wb->mt + wb->mb) * scale), format);
     wlr_drm_format_set_finish(&formats); // the swapchains keep a copy
     wb->picture = wlr_scene_buffer_create(view->node.parent, NULL);
-    if (!wb->out_chain || !wb->picture || !wb->verts) {
+    if (!wb->out_chain || !wb->picture || !wb->verts || !wb->indices) {
         wobble_destroy(wb);
         return NULL;
     }
@@ -620,6 +632,7 @@ void wobble_destroy(struct wobble *wb) {
     free(wb->srcs);
     free(wb->order);
     free(wb->verts);
+    free(wb->indices);
     free(wb);
 }
 
