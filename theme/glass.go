@@ -7,7 +7,7 @@ import (
 
 // GlassAlpha is the most opaque the backgrounds of the panel, the menus and
 // the notifications are when they are frosted glass.
-const GlassAlpha = 0xb8
+const GlassAlpha = 0x78
 
 var glass atomic.Bool
 

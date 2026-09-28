@@ -18,7 +18,7 @@
 
 // What lies behind is drawn at half the size, then halved BLUR_LEVELS times
 // more and brought back up (dual Kawase blur): wide and cheap.
-#define BLUR_LEVELS 3
+#define BLUR_LEVELS 2
 #define BLUR_OFFSET 1.6f
 // Room taken around the window, in layout pixels, so that what lies just
 // outside it bleeds in as it would in a wider blur.
@@ -140,7 +140,9 @@ static const char *blur_fs_up =
     "  gl_FragColor = s / 12.0;\n"
     "}\n";
 // The blur, where the window draws something: even a faint window (the
-// dock) is frosted glass, and its shadow fades the blur out.
+// dock) is frosted glass, and its shadow fades the blur out. It is partly
+// desaturated, as frosted glass is: a bright wallpaper does not tint the
+// whole panel.
 #define CUT_FS(sampler) \
     "precision mediump float;\n" \
     "varying vec2 uv;\n" \
@@ -149,7 +151,9 @@ static const char *blur_fs_up =
     "uniform " sampler " mask;\n" \
     "void main() {\n" \
     "  float m = smoothstep(0.01, 0.12, texture2D(mask, muv).a);\n" \
-    "  gl_FragColor = vec4(texture2D(tex, uv).rgb, 1.0) * m;\n" \
+    "  vec3 c = texture2D(tex, uv).rgb;\n" \
+    "  c = mix(c, vec3(dot(c, vec3(0.299, 0.587, 0.114))), 0.4);\n" \
+    "  gl_FragColor = vec4(c, 1.0) * m;\n" \
     "}\n"
 static const char *blur_fs_cut = CUT_FS("sampler2D");
 static const char *blur_fs_cut_ext = GL_OES_EXTENSION CUT_FS("samplerExternalOES");
