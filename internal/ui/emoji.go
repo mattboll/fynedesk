@@ -17,6 +17,13 @@ import (
 
 var emojiPicker *emojiPickerWindow
 
+// The size of the emoji picker: eight cells across, with room for the
+// search entry, the page buttons and the scroll bar.
+const (
+	emojiPickerWidth  = 8*emoji.CellSize + 48
+	emojiPickerHeight = 460
+)
+
 // emojiPages are the pages of the picker: the recents, then the groups.
 var emojiPages = emoji.Pages()
 
@@ -139,19 +146,11 @@ func ShowEmojiPicker(cursorX, cursorY float32) {
 		func() int {
 			return len(p.current)
 		},
-		func() fyne.CanvasObject {
-			btn := widget.NewButton("\U0001F600", nil)
-			btn.Importance = widget.LowImportance
-			return btn
-		},
+		func() fyne.CanvasObject { return emoji.NewCell() },
 		func(id widget.GridWrapItemID, obj fyne.CanvasObject) {
-			btn := obj.(*widget.Button)
 			if id < len(p.current) {
-				emoji := p.current[id]
-				btn.SetText(emoji.Character)
-				btn.OnTapped = func() {
-					p.selectEmoji(emoji.Character)
-				}
+				e := p.current[id]
+				obj.(*emoji.Cell).SetEmoji(e, func() { p.selectEmoji(e.Character) }, nil)
 			}
 		},
 	)
@@ -180,7 +179,7 @@ func ShowEmojiPicker(cursorX, cursorY float32) {
 		p.grid,
 	)
 
-	pickerSize := fyne.NewSize(350, 400)
+	pickerSize := fyne.NewSize(emojiPickerWidth, emojiPickerHeight)
 
 	// Ensure emojiPicker is cleared when the window is closed externally
 	// (e.g. compositor dismiss, focus loss) — not just via our close() method.

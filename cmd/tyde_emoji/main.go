@@ -19,6 +19,13 @@ import (
 	"fyshos.com/tyde/wlipc"
 )
 
+// The size of the picker: eight cells across, with room for the search
+// entry, the page buttons and the scroll bar.
+const (
+	pickerWidth  = 8*emoji.CellSize + 48
+	pickerHeight = 460
+)
+
 // emojiPages are the pages of the picker: the recents, then the groups.
 var emojiPages = emoji.Pages()
 
@@ -94,7 +101,7 @@ func main() {
 	}
 
 	// Ask the compositor to place the window at the cursor
-	_ = wlipc.RequestOverlayPositionAbsolute("EmojiPicker", cursorX, cursorY, 350, 400)
+	_ = wlipc.RequestOverlayPositionAbsolute("EmojiPicker", cursorX, cursorY, pickerWidth, pickerHeight)
 
 	applyLanguage()
 	a := app.New()
@@ -134,19 +141,11 @@ func main() {
 		func() int {
 			return len(p.current)
 		},
-		func() fyne.CanvasObject {
-			btn := widget.NewButton("\U0001F600", nil)
-			btn.Importance = widget.LowImportance
-			return btn
-		},
+		func() fyne.CanvasObject { return emoji.NewCell() },
 		func(id widget.GridWrapItemID, obj fyne.CanvasObject) {
-			btn := obj.(*widget.Button)
 			if id < len(p.current) {
-				emoji := p.current[id]
-				btn.SetText(emoji.Character)
-				btn.OnTapped = func() {
-					p.selectEmoji(emoji.Character)
-				}
+				e := p.current[id]
+				obj.(*emoji.Cell).SetEmoji(e, func() { p.selectEmoji(e.Character) }, nil)
 			}
 		},
 	)
@@ -175,7 +174,7 @@ func main() {
 	)
 
 	win.SetContent(content)
-	win.Resize(fyne.NewSize(350, 400))
+	win.Resize(fyne.NewSize(pickerWidth, pickerHeight))
 	win.SetFixedSize(true)
 	win.Canvas().Focus(entry)
 

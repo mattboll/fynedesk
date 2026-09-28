@@ -9,23 +9,21 @@ import (
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-
-	emojidata "fyshos.com/tyde/internal/emoji"
 )
 
-// cellSize is the width and height of one emoji in the grid, and glyphSize the
-// type size drawn inside it. Big enough to read a face at a glance, small enough
+// CellSize is the width and height of one emoji in a picker's grid, and
+// glyphSize the type size drawn inside it. Big enough to read a face at a glance, small enough
 // that ten fit across a picker that does not dominate the screen.
 const (
-	cellSize  = 44
+	CellSize  = 44
 	glyphSize = 26
 )
 
-// emojiCell is one tappable emoji in the grid. It is deliberately lighter than a
+// Cell is one tappable emoji in a picker's grid. It is deliberately lighter than a
 // widget.Button: no border, no shadow, just the glyph and a highlight under the
 // pointer, so a grid of them reads as a sheet of emoji rather than a wall of
 // buttons.
-type emojiCell struct {
+type Cell struct {
 	widget.BaseWidget
 
 	text *canvas.Text
@@ -35,8 +33,9 @@ type emojiCell struct {
 	onHover func(bool)
 }
 
-func newEmojiCell() *emojiCell {
-	c := &emojiCell{
+// NewCell returns an empty cell, for a grid to fill with SetEmoji.
+func NewCell() *Cell {
+	c := &Cell{
 		text: &canvas.Text{TextSize: glyphSize, Alignment: fyne.TextAlignCenter},
 		bg:   canvas.NewRectangle(color.Transparent),
 	}
@@ -47,28 +46,28 @@ func newEmojiCell() *emojiCell {
 
 // SetEmoji points the cell at a different emoji - called as the grid recycles
 // cells while scrolling, so it must reset every piece of per-item state.
-func (c *emojiCell) SetEmoji(e emojidata.Emoji, onTap func(), onHover func(bool)) {
+func (c *Cell) SetEmoji(e Emoji, onTap func(), onHover func(bool)) {
 	c.onTap = onTap
 	c.onHover = onHover
 	c.text.Text = e.Character
 	c.text.Refresh()
 }
 
-func (c *emojiCell) CreateRenderer() fyne.WidgetRenderer {
+func (c *Cell) CreateRenderer() fyne.WidgetRenderer {
 	return widget.NewSimpleRenderer(container.NewStack(c.bg, container.NewCenter(c.text)))
 }
 
-func (c *emojiCell) MinSize() fyne.Size {
-	return fyne.NewSquareSize(cellSize)
+func (c *Cell) MinSize() fyne.Size {
+	return fyne.NewSquareSize(CellSize)
 }
 
-func (c *emojiCell) Tapped(_ *fyne.PointEvent) {
+func (c *Cell) Tapped(_ *fyne.PointEvent) {
 	if c.onTap != nil {
 		c.onTap()
 	}
 }
 
-func (c *emojiCell) MouseIn(_ *desktop.MouseEvent) {
+func (c *Cell) MouseIn(_ *desktop.MouseEvent) {
 	c.bg.FillColor = theme.Color(theme.ColorNameHover)
 	c.bg.Refresh()
 	if c.onHover != nil {
@@ -76,9 +75,9 @@ func (c *emojiCell) MouseIn(_ *desktop.MouseEvent) {
 	}
 }
 
-func (c *emojiCell) MouseMoved(_ *desktop.MouseEvent) {}
+func (c *Cell) MouseMoved(_ *desktop.MouseEvent) {}
 
-func (c *emojiCell) MouseOut() {
+func (c *Cell) MouseOut() {
 	c.bg.FillColor = color.Transparent
 	c.bg.Refresh()
 	if c.onHover != nil {

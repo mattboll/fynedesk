@@ -95,8 +95,8 @@ func (p *picker) toggle() {
 // search box, the group buttons and the status line.
 func (p *picker) size() fyne.Size {
 	pad := theme.Padding()
-	width := cellSize*pickerColumns + pad*4
-	height := cellSize*pickerRows + theme.TextSize()*5 + pad*8
+	width := emojidata.CellSize*pickerColumns + pad*4
+	height := emojidata.CellSize*pickerRows + theme.TextSize()*5 + pad*8
 	return fyne.NewSize(width, height)
 }
 
@@ -115,9 +115,9 @@ func (p *picker) build() {
 
 	p.grid = widget.NewGridWrap(
 		func() int { return len(p.items) },
-		func() fyne.CanvasObject { return newEmojiCell() },
+		func() fyne.CanvasObject { return emojidata.NewCell() },
 		func(id widget.GridWrapItemID, o fyne.CanvasObject) {
-			cell, ok := o.(*emojiCell)
+			cell, ok := o.(*emojidata.Cell)
 			if !ok || id >= len(p.items) {
 				return
 			}
