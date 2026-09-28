@@ -208,6 +208,24 @@ func (m *MatrixAnim) Tick(img *image.NRGBA) {
 	}
 }
 
+// MatrixGlyphAtlas returns the glyphs side by side, one byte per pixel
+// (0 or 255): MatrixNumGlyphs*MatrixGlyphW wide, MatrixGlyphH high, for a
+// shader to draw them.
+func MatrixGlyphAtlas() []byte {
+	w := matrixNumGlyphs * matrixGlyphW
+	atlas := make([]byte, w*matrixGlyphH)
+	for g := range matrixGlyphs {
+		for row := 0; row < matrixGlyphH; row++ {
+			for col := 0; col < matrixGlyphW; col++ {
+				if matrixGlyphs[g][row][col] {
+					atlas[row*w+g*matrixGlyphW+col] = 0xff
+				}
+			}
+		}
+	}
+	return atlas
+}
+
 // DrawMatrixGlyph renders a single matrix glyph at (px, py) onto an image pixel buffer.
 func DrawMatrixGlyph(pix []uint8, stride, px, py, imgW, imgH, glyphIdx int, c color.NRGBA) {
 	glyph := &matrixGlyphs[glyphIdx%matrixNumGlyphs]

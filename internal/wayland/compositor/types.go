@@ -479,13 +479,13 @@ type server struct {
 	clipboardHistory []wlipc.ClipboardEntry
 	nightLight       nightLightState
 
-	// Desktop transition animation (slide or iris)
+	// Desktop transition animation (slide, or the matrix rain)
 	transitionActive bool
 	transitionStart  time.Time
-	transitionBuf    unsafe.Pointer // *C.struct_wlr_scene_buffer
-	transitionPixBuf unsafe.Pointer // *C.struct_pixel_buffer
-	transitionImg    *image.NRGBA
-	slideDirection   int // -1 = slide left, +1 = slide right
+	transitionNode   unsafe.Pointer // *C.struct_wlr_scene_node of the veil or the rain
+	transitionRect   unsafe.Pointer // *C.struct_wlr_scene_rect, the veil
+	matrixFX         unsafe.Pointer // *C.struct_matrix_fx, the rain
+	slideDirection   int            // -1 = slide left, +1 = slide right
 
 	// Boot sequence animation
 	bootActive bool

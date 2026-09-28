@@ -38,3 +38,19 @@ func TestDraw(t *testing.T) {
 		t.Errorf("centre = %v, want the image", got)
 	}
 }
+
+func TestMatrixGlyphAtlas(t *testing.T) {
+	atlas := MatrixGlyphAtlas()
+	w := MatrixNumGlyphs * MatrixGlyphW
+	if len(atlas) != w*MatrixGlyphH {
+		t.Fatalf("atlas is %d bytes, want %d", len(atlas), w*MatrixGlyphH)
+	}
+	// The first glyph is a vertical line in its middle column (0x08).
+	for row := 0; row < MatrixGlyphH; row++ {
+		for col := 0; col < MatrixGlyphW; col++ {
+			if on := atlas[row*w+col] == 0xff; on != matrixGlyphs[0][row][col] {
+				t.Fatalf("glyph 0 at (%d,%d): atlas %v, glyph %v", col, row, on, !on)
+			}
+		}
+	}
+}
