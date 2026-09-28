@@ -534,6 +534,9 @@ type outputState struct {
 	// Per-output animated wallpaper
 	animWallpaper animatedWallpaper // Current animation (nil = static image)
 	animBuf       *image.NRGBA      // Reusable NRGBA buffer for animation
+	matrixWall    unsafe.Pointer    // *C.struct_matrix_wall: the matrix drawn by the GPU, or nil
+	wallCols      []byte            // the matrix columns handed to matrixWall
+	wallOnCPU     bool              // the GPU could not draw the matrix: the CPU does
 	lastAnimTick  time.Time         // Last animation frame timestamp
 	// DRM page-flip stall recovery (output_recovery.go): consecutive failed
 	// scene commits and pacing of forced-modeset recovery attempts.

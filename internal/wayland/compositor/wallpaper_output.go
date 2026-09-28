@@ -322,12 +322,16 @@ func (s *server) initAnimWallpaper(out *outputState, animType string) {
 		}
 	}
 
+	out.wallOnCPU = false
+	s.startMatrixWall(out)
+
 	log.Printf("[WALLPAPER] Initialized %s animation for %s (%dx%d, render %dx%d)\n",
 		animType, out.output.Name(), w, h, animW, animH)
 }
 
 // clearAnimWallpaper removes animation state from an output.
 func (s *server) clearAnimWallpaper(out *outputState) {
+	s.stopMatrixWall(out)
 	out.animWallpaper = nil
 	out.animBuf = nil
 	out.lastAnimTick = time.Time{}
@@ -346,6 +350,9 @@ func (s *server) updateAnimatedWallpaper(out *outputState) bool {
 	}
 	out.lastAnimTick = now
 
+	if s.tickMatrixWall(out) {
+		return true
+	}
 	out.animWallpaper.Tick(out.animBuf)
 
 	// Push updated pixels to the scene buffer (animation buffer may be smaller than output)

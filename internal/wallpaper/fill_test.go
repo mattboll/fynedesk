@@ -54,3 +54,22 @@ func TestMatrixGlyphAtlas(t *testing.T) {
 		}
 	}
 }
+
+func TestMatrixAnimStep(t *testing.T) {
+	var cpu, gpu MatrixAnim
+	cpu.Init(140, 100, 7)
+	gpu.Init(140, 100, 7)
+	cols := make([]byte, gpu.Columns()*4)
+	for range 50 {
+		cpu.Tick(image.NewNRGBA(image.Rect(0, 0, 140, 100)))
+		gpu.Step(cols)
+	}
+	// Both advance the columns alike.
+	for i, col := range cpu.columns {
+		y := int(cols[i*4])<<8 | int(cols[i*4+1])
+		if y-32768 != int(col.headY) || int(cols[i*4+2]) != col.length || int(cols[i*4+3]) != col.glyphIdx {
+			t.Fatalf("column %d: step %d/%d/%d, tick %d/%d/%d", i,
+				y-32768, cols[i*4+2], cols[i*4+3], int(col.headY), col.length, col.glyphIdx)
+		}
+	}
+}

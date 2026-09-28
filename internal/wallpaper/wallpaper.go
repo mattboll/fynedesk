@@ -130,6 +130,43 @@ func (m *MatrixAnim) Init(w, h int, seed int64) {
 	}
 }
 
+// advance moves the columns down by a tick, starting a column again once
+// its trail has left the screen.
+func (m *MatrixAnim) advance() {
+	for ci := range m.columns {
+		col := &m.columns[ci]
+		col.headY += col.speed
+		col.glyphIdx = (col.glyphIdx + 1) % matrixNumGlyphs
+
+		// Reset column when trail is fully off screen
+		if int(col.headY)-col.length*matrixGlyphH > m.h {
+			col.headY = -float64(m.rng.Intn(m.h / 2))
+			col.speed = 2.0 + m.rng.Float64()*6.0
+			col.length = 8 + m.rng.Intn(20)
+			col.glyphIdx = m.rng.Intn(matrixNumGlyphs)
+		}
+	}
+}
+
+// Step advances the rain by a tick, as Tick does, but leaves the drawing
+// to a GPU: it writes the columns into cols, 4 bytes each (the head's row
+// plus 32768 in R and G, the trail's length in B, the head's glyph in A),
+// and returns how many there are. cols must hold 4*Columns() bytes.
+func (m *MatrixAnim) Step(cols []byte) int {
+	m.advance()
+	for ci, col := range m.columns {
+		y := min(max(int(col.headY)+32768, 0), 65535)
+		c := cols[ci*4:]
+		c[0], c[1], c[2], c[3] = byte(y>>8), byte(y), byte(col.length), byte(col.glyphIdx)
+	}
+	return len(m.columns)
+}
+
+// Columns returns how many columns of glyphs the rain has.
+func (m *MatrixAnim) Columns() int {
+	return len(m.columns)
+}
+
 func (m *MatrixAnim) Tick(img *image.NRGBA) {
 	w := m.w
 	h := m.h
@@ -170,19 +207,9 @@ func (m *MatrixAnim) Tick(img *image.NRGBA) {
 		pix[i+2] = matrixDecayLUT[pix[i+2]]
 	}
 
+	m.advance()
 	for ci := range m.columns {
 		col := &m.columns[ci]
-		col.headY += col.speed
-		col.glyphIdx = (col.glyphIdx + 1) % matrixNumGlyphs
-
-		// Reset column when trail is fully off screen
-		if int(col.headY)-col.length*matrixGlyphH > h {
-			col.headY = -float64(m.rng.Intn(h / 2))
-			col.speed = 2.0 + m.rng.Float64()*6.0
-			col.length = 8 + m.rng.Intn(20)
-			col.glyphIdx = m.rng.Intn(matrixNumGlyphs)
-		}
-
 		px := ci * matrixGlyphW
 		if px+matrixGlyphW > w {
 			continue

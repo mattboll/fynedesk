@@ -863,6 +863,7 @@ func (s *server) handleRendererLost() {
 	s.dropBlursGL()
 	s.dropWobbleGL()
 	s.dropTransitionGL()
+	s.dropMatrixWallsGL()
 	s.dropZoomBuffers()
 	C.set_egl_from_renderer((*C.struct_wlr_renderer)(renderer.Ptr()))
 
