@@ -416,6 +416,7 @@ type server struct {
 	// Pending preview captures requested via IPC (taskbar hover).
 	// Written from main thread (via mainThreadActions), read from render path.
 	previewPendingIDs []string
+	previewTimes      map[string]time.Time // when each window was last captured for a preview
 
 	// Stable view ID counter (monotonically increasing)
 	nextViewID int

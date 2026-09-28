@@ -627,6 +627,7 @@ type windowThumb struct {
 // windowThumb returns the cached thumbnail of a window, and has one captured
 // on the next frame when there is none yet. Main thread.
 func (s *server) windowThumb(windowID string) windowThumb {
+	s.captureForPreview(windowID)
 	for _, v := range s.xdgViews {
 		if v.id == windowID {
 			if v.cachedThumb == nil {
@@ -655,5 +656,5 @@ func (s *server) schedulePreviewCapture(windowID string) {
 	}
 	s.previewPendingIDs = append(s.previewPendingIDs, windowID)
 	s.lastThumbCapture = time.Time{} // reset throttle
-	s.triggerWakeup()
+	s.scheduleAllOutputFrames()      // captures happen after a frame: an idle screen has none
 }

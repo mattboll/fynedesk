@@ -446,6 +446,31 @@ func sameImage(a, b *image.NRGBA) bool {
 	return a != nil && b != nil && a.Rect == b.Rect && bytes.Equal(a.Pix, b.Pix)
 }
 
+// previewFreshness is how old the thumbnail of a window can be when the bar
+// shows it.
+const previewFreshness = 500 * time.Millisecond
+
+// captureForPreview captures the thumbnail of a window now, for the bar's
+// preview, unless it did a moment ago. The preview used to get the thumbnail
+// kept from whenever it was captured last, possibly long ago, or none: the
+// capture was left to the next frame and the bar asked again 600 ms later.
+// Main thread.
+func (s *server) captureForPreview(id string) {
+	if t, ok := s.previewTimes[id]; ok && time.Since(t) < previewFreshness {
+		return
+	}
+	if !C.gl_begin() {
+		return // the next frame captures it (schedulePreviewCapture)
+	}
+	pix := make([]byte, thumbMaxW*thumbMaxH*4)
+	s.captureThumbByID(id, pix)
+	C.gl_end()
+	if s.previewTimes == nil || len(s.previewTimes) > 64 {
+		s.previewTimes = map[string]time.Time{}
+	}
+	s.previewTimes[id] = time.Now()
+}
+
 // captureThumbByID captures a thumbnail for the window with the given ID.
 // EGL context must already be active (called within captureViewThumbnails).
 func (s *server) captureThumbByID(id string, pix []byte) {

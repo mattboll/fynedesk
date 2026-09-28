@@ -112,8 +112,8 @@ func (p *previewPopup) fetchAndShowGroup(windowIDs []string) {
 }
 
 // fetchPreviews asks the compositor for the thumbnails of the windows. The
-// ones it has not captured yet are asked again after a short delay (it
-// captures them on its next frame). It returns nil if the hover moved away.
+// ones it could not capture yet are asked again shortly after. It returns
+// nil if the hover moved away.
 func (p *previewPopup) fetchPreviews(windowIDs []string) []previewItem {
 	client := wlipc.DefaultClient()
 	if client == nil {
@@ -134,16 +134,22 @@ func (p *previewPopup) fetchPreviews(windowIDs []string) []previewItem {
 			retry = append(retry, wid)
 		}
 	}
-	if len(retry) > 0 {
-		time.Sleep(600 * time.Millisecond)
+	// The compositor captures a window when asked; when it cannot at once,
+	// it does on its next frame: ask again a little later, a few times.
+	for try := 0; len(retry) > 0 && try < 6; try++ {
+		time.Sleep(100 * time.Millisecond)
 		if !stillHovered() {
 			return nil
 		}
+		var still []string
 		for _, wid := range retry {
 			if item, ok := requestPreview(client, wid); ok {
 				previews = append(previews, item)
+			} else {
+				still = append(still, wid)
 			}
 		}
+		retry = still
 	}
 	if !stillHovered() {
 		return nil
