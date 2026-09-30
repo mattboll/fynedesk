@@ -276,6 +276,9 @@ type server struct {
 	overlayTree            unsafe.Pointer // *C.struct_wlr_scene_tree — overlay menu (Tyde Menu)
 	switcherTree           unsafe.Pointer // *C.struct_wlr_scene_tree — Alt-Tab overlay
 	penTree                unsafe.Pointer // *C.struct_wlr_scene_tree — felt-tip annotation ink (above switcher, below lock)
+	cursorAlertTree        unsafe.Pointer // *C.struct_wlr_scene_tree — the red disc under the pointer (above the ink, below lock)
+	cursorAlert            unsafe.Pointer // *C.struct_wlr_scene_buffer — the red disc, while shown
+	cursorAlertBuf         unsafe.Pointer // *C.struct_pixel_buffer — its picture
 	lockTree               unsafe.Pointer // *C.struct_wlr_scene_tree — Session lock layer (above all)
 
 	// Felt-tip pen annotation ("presentation marker"): Super+Left draws ink on

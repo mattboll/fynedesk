@@ -68,6 +68,7 @@ var socketHandlers = map[string]socketHandler{
 	wlipc.ReqNotificationAction: (*server).socketNotificationAction,
 	wlipc.ReqWindowAttention:    (*server).socketWindowAttention,
 	wlipc.ReqDockIcons:          (*server).socketDockIcons,
+	wlipc.ReqCursorAlert:        (*server).socketCursorAlert,
 }
 
 // qaSocketHandlers drive the compositor like a user would (clicks,
@@ -397,6 +398,16 @@ func (s *server) socketWindowAttention(msg *wlipc.Message) (json.RawMessage, err
 		return nil, fmt.Errorf("invalid window attention: %w", err)
 	}
 	_ = s.enqueueAction(func() { s.setWindowAttention(req.Title, req.On) })
+	return nil, nil
+}
+
+// socketCursorAlert shows or takes away the red disc under the pointer.
+func (s *server) socketCursorAlert(msg *wlipc.Message) (json.RawMessage, error) {
+	var req wlipc.CursorAlertRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid cursor alert: %w", err)
+	}
+	_ = s.enqueueAction(func() { s.setCursorAlert(req.On) })
 	return nil, nil
 }
 

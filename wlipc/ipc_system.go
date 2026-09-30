@@ -561,6 +561,21 @@ func RequestWindowAttention(title string, on bool) error {
 	return errors.New("window attention: compositor socket unavailable")
 }
 
+// CursorAlertRequest turns the red cursor on or off.
+type CursorAlertRequest struct {
+	On bool `json:"on"`
+}
+
+// RequestCursorAlert asks the compositor to show a red disc under the
+// pointer, on every screen, until it is asked to take it away: something
+// waits for the user (Slack's red dot). Socket only.
+func RequestCursorAlert(on bool) error {
+	if trySendRequest(ReqCursorAlert, CursorAlertRequest{On: on}) {
+		return nil
+	}
+	return errors.New("cursor alert: compositor socket unavailable")
+}
+
 // TitleMatches reports whether a window title is the given one, ignoring
 // case, possibly followed by details ("herdr" matches "herdr — main").
 func TitleMatches(want, title string) bool {

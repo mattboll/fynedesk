@@ -99,6 +99,7 @@ const (
 	ReqNotificationAction = "notification-action"
 	ReqWindowAttention    = "window-attention"
 	ReqDockIcons          = "dock-icons"
+	ReqCursorAlert        = "cursor-alert"
 )
 
 // SubscribeRequest is sent by clients to register for events.

@@ -66,11 +66,15 @@ type tray struct {
 	box   *fyne.Container
 	lock  sync.Mutex
 	nodes map[dbus.Sender]*node
+
+	alerts  map[dbus.Sender]bool // icons asking for the red cursor
+	alertOn bool                 // the red cursor is on
 }
 
 type node struct {
 	ico *multiButton
 	ni  *notifier.StatusNotifierItem
+	obj dbus.BusObject // for the properties the generated code does not read
 	pid uint32
 }
 
@@ -78,7 +82,7 @@ type node struct {
 func NewTray() tyde.Module {
 	iconSize := wmtheme.NarrowBarWidth
 	grid := container.New(collapsingGridWrap(fyne.NewSize(iconSize, iconSize)))
-	t := &tray{box: grid, nodes: make(map[dbus.Sender]*node)}
+	t := &tray{box: grid, nodes: make(map[dbus.Sender]*node), alerts: make(map[dbus.Sender]bool)}
 
 	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
@@ -157,6 +161,14 @@ func NewTray() tyde.Module {
 					fyne.Do(func() {
 						item.ico.SetIcon(icon)
 					})
+					t.updateCursorAlert(dbus.Sender(v.Sender), item)
+				}
+			case "org.kde.StatusNotifierItem.NewToolTip":
+				t.lock.Lock()
+				item, ok := t.nodes[dbus.Sender(v.Sender)]
+				t.lock.Unlock()
+				if ok {
+					t.updateCursorAlert(dbus.Sender(v.Sender), item)
 				}
 			default:
 				continue
@@ -200,6 +212,7 @@ func (t *tray) removeNode(sender dbus.Sender) {
 	if !ok {
 		return
 	}
+	t.setCursorAlert(sender, false)
 
 	fyne.Do(func() {
 		t.box.Remove(item.ico)
@@ -321,7 +334,9 @@ func (t *tray) RegisterStatusNotifierItem(service string, sender dbus.Sender) (e
 	}
 
 	item.ni = ni
+	item.obj = t.conn.Object(dest, objPath)
 	t.lock.Unlock()
+	go t.updateCursorAlert(sender, item)
 
 	icon := t.fetchIcon(item)
 	fyne.Do(func() {

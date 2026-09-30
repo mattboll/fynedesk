@@ -645,6 +645,7 @@ func (s *server) initScene() {
 	s.overlayTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
 	s.switcherTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
 	s.penTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
+	s.cursorAlertTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
 	s.lockTree = unsafe.Pointer(C.scene_tree_create(sceneTree))
 	// Switcher is hidden by default
 	C.scene_node_set_enabled(&(*C.struct_wlr_scene_tree)(s.switcherTree).node, 0)
