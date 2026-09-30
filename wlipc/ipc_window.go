@@ -259,6 +259,12 @@ type PanelHotspotEvent struct {
 	Raised bool `json:"raised"`
 }
 
+// ScreenSharingEvent tells the panel the screen (or a window) started or
+// stopped being shared, for it to hold the notification popups back.
+type ScreenSharingEvent struct {
+	Active bool `json:"active"`
+}
+
 // LauncherRequest is written by compositor to ask panel to open the app launcher.
 // CursorX/CursorY are the cursor position in layout-space pixels so the panel
 // can open the launcher on the correct output.

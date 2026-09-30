@@ -24,6 +24,8 @@ var (
 
 	dndMu        sync.RWMutex
 	doNotDisturb bool
+	screenShared bool // popups held back while the screen is shared
+	heldPopups   int  // popups held back during the current share
 )
 
 const maxHistory = 50
@@ -469,6 +471,31 @@ func SetDoNotDisturb(on bool) {
 	dndMu.Lock()
 	doNotDisturb = on
 	dndMu.Unlock()
+}
+
+// SetScreenShared tells whether the screen is being shared: the popups are
+// then held back, as with Do Not Disturb. When the share ends, it returns
+// how many were held back.
+func SetScreenShared(on bool) (held int) {
+	dndMu.Lock()
+	defer dndMu.Unlock()
+	if !on {
+		held = heldPopups
+	}
+	screenShared, heldPopups = on, 0
+	return held
+}
+
+// HoldPopup reports whether a notification's popup should be held back (it
+// stays in the history), counting it when the screen is shared.
+func HoldPopup() bool {
+	dndMu.Lock()
+	defer dndMu.Unlock()
+	if screenShared {
+		heldPopups++
+		return true
+	}
+	return doNotDisturb
 }
 
 var (

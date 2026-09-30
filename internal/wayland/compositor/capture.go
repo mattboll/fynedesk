@@ -3,6 +3,7 @@ package compositor
 /*
 #include "restricted_globals.h"
 #include <stdlib.h>
+#include <string.h>
 #include <wayland-server-core.h>
 #include <wlr/render/allocator.h>
 #include <wlr/render/wlr_renderer.h>
@@ -33,9 +34,104 @@ static void handle_capture_destroy(struct wl_listener *listener, void *data) {
 	capture_toplevel_sources = NULL;
 }
 
+extern void goCaptureSessionStart(void *session);
+extern void goCaptureSessionEnd(void *session);
+
+// Capture sessions are followed from start to end: one that lasts is a
+// screen share (a screenshot takes one frame and goes).
+struct capture_session_watch {
+	struct wl_listener destroy;
+	void *session;
+};
+static struct wl_listener capture_session_listener;
+static struct wl_listener capture_display_listener;
+
+static void handle_capture_session_destroy(struct wl_listener *listener, void *data) {
+	struct capture_session_watch *watch = wl_container_of(listener, watch, destroy);
+	wl_list_remove(&watch->destroy.link);
+	goCaptureSessionEnd(watch->session);
+	free(watch);
+}
+
+static void handle_capture_session(struct wl_listener *listener, void *data) {
+	struct wlr_ext_image_copy_capture_session_v1 *session = data;
+	struct capture_session_watch *watch = calloc(1, sizeof(*watch));
+	if (watch == NULL) {
+		return;
+	}
+	watch->session = session;
+	watch->destroy.notify = handle_capture_session_destroy;
+	wl_signal_add(&session->events.destroy, &watch->destroy);
+	goCaptureSessionStart(session);
+}
+
+// wlr-screencopy has no sessions, only frames: the frames of each client
+// are followed as they are made and destroyed (a frame waiting for damage
+// lives until the screen changes).
+extern void goScreencopyFrame(int live);
+
+struct screencopy_client_watch {
+	struct wl_listener resource;
+	struct wl_listener destroy;
+};
+static struct wl_listener capture_client_listener;
+
+static void handle_screencopy_frame_destroy(struct wl_listener *listener, void *data) {
+	wl_list_remove(&listener->link);
+	free(listener);
+	goScreencopyFrame(-1);
+}
+
+static void handle_client_resource(struct wl_listener *listener, void *data) {
+	struct wl_resource *resource = data;
+	if (strcmp(wl_resource_get_class(resource), "zwlr_screencopy_frame_v1") != 0) {
+		return;
+	}
+	struct wl_listener *destroy = calloc(1, sizeof(*destroy));
+	if (destroy == NULL) {
+		return;
+	}
+	destroy->notify = handle_screencopy_frame_destroy;
+	wl_resource_add_destroy_listener(resource, destroy);
+	goScreencopyFrame(1);
+}
+
+static void handle_screencopy_client_destroy(struct wl_listener *listener, void *data) {
+	struct screencopy_client_watch *watch = wl_container_of(listener, watch, destroy);
+	wl_list_remove(&watch->resource.link);
+	wl_list_remove(&watch->destroy.link);
+	free(watch);
+}
+
+static void handle_client_created(struct wl_listener *listener, void *data) {
+	struct wl_client *client = data;
+	struct screencopy_client_watch *watch = calloc(1, sizeof(*watch));
+	if (watch == NULL) {
+		return;
+	}
+	watch->resource.notify = handle_client_resource;
+	wl_client_add_resource_created_listener(client, &watch->resource);
+	watch->destroy.notify = handle_screencopy_client_destroy;
+	wl_client_add_destroy_listener(client, &watch->destroy);
+}
+
+// The copy manager has no destroy signal: this display listener, added
+// before the manager's own, leaves its new_session signal empty in time.
+static void handle_capture_display_destroy(struct wl_listener *listener, void *data) {
+	wl_list_remove(&capture_session_listener.link);
+	wl_list_remove(&capture_client_listener.link);
+	wl_list_remove(&capture_display_listener.link);
+}
+
 static void setup_capture(struct wl_display *display, struct wlr_screencopy_manager_v1 *screencopy) {
 	capture_toplevel_list = wlr_ext_foreign_toplevel_list_v1_create(display, 1);
+	capture_display_listener.notify = handle_capture_display_destroy;
+	wl_display_add_destroy_listener(display, &capture_display_listener);
 	struct wlr_ext_image_copy_capture_manager_v1 *copy = wlr_ext_image_copy_capture_manager_v1_create(display, 1);
+	capture_session_listener.notify = handle_capture_session;
+	wl_signal_add(&copy->events.new_session, &capture_session_listener);
+	capture_client_listener.notify = handle_client_created;
+	wl_display_add_client_created_listener(display, &capture_client_listener);
 	struct wlr_ext_output_image_capture_source_manager_v1 *outputs =
 		wlr_ext_output_image_capture_source_manager_v1_create(display, 1);
 	capture_toplevel_sources = wlr_ext_foreign_toplevel_image_capture_source_manager_v1_create(display, 1);
@@ -168,6 +264,27 @@ func captureRemoveWindow(handle unsafe.Pointer) {
 	h := (*C.struct_wlr_ext_foreign_toplevel_handle_v1)(handle)
 	delete(captureHandles, h)
 	C.wlr_ext_foreign_toplevel_handle_v1_destroy(h)
+}
+
+//export goCaptureSessionStart
+func goCaptureSessionStart(session unsafe.Pointer) {
+	if s := captureServer; s != nil {
+		s.captureSessionStarted(uintptr(session))
+	}
+}
+
+//export goCaptureSessionEnd
+func goCaptureSessionEnd(session unsafe.Pointer) {
+	if s := captureServer; s != nil {
+		s.captureSessionEnded(uintptr(session))
+	}
+}
+
+//export goScreencopyFrame
+func goScreencopyFrame(live C.int) {
+	if s := captureServer; s != nil {
+		s.screencopyFrame(int(live))
+	}
 }
 
 //export goCaptureSourceRequest

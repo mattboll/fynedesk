@@ -284,3 +284,28 @@ func TestNotificationIconBounded(t *testing.T) {
 	assert.Nil(t, loadNotificationIcon("/dev/zero"), "a device")
 	assert.Nil(t, loadNotificationIcon("dialog-information"), "a theme name")
 }
+
+func TestHoldPopupDuringShare(t *testing.T) {
+	SetDoNotDisturb(false)
+	if HoldPopup() {
+		t.Fatal("popups show when the screen is not shared")
+	}
+	SetScreenShared(true)
+	if !HoldPopup() || !HoldPopup() {
+		t.Fatal("popups are held while the screen is shared")
+	}
+	if held := SetScreenShared(false); held != 2 {
+		t.Fatalf("held = %d, want 2", held)
+	}
+	if HoldPopup() {
+		t.Fatal("popups show again once the share ended")
+	}
+	SetDoNotDisturb(true)
+	defer SetDoNotDisturb(false)
+	if !HoldPopup() {
+		t.Fatal("Do Not Disturb holds the popups")
+	}
+	if held := SetScreenShared(false); held != 0 {
+		t.Fatal("Do Not Disturb popups are not counted as held by a share")
+	}
+}

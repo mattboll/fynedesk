@@ -366,6 +366,13 @@ type server struct {
 	// Num Lock, shared by the physical keyboards: numLockOn is its state,
 	// numLockPref the option it starts from; keymapChanging tells the
 	// modifiers handler that a keymap change reset the locks, not a key.
+	shares shareTracker // capture sessions, to tell when the screen is shared
+	// wlr-screencopy frames alive, when the last one came or went, and
+	// whether they make a stream (see screencopyFrame).
+	copyFrames    int
+	copyLast      time.Time
+	copyStreaming bool
+
 	numLockOn      bool
 	numLockPref    bool
 	keymapChanging bool

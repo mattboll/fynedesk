@@ -564,6 +564,8 @@
   "sidebar.bluetooth": "Bluetooth",
   "sidebar.wifi": "Wi-Fi",
   "sidebar.clearAll": "Tout effacer",
+  "share.ended": "Partage d'écran terminé",
+  "share.held": "%d notifications sont arrivées pendant le partage",
   "sidebar.dnd": "Ne pas déranger",
   "sidebar.nightLight": "Éclairage nocturne",
   "sidebar.noNotifications": "Aucune notification",

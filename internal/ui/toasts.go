@@ -57,7 +57,7 @@ var toasts = &toastStack{}
 
 func initNotificationToasts() {
 	wm.AddNotificationListener(func(n *wm.Notification) {
-		if wm.DoNotDisturb() || n.Urgency == wm.UrgencyLow {
+		if n.Urgency == wm.UrgencyLow || wm.HoldPopup() {
 			return // still in the history, no popup
 		}
 		fyne.Do(func() { toasts.show(n) })

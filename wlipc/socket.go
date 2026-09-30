@@ -52,7 +52,8 @@ const (
 	EventNextAgent        = "next-agent"
 	EventOverview         = "overview"
 	EventPanelHotspot     = "panel-hotspot"
-	EventNightLight       = "night-light" // NightLightEvent: toggled by its shortcut
+	EventNightLight       = "night-light"    // NightLightEvent: toggled by its shortcut
+	EventScreenSharing    = "screen-sharing" // ScreenSharingEvent: the screen started or stopped being shared
 )
 
 // AllEvents are all the events the compositor pushes.
@@ -62,6 +63,7 @@ var AllEvents = []string{
 	EventBrightnessChange, EventLauncherRequest, EventEmojiPicker,
 	EventContextMenu, EventClipboardShow, EventCommandPalette, EventSidebar,
 	EventNextAgent, EventOverview, EventPanelHotspot, EventNightLight,
+	EventScreenSharing,
 }
 
 // NightLightEvent tells the panel the night light was toggled by its
