@@ -40,7 +40,8 @@ const (
 	ActionMoveToDesk4       = "move_to_desk_4"
 	ActionMoveToPrevDesktop = "move_to_prev_desktop"
 	ActionMoveToNextDesktop = "move_to_next_desktop"
-	ActionScreenshotFull    = "screenshot_full"
+	ActionScreenshotFull    = "screenshot_full" // the screen under the pointer
+	ActionScreenshotAll     = "screenshot_all"  // every screen
 	ActionScreenshotRegion  = "screenshot_region"
 	ActionScreenshotWindow  = "screenshot_window"
 	ActionToggleDropdown    = "toggle_dropdown_terminal"
@@ -100,6 +101,7 @@ func DefaultBindings() ActionBindings {
 		ActionMoveToPrevDesktop: {{Key: "Left", Mods: []string{"Ctrl", "Alt", "Shift"}}},
 		ActionMoveToNextDesktop: {{Key: "Right", Mods: []string{"Ctrl", "Alt", "Shift"}}},
 		ActionScreenshotFull:    {{Key: "Print", Mods: nil}},
+		ActionScreenshotAll:     {{Key: "Print", Mods: []string{"WM"}}},
 		ActionScreenshotRegion:  {{Key: "Print", Mods: []string{"Shift"}}},
 		ActionScreenshotWindow:  {{Key: "Print", Mods: []string{"Ctrl"}}},
 		ActionToggleDropdown:    {{Key: "grave", Mods: []string{"WM"}}},
@@ -163,6 +165,7 @@ func ActionOrder() []string {
 		ActionShowClipboard,
 		ActionLockScreen,
 		ActionScreenshotFull,
+		ActionScreenshotAll,
 		ActionScreenshotRegion,
 		ActionScreenshotWindow,
 		ActionPrevDesktop,

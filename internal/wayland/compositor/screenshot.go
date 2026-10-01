@@ -75,8 +75,8 @@ func (s *server) captureScreen(region string) {
 	}()
 }
 
-// takeScreenshot captures every screen, or lets the user pick a region or
-// a window first.
+// takeScreenshot captures the screen under the pointer, or lets the user
+// pick a region or a window first.
 func (s *server) takeScreenshot(regionSelect, windowCapture bool) {
 	switch {
 	case regionSelect:
@@ -87,8 +87,15 @@ func (s *server) takeScreenshot(regionSelect, windowCapture bool) {
 		// The next click captures the window under it.
 		_ = s.enqueueAction(s.startWindowPick)
 	default:
-		s.captureScreen("")
+		_ = s.enqueueAction(func() {
+			s.captureScreen(grimGeometry(s.getActiveOutputGeo()))
+		})
 	}
+}
+
+// grimGeometry is the grim -g argument for an area in layout coordinates.
+func grimGeometry(g outputGeometry) string {
+	return fmt.Sprintf("%d,%d %dx%d", g.x, g.y, g.width, g.height)
 }
 
 // startWindowPick enters a mode where the next click captures the clicked window.

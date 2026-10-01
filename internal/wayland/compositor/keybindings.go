@@ -215,6 +215,8 @@ func (s *server) dispatchLaunchAction(action string) bool {
 
 	case wlipc.ActionScreenshotFull:
 		go s.takeScreenshot(false, false)
+	case wlipc.ActionScreenshotAll:
+		go s.captureScreen("")
 	case wlipc.ActionScreenshotRegion:
 		go s.takeScreenshot(true, false)
 	case wlipc.ActionScreenshotWindow:
