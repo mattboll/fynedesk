@@ -131,3 +131,33 @@ func TestReadTOMLAsPrefsWhole(t *testing.T) {
 		t.Error("window rules not read")
 	}
 }
+
+func TestRecordingPrefs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	cfg := "[modules]\n  enabled = [\"Notes\"]\n[recording]\n  microphone = true\n  format = \"webm\"\n  no_gpu = true\n"
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prefs, err := readTOMLAsPrefs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prefs["recordermodule"] != false {
+		t.Errorf("recordermodule = %v, want false", prefs["recordermodule"])
+	}
+	s := &server{}
+	s.applyRecordingPrefs(prefs)
+	r := s.recordSettings
+	if !r.Microphone || r.SystemAudio || r.FileExt() != "webm" || !r.NoGPU || r.Camera() != "/dev/video0" {
+		t.Errorf("settings %+v", r)
+	}
+
+	// Without the module, Super+Shift+R is free.
+	s.loadKeybindings(prefs)
+	for _, action := range s.keybindingMap {
+		if action == wlipc.ActionScreenRecord {
+			t.Error("screen_record is bound without its module")
+		}
+	}
+}

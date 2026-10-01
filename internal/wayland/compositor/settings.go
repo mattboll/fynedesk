@@ -132,6 +132,7 @@ type compositorConfig struct {
 		KeyboardLayouts  []string `toml:"keyboard_layouts"`
 		NumLock          *bool    `toml:"numlock"`
 	} `toml:"input"`
+	Recording   wlipc.RecordingSettings `toml:"recording"`
 	Screensaver struct {
 		Type  string `toml:"type"`
 		Label string `toml:"label"`
@@ -290,6 +291,10 @@ func readTOMLAsPrefs(path string) (map[string]interface{}, error) {
 	prefs["windowshadows"] = cfg.Windows.Shadows == nil || *cfg.Windows.Shadows
 	if cfg.Modules.Enabled != nil {
 		prefs["agentsmodule"] = slices.Contains(cfg.Modules.Enabled, wlipc.AgentsModule)
+		prefs["recordermodule"] = slices.Contains(cfg.Modules.Enabled, wlipc.RecorderModule)
+	}
+	if data, err := json.Marshal(cfg.Recording); err == nil {
+		prefs["recording"] = string(data)
 	}
 
 	// Night light
@@ -316,6 +321,7 @@ func (s *server) applyPrefs(prefs map[string]interface{}) {
 	s.applyWallpaperPrefs(prefs)
 	s.applyFontPrefs(prefs)
 	s.applySessionPrefs(prefs)
+	s.applyRecordingPrefs(prefs)
 }
 
 // applyShellPrefs applies decoration buttons, modifier, scrolling, bar, launcher and theme colours.
@@ -567,6 +573,16 @@ func (s *server) applyFontPrefs(prefs map[string]interface{}) {
 }
 
 // applySessionPrefs applies the screensaver and power management settings.
+// applyRecordingPrefs reads the defaults of the screen recordings.
+func (s *server) applyRecordingPrefs(prefs map[string]interface{}) {
+	s.recordSettings = wlipc.RecordingSettings{}
+	if data, ok := prefs["recording"].(string); ok {
+		if err := json.Unmarshal([]byte(data), &s.recordSettings); err != nil {
+			log.Printf("Warning: invalid recording settings: %v\n", err)
+		}
+	}
+}
+
 func (s *server) applySessionPrefs(prefs map[string]interface{}) {
 	// What the lock screen says, and how it shows the time.
 	if lang, ok := prefs["language"].(string); ok {
@@ -958,6 +974,9 @@ func (s *server) loadKeybindings(prefs map[string]interface{}) {
 	merged := wlipc.MergeWithDefaults(userBindings)
 	if on, ok := prefs["agentsmodule"].(bool); ok && !on {
 		delete(merged, wlipc.ActionNextAgent) // the key is free for something else
+	}
+	if on, ok := prefs["recordermodule"].(bool); ok && !on {
+		delete(merged, wlipc.ActionScreenRecord)
 	}
 	kbMap := make(map[resolvedBinding]string)
 

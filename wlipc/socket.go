@@ -52,8 +52,9 @@ const (
 	EventNextAgent        = "next-agent"
 	EventOverview         = "overview"
 	EventPanelHotspot     = "panel-hotspot"
-	EventNightLight       = "night-light"    // NightLightEvent: toggled by its shortcut
-	EventScreenSharing    = "screen-sharing" // ScreenSharingEvent: the screen started or stopped being shared
+	EventNightLight       = "night-light"     // NightLightEvent: toggled by its shortcut
+	EventScreenSharing    = "screen-sharing"  // ScreenSharingEvent: the screen started or stopped being shared
+	EventRecording        = "recording-state" // RecordingState: what the screen recorder does
 )
 
 // AllEvents are all the events the compositor pushes.
@@ -63,7 +64,7 @@ var AllEvents = []string{
 	EventBrightnessChange, EventLauncherRequest, EventEmojiPicker,
 	EventContextMenu, EventClipboardShow, EventCommandPalette, EventSidebar,
 	EventNextAgent, EventOverview, EventPanelHotspot, EventNightLight,
-	EventScreenSharing,
+	EventScreenSharing, EventRecording,
 }
 
 // NightLightEvent tells the panel the night light was toggled by its
@@ -100,6 +101,7 @@ const (
 	ReqWindowAttention    = "window-attention"
 	ReqDockIcons          = "dock-icons"
 	ReqCursorAlert        = "cursor-alert"
+	ReqRecording          = "recording" // RecordingRequest
 )
 
 // SubscribeRequest is sent by clients to register for events.

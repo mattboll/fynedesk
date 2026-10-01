@@ -266,25 +266,26 @@ type server struct {
 	// Scene graph (wlr_scene for damage-tracked rendering)
 	openAnim *openAnim // Current icon-to-window launch animation (nil = none)
 
-	scene                  unsafe.Pointer // *C.struct_wlr_scene
-	backgroundTree         unsafe.Pointer // *C.struct_wlr_scene_tree — wallpaper layer
-	panelTree              unsafe.Pointer // *C.struct_wlr_scene_tree — panel XWayland surface
-	windowsTree            unsafe.Pointer // *C.struct_wlr_scene_tree — normal windows (sorted by focus)
-	overrideTree           unsafe.Pointer // *C.struct_wlr_scene_tree — override-redirect popups/menus
-	fullscreenTree         unsafe.Pointer // *C.struct_wlr_scene_tree — fullscreen window layer
-	fullscreenLayerEnabled bool           // cached state of fullscreenTree visibility
-	overlayTree            unsafe.Pointer // *C.struct_wlr_scene_tree — overlay menu (Tyde Menu)
-	switcherTree           unsafe.Pointer // *C.struct_wlr_scene_tree — Alt-Tab overlay
-	penTree                unsafe.Pointer // *C.struct_wlr_scene_tree — felt-tip annotation ink (above switcher, below lock)
-	cursorAlertTree        unsafe.Pointer // *C.struct_wlr_scene_tree — the red disc under the pointer (above the ink, below lock)
-	cursorAlert            unsafe.Pointer // *C.struct_wlr_scene_buffer — the red disc, while shown
-	cursorAlertBuf         unsafe.Pointer // *C.struct_pixel_buffer — its picture
-	countdownNode          unsafe.Pointer // *C.struct_wlr_scene_buffer — the delayed screenshot's countdown, while counting
-	countdownBuf           unsafe.Pointer // *C.struct_pixel_buffer — its picture
-	recordCmd              *exec.Cmd      // wf-recorder, while recording the screen
-	recordPath             string         // the file it records to
-	recordFrame            unsafe.Pointer // *C.struct_wlr_scene_tree — the red frame around the recorded zone
-	lockTree               unsafe.Pointer // *C.struct_wlr_scene_tree — Session lock layer (above all)
+	scene                  unsafe.Pointer          // *C.struct_wlr_scene
+	backgroundTree         unsafe.Pointer          // *C.struct_wlr_scene_tree — wallpaper layer
+	panelTree              unsafe.Pointer          // *C.struct_wlr_scene_tree — panel XWayland surface
+	windowsTree            unsafe.Pointer          // *C.struct_wlr_scene_tree — normal windows (sorted by focus)
+	overrideTree           unsafe.Pointer          // *C.struct_wlr_scene_tree — override-redirect popups/menus
+	fullscreenTree         unsafe.Pointer          // *C.struct_wlr_scene_tree — fullscreen window layer
+	fullscreenLayerEnabled bool                    // cached state of fullscreenTree visibility
+	overlayTree            unsafe.Pointer          // *C.struct_wlr_scene_tree — overlay menu (Tyde Menu)
+	switcherTree           unsafe.Pointer          // *C.struct_wlr_scene_tree — Alt-Tab overlay
+	penTree                unsafe.Pointer          // *C.struct_wlr_scene_tree — felt-tip annotation ink (above switcher, below lock)
+	cursorAlertTree        unsafe.Pointer          // *C.struct_wlr_scene_tree — the red disc under the pointer (above the ink, below lock)
+	cursorAlert            unsafe.Pointer          // *C.struct_wlr_scene_buffer — the red disc, while shown
+	cursorAlertBuf         unsafe.Pointer          // *C.struct_pixel_buffer — its picture
+	countdownNode          unsafe.Pointer          // *C.struct_wlr_scene_buffer — the delayed screenshot's countdown, while counting
+	countdownBuf           unsafe.Pointer          // *C.struct_pixel_buffer — its picture
+	recordSettings         wlipc.RecordingSettings // the defaults of the screen recordings
+	recordCmd              *exec.Cmd               // wf-recorder, while recording the screen
+	recordPath             string                  // the file it records to
+	recordFrame            unsafe.Pointer          // *C.struct_wlr_scene_tree — the red frame around the recorded zone
+	lockTree               unsafe.Pointer          // *C.struct_wlr_scene_tree — Session lock layer (above all)
 
 	// Felt-tip pen annotation ("presentation marker"): Super+Left draws ink on
 	// a full-layout overlay; releasing Super fades it out after a short delay.

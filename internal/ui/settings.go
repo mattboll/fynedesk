@@ -689,6 +689,9 @@ func (d *deskSettings) load() {
 	if herdrInstalled() {
 		d.migrateModules(wlipc.AgentsModule) // offered once herdr is there
 	}
+	if recorderInstalled() {
+		d.migrateModules(wlipc.RecorderModule) // offered once wf-recorder is there
+	}
 	if phoneToolsInstalled() {
 		d.migrateModules(status.PhoneModule) // offered once adb or KDE Connect is there
 	}

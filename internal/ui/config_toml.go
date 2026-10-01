@@ -30,6 +30,7 @@ type Config struct {
 	Windows     WindowConfig                `toml:"windows"`
 	HotCorners  HotCornersConfig            `toml:"hot_corners"`
 	Power       PowerConfig                 `toml:"power"`
+	Recording   wlipc.RecordingSettings     `toml:"recording"`
 	Keybindings map[string][]KeyBindingTOML `toml:"keybindings"`
 	WindowRules []wlipc.WindowRule          `toml:"window_rules"`
 }
