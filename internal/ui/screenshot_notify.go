@@ -34,6 +34,7 @@ func screenshotNotification(path string) *wm.Notification {
 	n.Preview = capturePreview(path)
 	n.OnActivate = func() { openCapture(path) }
 	n.Buttons = []wm.NotificationButton{
+		{Label: locale.T("screenshot.annotate"), OnTap: func() { showAnnotator(path) }},
 		{Label: locale.T("screenshot.copyText"), OnTap: func() { go copyCaptureText(path, false) }},
 		{Label: locale.T("screenshot.delete"), OnTap: func() {
 			if err := os.Remove(path); err != nil {

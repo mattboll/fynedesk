@@ -45,10 +45,10 @@ func TestScreenshotNotification(t *testing.T) {
 	if n.OnActivate == nil {
 		t.Fatal("a click should open the capture")
 	}
-	if len(n.Buttons) != 2 {
-		t.Fatalf("%d buttons, want Copy text and Delete", len(n.Buttons))
+	if len(n.Buttons) != 3 {
+		t.Fatalf("%d buttons, want Annotate, Copy text and Delete", len(n.Buttons))
 	}
-	n.Buttons[1].OnTap() // Delete
+	n.Buttons[2].OnTap() // Delete
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("the capture should be deleted, stat: %v", err)
 	}
