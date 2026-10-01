@@ -437,6 +437,12 @@ type server struct {
 	regionSizeBuf            unsafe.Pointer // *C.struct_pixel_buffer
 	regionSizeText           string
 	regionSizeW, regionSizeH int
+	// The toggles of a recording, while its zone is chosen (region_toggles.go).
+	recordOverride *wlipc.RecordingSettings // this recording's options, the defaults changed by the toggles
+	toggleNode     unsafe.Pointer           // *C.struct_wlr_scene_buffer, child of regionTree
+	toggleBuf      unsafe.Pointer           // *C.struct_pixel_buffer
+	toggleRects    []image.Rectangle        // where each toggle is, layout coordinates
+	togglePressed  bool                     // a press went to a toggle: its release does nothing
 
 	// Thumbnail capture throttle (last time we captured view thumbnails)
 	lastThumbCapture       time.Time

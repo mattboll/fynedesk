@@ -156,12 +156,12 @@ func (s *server) toggleRecording() {
 	s.startRegionSelectFor(regionRecord)
 }
 
-// beginRecording records zone (layout coordinates), after the countdown.
-func (s *server) beginRecording(zone regionRect) {
+// beginRecording records zone (layout coordinates) with opts, after the
+// countdown.
+func (s *server) beginRecording(zone regionRect, opts wlipc.RecordingSettings) {
 	if s.rec != nil {
 		return
 	}
-	opts := s.recordSettings
 	base, err := recordingsDir(opts)
 	if err != nil {
 		log.Printf("[RECORD] no place for it: %v", err)
@@ -172,6 +172,8 @@ func (s *server) beginRecording(zone regionRect) {
 		log.Printf("[RECORD] no place for its parts: %v", err)
 		return
 	}
+	log.Printf("[RECORD] options: microphone %v, sound %v, webcam %v, clicks and keys %v, %s",
+		opts.Microphone, opts.SystemAudio, opts.Webcam, opts.ShowInput, opts.FileExt())
 	s.rec = &recording{zone: zone, opts: opts, dir: dir, state: wlipc.RecordingCountdown}
 	s.showRecordFrame(zone)
 	start := func() { s.startPart() }

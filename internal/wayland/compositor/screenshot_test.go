@@ -95,3 +95,29 @@ func TestRecorderArgs(t *testing.T) {
 		t.Errorf("microphone aside: %v", m)
 	}
 }
+
+func TestToggleBarImage(t *testing.T) {
+	face := fontFaceOfSize(13)
+	if face == nil {
+		t.Skip("no font")
+	}
+	img, rects := toggleBarImage(wlipc.RecordingSettings{Webcam: true}, face)
+	if len(rects) != len(recordToggles) {
+		t.Fatalf("%d toggles", len(rects))
+	}
+	for i, r := range rects {
+		if !r.In(img.Bounds()) || r.Empty() {
+			t.Fatalf("toggle %d at %v, outside %v", i, r, img.Bounds())
+		}
+		if i > 0 && r.Min.X <= rects[i-1].Max.X {
+			t.Errorf("toggles %d and %d overlap", i-1, i)
+		}
+	}
+	// The webcam (third) is on: red; the microphone (first) is off.
+	if c := img.NRGBAAt(rects[2].Min.X+2, rects[2].Min.Y+2); c != toggleOn {
+		t.Errorf("webcam toggle: %v", c)
+	}
+	if c := img.NRGBAAt(rects[0].Min.X+2, rects[0].Min.Y+2); c != toggleOff {
+		t.Errorf("microphone toggle: %v", c)
+	}
+}

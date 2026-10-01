@@ -40,6 +40,11 @@ func (s *server) startRegionSelectFor(purpose regionPurpose) {
 	}
 	s.startRegionSelect()
 	s.regionPurpose = purpose
+	if purpose == regionRecord {
+		opts := s.recordSettings
+		s.recordOverride = &opts
+		s.showRecordToggles()
+	}
 }
 
 // startRegionSelect enters region selection mode using GPU-native scene rects.
@@ -241,6 +246,10 @@ func (s *server) finishRegionClick() {
 // screens, for what it was selected for.
 func (s *server) finishRegion(zone regionRect) {
 	purpose := s.regionPurpose
+	opts := s.recordSettings
+	if s.recordOverride != nil {
+		opts = *s.recordOverride
+	}
 	minX, minY, totalW, totalH := s.fullLayoutBounds()
 
 	// Clean up overlay BEFORE capturing (so it's not in the screenshot)
@@ -257,7 +266,7 @@ func (s *server) finishRegion(zone regionRect) {
 	case regionText:
 		s.captureForText(region)
 	case regionRecord:
-		s.beginRecording(regionRect{x1, y1, x2 - x1, y2 - y1})
+		s.beginRecording(regionRect{x1, y1, x2 - x1, y2 - y1}, opts)
 	default:
 		s.captureScreen(region)
 	}
@@ -267,11 +276,14 @@ func (s *server) finishRegion(zone regionRect) {
 func (s *server) cancelRegionSelect() {
 	s.regionSelectActive = false
 	s.regionPurpose = regionCapture
+	s.recordOverride = nil
+	s.togglePressed = false
 	s.regionAnchorSet = false
 	if s.regionTree != nil {
 		tree := (*C.struct_wlr_scene_tree)(s.regionTree)
 		C.wlr_scene_node_destroy(&tree.node) // destroys all children too
 		s.forgetRegionSize()
+		s.forgetRecordToggles()
 		s.regionTree = nil
 		for i := range s.regionDimRects {
 			s.regionDimRects[i] = nil

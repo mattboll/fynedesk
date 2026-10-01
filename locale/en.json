@@ -553,6 +553,7 @@
   "record.systemAudio": "Computer sound",
   "record.webcam": "Webcam",
   "record.showInput": "Clicks and keys",
+  "record.selectHint": "Click a window or drag a zone · Esc: cancel",
   "captures.recording": "Screen recording",
   "captures.recordingHint": "Super+Shift+R, or the quick settings: what is recorded by default",
   "captures.format": "Format",

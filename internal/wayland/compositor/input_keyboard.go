@@ -110,6 +110,9 @@ func (s *server) handleKeyboardKey(keyboard, kb wlr.Keyboard, t time.Time, keyCo
 				s.cancelRegionSelect()
 				return
 			}
+			if s.recordToggleKey(sym) {
+				return
+			}
 		}
 	}
 

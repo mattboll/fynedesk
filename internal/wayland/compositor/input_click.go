@@ -20,10 +20,19 @@ func (s *server) handleRegionClick(button wlr.CursorButton, state wlr.ButtonStat
 	}
 	if button == 272 {
 		if state == wlr.ButtonPressed {
+			if i := s.recordToggleAt(s.cursor.X(), s.cursor.Y()); i >= 0 {
+				s.flipRecordToggle(i)
+				s.togglePressed = true
+				return true
+			}
 			// The press places the anchor of a zone to drag.
 			s.regionStartX = s.cursor.X()
 			s.regionStartY = s.cursor.Y()
 			s.regionAnchorSet = true
+			return true
+		}
+		if state == wlr.ButtonReleased && s.togglePressed {
+			s.togglePressed = false
 			return true
 		}
 		if state == wlr.ButtonReleased && s.regionAnchorSet {

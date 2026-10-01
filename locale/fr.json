@@ -553,6 +553,7 @@
   "record.systemAudio": "Son de l'ordinateur",
   "record.webcam": "Webcam",
   "record.showInput": "Clics et touches",
+  "record.selectHint": "Cliquez une fenêtre ou glissez une zone · Échap : annuler",
   "captures.recording": "Enregistrement de l'écran",
   "captures.recordingHint": "Super+Maj+R, ou les réglages rapides : ce qui est enregistré par défaut",
   "captures.format": "Format",
