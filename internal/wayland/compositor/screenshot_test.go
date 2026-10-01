@@ -3,7 +3,10 @@ package compositor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"fyshos.com/tyde/wlipc"
 )
 
 func TestScreenshotPathReservesTheName(t *testing.T) {
@@ -55,16 +58,40 @@ func TestCountdownImage(t *testing.T) {
 }
 
 func TestRecordingPathReservesTheName(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	a, err := recordingPath()
+	dir := t.TempDir()
+	a, err := recordingPath(dir, "webm")
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := recordingPath()
+	b, err := recordingPath(dir, "webm")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a == b || filepath.Ext(a) != ".mp4" || filepath.Base(filepath.Dir(a)) != "Videos" {
+	if a == b || filepath.Ext(a) != ".webm" || filepath.Dir(a) != dir {
 		t.Fatalf("paths %q, %q", a, b)
+	}
+}
+
+func TestRecorderArgs(t *testing.T) {
+	zone := regionRect{10, 20, 640, 480}
+	has := func(args []string, want ...string) bool {
+		return strings.Contains(strings.Join(args, " "), strings.Join(want, " "))
+	}
+
+	args := recorderArgs(wlipc.RecordingSettings{}, zone, "/v/part.mp4", "/dev/dri/renderD128")
+	if !has(args, "-g", "10,20 640x480") || !has(args, "-c", "h264_vaapi", "-d", "/dev/dri/renderD128") || has(args, "--audio") {
+		t.Errorf("default, on the GPU: %v", args)
+	}
+	args = recorderArgs(wlipc.RecordingSettings{Microphone: true}, zone, "/v/part.mp4", "")
+	if !has(args, "-c", "libx264") || !has(args, "--audio=@DEFAULT_SOURCE@") || !has(args, "-C", "aac") {
+		t.Errorf("microphone, on the processor: %v", args)
+	}
+	// Both sounds: the computer's with the video, the microphone aside.
+	args = recorderArgs(wlipc.RecordingSettings{Microphone: true, SystemAudio: true, Format: "webm"}, zone, "/v/part.webm", "")
+	if !has(args, "--audio=@DEFAULT_MONITOR@") || has(args, "@DEFAULT_SOURCE@") || !has(args, "-c", "libvpx-vp9") || !has(args, "-C", "libopus") {
+		t.Errorf("both sounds, WebM: %v", args)
+	}
+	if m := micArgs(wlipc.RecordingSettings{Format: "webm"}, "/v/mic.ogg"); !has(m, "-f", "pulse", "-i", "@DEFAULT_SOURCE@", "-c:a", "libopus") {
+		t.Errorf("microphone aside: %v", m)
 	}
 }

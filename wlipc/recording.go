@@ -48,7 +48,6 @@ func (r RecordingSettings) Camera() string {
 // The states of the screen recorder.
 const (
 	RecordingIdle      = "idle"
-	RecordingSelecting = "selecting" // the zone is being chosen
 	RecordingCountdown = "countdown"
 	RecordingActive    = "recording"
 	RecordingPaused    = "paused"

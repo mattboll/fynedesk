@@ -281,9 +281,10 @@ type server struct {
 	cursorAlertBuf         unsafe.Pointer          // *C.struct_pixel_buffer — its picture
 	countdownNode          unsafe.Pointer          // *C.struct_wlr_scene_buffer — the delayed screenshot's countdown, while counting
 	countdownBuf           unsafe.Pointer          // *C.struct_pixel_buffer — its picture
+	countdownFollow        bool                    // it stays beside the pointer
+	countdownGen           int                     // changes when a countdown is dropped
 	recordSettings         wlipc.RecordingSettings // the defaults of the screen recordings
-	recordCmd              *exec.Cmd               // wf-recorder, while recording the screen
-	recordPath             string                  // the file it records to
+	rec                    *recording              // the screen recording under way, nil without
 	recordFrame            unsafe.Pointer          // *C.struct_wlr_scene_tree — the red frame around the recorded zone
 	lockTree               unsafe.Pointer          // *C.struct_wlr_scene_tree — Session lock layer (above all)
 

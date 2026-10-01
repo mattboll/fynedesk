@@ -75,59 +75,73 @@ func (s *server) startDelayedScreenshot() {
 	if s.countdownNode != nil {
 		return // already counting
 	}
+	s.startCountdown(int(s.cursor.X())+24, int(s.cursor.Y())+24, true, func() {
+		// The countdown must be gone from the screen first.
+		time.AfterFunc(150*time.Millisecond, func() {
+			_ = s.enqueueAction(func() { s.captureScreen(grimGeometry(s.getActiveOutputGeo())) })
+		})
+	})
+}
+
+// startCountdown shows 3, 2, 1 at (x, y), beside the pointer if follow,
+// then takes it away and runs done. dropCountdown cancels it.
+func (s *server) startCountdown(x, y int, follow bool, done func()) {
+	s.dropCountdown()
 	face := fontFaceOfSize(countdownFontSize)
 	img := countdownImage(screenshotDelay, face)
 	buf := C.pixel_buffer_create(countdownSize, countdownSize)
 	if buf == nil {
+		done()
 		return
 	}
 	C.pixel_buffer_update(buf, unsafe.Pointer(&img.Pix[0]), countdownSize, countdownSize)
 	node := C.countdown_create((*C.struct_wlr_scene_tree)(s.cursorAlertTree), buf)
 	if node == nil {
 		C.pixel_buffer_release(buf)
+		done()
 		return
 	}
-	s.countdownNode, s.countdownBuf = unsafe.Pointer(node), unsafe.Pointer(buf)
-	s.moveCountdown()
-	s.countDown(screenshotDelay-1, face)
+	s.countdownNode, s.countdownBuf, s.countdownFollow = unsafe.Pointer(node), unsafe.Pointer(buf), follow
+	C.wlr_scene_node_set_position(&node.node, C.int(x), C.int(y))
+	s.countDown(screenshotDelay-1, face, s.countdownGen, done)
 }
 
-// countDown shows n a second from now, or captures when n is 0.
-func (s *server) countDown(n int, face font.Face) {
+// countDown shows n a second from now, or runs done when n is 0; nothing
+// if the countdown gen was dropped meanwhile.
+func (s *server) countDown(n int, face font.Face, gen int, done func()) {
 	time.AfterFunc(time.Second, func() {
 		_ = s.enqueueAction(func() {
-			if s.countdownNode == nil {
+			if s.countdownNode == nil || s.countdownGen != gen {
 				return
 			}
 			if n == 0 {
 				s.dropCountdown()
-				// The countdown must be gone from the screen first.
-				time.AfterFunc(150*time.Millisecond, func() {
-					_ = s.enqueueAction(func() { s.captureScreen(grimGeometry(s.getActiveOutputGeo())) })
-				})
+				done()
 				return
 			}
 			img := countdownImage(n, face)
 			buf := (*C.struct_pixel_buffer)(s.countdownBuf)
 			C.pixel_buffer_update(buf, unsafe.Pointer(&img.Pix[0]), countdownSize, countdownSize)
 			C.wlr_scene_buffer_set_buffer((*C.struct_wlr_scene_buffer)(s.countdownNode), &buf.base)
-			s.countDown(n-1, face)
+			s.countDown(n-1, face, gen, done)
 		})
 	})
 }
 
-// moveCountdown keeps the countdown beside the pointer, below and right
-// of it, clear of what it points at.
+// moveCountdown keeps a countdown that follows the pointer beside it,
+// below and right of it, clear of what it points at.
 func (s *server) moveCountdown() {
-	if s.countdownNode == nil {
+	if s.countdownNode == nil || !s.countdownFollow {
 		return
 	}
 	node := &(*C.struct_wlr_scene_buffer)(s.countdownNode).node
 	C.wlr_scene_node_set_position(node, C.int(s.cursor.X())+24, C.int(s.cursor.Y())+24)
 }
 
-// dropCountdown takes the countdown away.
+// dropCountdown takes the countdown away; what it was counting to does
+// not happen.
 func (s *server) dropCountdown() {
+	s.countdownGen++
 	if s.countdownNode == nil {
 		return
 	}

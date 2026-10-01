@@ -257,7 +257,7 @@ func (s *server) finishRegion(zone regionRect) {
 	case regionText:
 		s.captureForText(region)
 	case regionRecord:
-		s.startRecording(regionRect{x1, y1, x2 - x1, y2 - y1})
+		s.beginRecording(regionRect{x1, y1, x2 - x1, y2 - y1})
 	default:
 		s.captureScreen(region)
 	}

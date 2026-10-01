@@ -69,6 +69,7 @@ var socketHandlers = map[string]socketHandler{
 	wlipc.ReqWindowAttention:    (*server).socketWindowAttention,
 	wlipc.ReqDockIcons:          (*server).socketDockIcons,
 	wlipc.ReqCursorAlert:        (*server).socketCursorAlert,
+	wlipc.ReqRecording:          (*server).socketRecording,
 }
 
 // qaSocketHandlers drive the compositor like a user would (clicks,
@@ -409,6 +410,26 @@ func (s *server) socketCursorAlert(msg *wlipc.Message) (json.RawMessage, error) 
 	}
 	_ = s.enqueueAction(func() { s.setCursorAlert(req.On) })
 	return nil, nil
+}
+
+// socketRecording drives the screen recorder.
+func (s *server) socketRecording(msg *wlipc.Message) (json.RawMessage, error) {
+	var req wlipc.RecordingRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil {
+		return nil, fmt.Errorf("invalid recording request: %w", err)
+	}
+	return nil, s.enqueueAction(func() {
+		switch req.Cmd {
+		case wlipc.RecordToggle:
+			s.toggleRecording()
+		case wlipc.RecordStop:
+			s.stopRecording()
+		case wlipc.RecordPause:
+			s.pauseRecording()
+		case wlipc.RecordResume:
+			s.resumeRecording()
+		}
+	})
 }
 
 // socketDockIcons records where the dock shows each window.
