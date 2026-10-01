@@ -266,10 +266,18 @@ func (r *recorderIndicator) stop() {
 // idleButtonWanted reports whether the settings ask for the record button
 // in the bar when not recording.
 func idleButtonWanted() bool {
-	if ds, ok := tyde.Instance().Settings().(*deskSettings); ok {
-		return ds.cfg.Recording.IdleButton
+	return recordingSettings().IdleButton
+}
+
+// recordingSettings are the defaults of the recordings (zero without a
+// desktop).
+func recordingSettings() wlipc.RecordingSettings {
+	if d := tyde.Instance(); d != nil {
+		if ds, ok := d.Settings().(*deskSettings); ok {
+			return ds.cfg.Recording
+		}
 	}
-	return false
+	return wlipc.RecordingSettings{}
 }
 
 // recorderNarrow lays out the dot and, when the bar is wide, the details.

@@ -74,7 +74,7 @@ func TestRecordingNotification(t *testing.T) {
 	}
 	n := recordingNotification(path)
 	if n.OnActivate == nil || len(n.Buttons) != 2 {
-		t.Fatalf("a click should open it, with Make a GIF and Delete: %d buttons", len(n.Buttons))
+		t.Fatalf("a click should open it, with Edit and Delete: %d buttons", len(n.Buttons))
 	}
 	n.Buttons[1].OnTap() // Delete
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
