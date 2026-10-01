@@ -293,6 +293,7 @@ type server struct {
 	keyBubbleBuf unsafe.Pointer // *C.struct_pixel_buffer
 	keyBubbleGen int            // changes with each bubble
 	keyFace      font.Face
+	cam          *webcam        // the camera shown while recording (record_webcam.go)
 	recordFrame  unsafe.Pointer // *C.struct_wlr_scene_tree — the red frame around the recorded zone
 	lockTree     unsafe.Pointer // *C.struct_wlr_scene_tree — Session lock layer (above all)
 

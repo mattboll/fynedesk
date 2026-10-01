@@ -176,6 +176,7 @@ func (s *server) beginRecording(zone regionRect, opts wlipc.RecordingSettings) {
 		opts.Microphone, opts.SystemAudio, opts.Webcam, opts.ShowInput, opts.FileExt())
 	s.rec = &recording{zone: zone, opts: opts, dir: dir, state: wlipc.RecordingCountdown}
 	s.showRecordFrame(zone)
+	s.startWebcam() // shown during the countdown already: time to look right
 	start := func() { s.startPart() }
 	if opts.NoCountdown {
 		start()
@@ -329,6 +330,7 @@ func (s *server) finishRecording() {
 	r := s.rec
 	r.state = wlipc.RecordingFinishing
 	s.hideRecordFrame()
+	s.stopWebcam()
 	s.broadcastRecording()
 	go func() {
 		out, err := assembleRecording(r)
@@ -430,6 +432,7 @@ func (s *server) endRecording() {
 	s.rec = nil
 	s.hideRecordFrame()
 	s.dropKeyBubble()
+	s.stopWebcam()
 	s.broadcastRecording()
 }
 

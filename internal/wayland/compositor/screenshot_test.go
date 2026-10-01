@@ -150,3 +150,30 @@ func TestKeyLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestWebcam(t *testing.T) {
+	if webcamSize(300) != 120 || webcamSize(720) != 180 || webcamSize(2000) != 240 {
+		t.Errorf("sizes %d %d %d", webcamSize(300), webcamSize(720), webcamSize(2000))
+	}
+	args := strings.Join(webcamArgs("/dev/video0", 180), " ")
+	if !strings.Contains(args, "-f v4l2 -framerate 15 -i /dev/video0") || !strings.Contains(args, "scale=180:180,hflip") {
+		t.Errorf("camera: %s", args)
+	}
+	if args := strings.Join(webcamArgs("/tmp/test.mp4", 120), " "); !strings.Contains(args, "-re -stream_loop -1 -i /tmp/test.mp4") {
+		t.Errorf("file: %s", args)
+	}
+
+	const size = 40
+	frame := make([]byte, size*size*4)
+	for i := range frame {
+		frame[i] = 0xFF
+	}
+	roundMask(frame, size)
+	alpha := func(x, y int) byte { return frame[(y*size+x)*4+3] }
+	if alpha(0, 0) != 0 || alpha(size-1, size-1) != 0 {
+		t.Error("the corners should be clear")
+	}
+	if alpha(size/2, size/2) != 0xFF {
+		t.Error("the middle should be opaque")
+	}
+}
