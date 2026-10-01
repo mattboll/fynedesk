@@ -49,6 +49,9 @@ func (s *server) handleCursorMotionAbsolute(p wlr.Pointer, t time.Time, x, y flo
 
 func (s *server) handleCursorButton(p wlr.Pointer, t time.Time, button wlr.CursorButton, state wlr.ButtonState) {
 	s.resetIdleTimer()
+	if state == wlr.ButtonPressed {
+		s.showClick()
+	}
 
 	// Track button count for Wayland implicit pointer grab.
 	// The protocol requires that a surface retains pointer focus from button

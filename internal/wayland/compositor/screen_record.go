@@ -429,6 +429,7 @@ func (s *server) endRecording() {
 	}
 	s.rec = nil
 	s.hideRecordFrame()
+	s.dropKeyBubble()
 	s.broadcastRecording()
 }
 

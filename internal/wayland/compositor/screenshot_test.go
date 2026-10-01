@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"fyshos.com/tyde/internal/wayland/wlr"
+	"fyshos.com/tyde/internal/wayland/wlr/xkb"
 	"fyshos.com/tyde/wlipc"
 )
 
@@ -119,5 +121,32 @@ func TestToggleBarImage(t *testing.T) {
 	}
 	if c := img.NRGBAAt(rects[0].Min.X+2, rects[0].Min.Y+2); c != toggleOff {
 		t.Errorf("microphone toggle: %v", c)
+	}
+}
+
+func TestKeyLabel(t *testing.T) {
+	sym := func(name string) xkb.KeySym { return xkb.SymFromName(name, xkb.KeySymNoFlags) }
+	ctrl, shift, logo := wlr.KeyboardModifierCtrl, wlr.KeyboardModifierShift, wlr.KeyboardModifierLogo
+	for _, c := range []struct {
+		mods wlr.KeyboardModifier
+		sym  string
+		want string // "" when nothing shows
+	}{
+		{ctrl, "c", "Ctrl + C"},
+		{logo | shift, "R", "Super + Shift + R"},
+		{0, "a", ""},           // typed: never shown
+		{shift, "A", ""},       // typed too
+		{0, "eacute", ""},      // and any character
+		{0, "Return", "Enter"}, // special keys show alone
+		{shift, "ISO_Left_Tab", "Shift + Tab"},
+		{0, "F5", "F5"},
+		{0, "Up", "↑"},
+		{ctrl, "space", "Ctrl + Space"},
+		{ctrl, "Control_L", ""}, // a modifier itself
+	} {
+		got, ok := keyLabel(c.mods, sym(c.sym))
+		if (c.want == "") == ok || got != c.want {
+			t.Errorf("%s with %v: %q, %v; want %q", c.sym, c.mods, got, ok, c.want)
+		}
 	}
 }

@@ -90,6 +90,9 @@ func (s *server) handleKeyboardKey(keyboard, kb wlr.Keyboard, t time.Time, keyCo
 	}
 
 	syms := kb.XKBState().Syms(xkb.KeyCode(keyCode + 8))
+	if state == wlr.KeyStatePressed {
+		s.showKeys(kb.GetModifiers(), syms)
+	}
 
 	// Handle switcher key events
 	if s.switcherActive {

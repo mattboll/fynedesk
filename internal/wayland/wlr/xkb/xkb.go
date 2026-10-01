@@ -44,8 +44,17 @@ const (
 	KeySymCaseInsensitive KeySymFlags = C.XKB_KEYSYM_CASE_INSENSITIVE
 )
 
+// Name is the name of the keysym ("Return", "F5", "a"), "" if it has none.
+func (k KeySym) Name() string {
+	var buf [64]C.char
+	n := C.xkb_keysym_get_name(C.xkb_keysym_t(k), &buf[0], C.size_t(len(buf)))
+	if n <= 0 {
+		return ""
+	}
+	return C.GoString(&buf[0])
+}
+
 // SymFromName resolves a keysym name ("Return", "XF86AudioMute", ...).
-// It returns KeySymNoSymbol for unknown names.
 func SymFromName(name string, flags KeySymFlags) KeySym {
 	cs := C.CString(name)
 	defer C.free(unsafe.Pointer(cs))

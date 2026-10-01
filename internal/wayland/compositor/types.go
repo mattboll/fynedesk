@@ -9,6 +9,8 @@ import (
 	"time"
 	"unsafe"
 
+	"golang.org/x/image/font"
+
 	"fyshos.com/tyde/internal/wayland/wlr"
 	"fyshos.com/tyde/internal/wayland/wlr/xkb"
 	"fyshos.com/tyde/wlipc"
@@ -285,8 +287,14 @@ type server struct {
 	countdownGen           int                     // changes when a countdown is dropped
 	recordSettings         wlipc.RecordingSettings // the defaults of the screen recordings
 	rec                    *recording              // the screen recording under way, nil without
-	recordFrame            unsafe.Pointer          // *C.struct_wlr_scene_tree — the red frame around the recorded zone
-	lockTree               unsafe.Pointer          // *C.struct_wlr_scene_tree — Session lock layer (above all)
+	// The clicks and keys shown while recording (record_input.go).
+	rippleBuf    unsafe.Pointer // *C.struct_pixel_buffer — the ring of a click
+	keyBubble    unsafe.Pointer // *C.struct_wlr_scene_buffer — the keys pressed
+	keyBubbleBuf unsafe.Pointer // *C.struct_pixel_buffer
+	keyBubbleGen int            // changes with each bubble
+	keyFace      font.Face
+	recordFrame  unsafe.Pointer // *C.struct_wlr_scene_tree — the red frame around the recorded zone
+	lockTree     unsafe.Pointer // *C.struct_wlr_scene_tree — Session lock layer (above all)
 
 	// Felt-tip pen annotation ("presentation marker"): Super+Left draws ink on
 	// a full-layout overlay; releasing Super fades it out after a short delay.
