@@ -228,6 +228,7 @@ func (s *server) handleSetCursorRequest(client wlr.SeatClient, surface wlr.Surfa
 
 func (s *server) processCursorMotion(t time.Time) {
 	s.moveCursorAlert()
+	s.moveCountdown()
 
 	// Felt-tip pen annotation: while a stroke is active, lay down ink and
 	// suppress all normal pointer processing (focus, hover, grabs).

@@ -313,6 +313,10 @@ func (e *embededWM) setupSocketEventHandlers(client *wlipc.IPCClient) {
 				go copyCaptureText(evt.FilePath, true)
 				return
 			}
+			if evt.Video {
+				fyne.Do(func() { wm.SendNotification(recordingNotification(evt.FilePath)) })
+				return
+			}
 			fyne.Do(func() {
 				wm.SendNotification(screenshotNotification(evt.FilePath))
 			})

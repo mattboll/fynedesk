@@ -265,6 +265,8 @@ func buildPaletteActions() []paletteAction {
 		{name: locale.T("cmd.screenshotRegion"), category: locale.T("cmd.catScreenshot"), action: wlipc.ActionScreenshotRegion},
 		{name: locale.T("cmd.screenshotWindow"), category: locale.T("cmd.catScreenshot"), action: wlipc.ActionScreenshotWindow},
 		{name: locale.T("cmd.screenshotText"), category: locale.T("cmd.catScreenshot"), action: wlipc.ActionScreenshotText},
+		{name: locale.T("cmd.screenshotDelay"), category: locale.T("cmd.catScreenshot"), action: wlipc.ActionScreenshotDelay},
+		{name: locale.T("cmd.screenRecord"), category: locale.T("cmd.catScreenshot"), action: wlipc.ActionScreenRecord},
 
 		// Desktop
 		{name: locale.T("cmd.prevDesktop"), category: locale.T("cmd.catDesktop"), action: wlipc.ActionPrevDesktop},

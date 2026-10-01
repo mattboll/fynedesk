@@ -30,6 +30,7 @@ type regionPurpose int
 const (
 	regionCapture regionPurpose = iota // a screenshot
 	regionText                         // its text, for the clipboard
+	regionRecord                       // a screen recording
 )
 
 // startRegionSelectFor lets the user select a zone for purpose.
@@ -252,11 +253,14 @@ func (s *server) finishRegion(zone regionRect) {
 		return
 	}
 	region := fmt.Sprintf("%d,%d %dx%d", x1, y1, x2-x1, y2-y1)
-	if purpose == regionText {
+	switch purpose {
+	case regionText:
 		s.captureForText(region)
-		return
+	case regionRecord:
+		s.startRecording(regionRect{x1, y1, x2 - x1, y2 - y1})
+	default:
+		s.captureScreen(region)
 	}
-	s.captureScreen(region)
 }
 
 // cancelRegionSelect cleans up the region selection overlay without capturing.

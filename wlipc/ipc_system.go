@@ -282,6 +282,8 @@ type ScreenshotEvent struct {
 	// ForText is set for a zone captured to read its text: the panel puts
 	// the text in the clipboard, then deletes the file.
 	ForText bool `json:"for_text,omitempty"`
+	// Video is set for a screen recording.
+	Video bool `json:"video,omitempty"`
 }
 
 // WatchScreenshotEvent watches for screenshot events from compositor.

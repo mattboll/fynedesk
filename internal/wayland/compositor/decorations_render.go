@@ -556,7 +556,13 @@ func getTitleFontFace() font.Face {
 	if sz < 8 {
 		sz = 13
 	}
+	titleFontFace = fontFaceOfSize(sz)
+	return titleFontFace
+}
 
+// fontFaceOfSize loads the user's font, or else a common sans font, at
+// size points; nil if none can be read.
+func fontFaceOfSize(sz float64) font.Face {
 	fontPaths := []string{}
 	if customFontPath != "" {
 		fontPaths = append(fontPaths, customFontPath)
@@ -588,7 +594,6 @@ func getTitleFontFace() font.Face {
 		if err != nil {
 			continue
 		}
-		titleFontFace = face
 		return face
 	}
 

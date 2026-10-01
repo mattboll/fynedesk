@@ -221,6 +221,10 @@ func (s *server) dispatchLaunchAction(action string) bool {
 		go s.takeScreenshot(true, false)
 	case wlipc.ActionScreenshotWindow:
 		go s.takeScreenshot(false, true)
+	case wlipc.ActionScreenshotDelay:
+		_ = s.enqueueAction(s.startDelayedScreenshot)
+	case wlipc.ActionScreenRecord:
+		_ = s.enqueueAction(s.toggleRecording)
 	case wlipc.ActionScreenshotText:
 		_ = s.enqueueAction(func() { s.startRegionSelectFor(regionText) })
 

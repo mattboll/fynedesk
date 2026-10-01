@@ -32,3 +32,39 @@ func TestDragRect(t *testing.T) {
 		}
 	}
 }
+
+func TestCountdownImage(t *testing.T) {
+	img := countdownImage(3, fontFaceOfSize(countdownFontSize))
+	if b := img.Bounds(); b.Dx() != countdownSize || b.Dy() != countdownSize {
+		t.Fatalf("size %v", b)
+	}
+	if img.NRGBAAt(0, 0).A != 0 {
+		t.Error("the corners should be clear")
+	}
+	light := 0 // the digit, white on the dark disc
+	for y := 0; y < countdownSize; y++ {
+		for x := 0; x < countdownSize; x++ {
+			if c := img.NRGBAAt(x, y); c.R > 200 && c.A > 200 {
+				light++
+			}
+		}
+	}
+	if fontFaceOfSize(countdownFontSize) != nil && light == 0 {
+		t.Error("the digit is not drawn")
+	}
+}
+
+func TestRecordingPathReservesTheName(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	a, err := recordingPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := recordingPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a == b || filepath.Ext(a) != ".mp4" || filepath.Base(filepath.Dir(a)) != "Videos" {
+		t.Fatalf("paths %q, %q", a, b)
+	}
+}

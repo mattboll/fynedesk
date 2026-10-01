@@ -279,6 +279,11 @@ type server struct {
 	cursorAlertTree        unsafe.Pointer // *C.struct_wlr_scene_tree — the red disc under the pointer (above the ink, below lock)
 	cursorAlert            unsafe.Pointer // *C.struct_wlr_scene_buffer — the red disc, while shown
 	cursorAlertBuf         unsafe.Pointer // *C.struct_pixel_buffer — its picture
+	countdownNode          unsafe.Pointer // *C.struct_wlr_scene_buffer — the delayed screenshot's countdown, while counting
+	countdownBuf           unsafe.Pointer // *C.struct_pixel_buffer — its picture
+	recordCmd              *exec.Cmd      // wf-recorder, while recording the screen
+	recordPath             string         // the file it records to
+	recordFrame            unsafe.Pointer // *C.struct_wlr_scene_tree — the red frame around the recorded zone
 	lockTree               unsafe.Pointer // *C.struct_wlr_scene_tree — Session lock layer (above all)
 
 	// Felt-tip pen annotation ("presentation marker"): Super+Left draws ink on

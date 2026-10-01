@@ -66,3 +66,18 @@ func TestTextNotification(t *testing.T) {
 		t.Errorf("text: %q / %q", n.Title, n.Body)
 	}
 }
+
+func TestRecordingNotification(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "recording.mp4")
+	if err := os.WriteFile(path, []byte("video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n := recordingNotification(path)
+	if n.OnActivate == nil || len(n.Buttons) != 2 {
+		t.Fatalf("a click should open it, with Make a GIF and Delete: %d buttons", len(n.Buttons))
+	}
+	n.Buttons[1].OnTap() // Delete
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("the recording should be deleted, stat: %v", err)
+	}
+}
