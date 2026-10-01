@@ -223,6 +223,17 @@ func newToast(n *wm.Notification) *toast {
 	}
 
 	t.h = toastH
+	if n.Preview != nil {
+		preview := canvas.NewImageFromImage(n.Preview)
+		preview.FillMode = canvas.ImageFillContain
+		preview.SetMinSize(fyne.NewSize(capturePreviewW, float32(n.Preview.Bounds().Dy())))
+		t.h += float32(n.Preview.Bounds().Dy()) + 8
+		// Clear of the accent glow on the left, as the text is.
+		glowSpacer := canvas.NewRectangle(color.Transparent)
+		glowSpacer.SetMinSize(fyne.NewSize(14, 0))
+		previewRow := container.NewBorder(nil, nil, glowSpacer, nil, container.NewCenter(preview))
+		inner = container.NewBorder(nil, previewRow, nil, nil, inner)
+	}
 	if buttons := notificationButtons(n); len(buttons) > 0 {
 		t.h += toastButtonsH
 		inner = container.NewBorder(nil, toastButtons(t, buttons), nil, nil, inner)

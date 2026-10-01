@@ -2,6 +2,7 @@ package wm
 
 import (
 	"fmt"
+	"image"
 	"io"
 	"os"
 	"path/filepath"
@@ -80,6 +81,8 @@ type Notification struct {
 	// Buttons are answers offered right in the notification (Tyde's own
 	// notifications; those of applications have Actions).
 	Buttons []NotificationButton
+	// Preview is a picture shown under the text of the popup (a capture).
+	Preview image.Image
 }
 
 // NotificationButton is an answer offered in a notification.
