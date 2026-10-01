@@ -53,6 +53,39 @@ func (s *server) captureScreen(region string) {
 		log.Printf("[SCREENSHOT] no place for it: %v", err)
 		return
 	}
+	s.grim(region, filename, func() {
+		log.Printf("[SCREENSHOT] saved to %s", filename)
+		s.notifyScreenshot(filename)
+	})
+}
+
+// captureForText captures region in a temporary file, for the panel to
+// read its text and delete it.
+func (s *server) captureForText(region string) {
+	dir := os.Getenv("XDG_RUNTIME_DIR")
+	if dir == "" {
+		dir = os.TempDir()
+	}
+	f, err := os.CreateTemp(dir, "tyde-ocr-*.png")
+	if err != nil {
+		log.Printf("[SCREENSHOT] no place for the text capture: %v", err)
+		return
+	}
+	filename := f.Name()
+	f.Close()
+	s.grim(region, filename, func() {
+		evt := wlipc.ScreenshotEvent{FilePath: filename, Timestamp: time.Now().UnixMilli(), ForText: true}
+		if s.ipcServer == nil || s.ipcServer.Broadcast(wlipc.EventScreenshot, evt) == 0 {
+			log.Printf("[SCREENSHOT] no panel to read the text")
+			os.Remove(filename)
+		}
+	})
+}
+
+// grim saves region (a grim geometry, "" for every screen) in filename,
+// then runs done on the main thread. It does not wait for grim, and
+// removes the file if it fails.
+func (s *server) grim(region, filename string, done func()) {
 	args := []string{filename}
 	if region != "" {
 		args = []string{"-g", region, filename}
@@ -70,8 +103,7 @@ func (s *server) captureScreen(region string) {
 			os.Remove(filename)
 			return
 		}
-		log.Printf("[SCREENSHOT] saved to %s", filename)
-		_ = s.enqueueAction(func() { s.notifyScreenshot(filename) })
+		_ = s.enqueueAction(done)
 	}()
 }
 

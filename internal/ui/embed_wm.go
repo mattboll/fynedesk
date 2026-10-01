@@ -309,6 +309,10 @@ func (e *embededWM) setupSocketEventHandlers(client *wlipc.IPCClient) {
 	client.OnEvent(wlipc.EventScreenshot, func(data json.RawMessage) {
 		var evt wlipc.ScreenshotEvent
 		if json.Unmarshal(data, &evt) == nil {
+			if evt.ForText {
+				go copyCaptureText(evt.FilePath, true)
+				return
+			}
 			fyne.Do(func() {
 				wm.SendNotification(screenshotNotification(evt.FilePath))
 			})

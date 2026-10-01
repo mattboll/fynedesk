@@ -24,6 +24,23 @@ import (
 
 const regionBorderWidth = 2
 
+// regionPurpose is what a zone is selected for.
+type regionPurpose int
+
+const (
+	regionCapture regionPurpose = iota // a screenshot
+	regionText                         // its text, for the clipboard
+)
+
+// startRegionSelectFor lets the user select a zone for purpose.
+func (s *server) startRegionSelectFor(purpose regionPurpose) {
+	if s.regionSelectActive {
+		return
+	}
+	s.startRegionSelect()
+	s.regionPurpose = purpose
+}
+
 // startRegionSelect enters region selection mode using GPU-native scene rects.
 // Four dim rects surround the selection area; four border rects frame it.
 func (s *server) startRegionSelect() {
@@ -213,6 +230,7 @@ func (s *server) finishRegionSelect() {
 	}
 	selW := int(x2 - x1)
 	selH := int(y2 - y1)
+	purpose := s.regionPurpose
 
 	// Clean up overlay BEFORE capturing (so it's not in the screenshot)
 	s.cancelRegionSelect()
@@ -224,12 +242,17 @@ func (s *server) finishRegionSelect() {
 
 	// Capture the region with grim
 	region := fmt.Sprintf("%d,%d %dx%d", int(x1), int(y1), selW, selH)
+	if purpose == regionText {
+		s.captureForText(region)
+		return
+	}
 	s.captureScreen(region)
 }
 
 // cancelRegionSelect cleans up the region selection overlay without capturing.
 func (s *server) cancelRegionSelect() {
 	s.regionSelectActive = false
+	s.regionPurpose = regionCapture
 	s.regionAnchorSet = false
 	if s.regionTree != nil {
 		tree := (*C.struct_wlr_scene_tree)(s.regionTree)

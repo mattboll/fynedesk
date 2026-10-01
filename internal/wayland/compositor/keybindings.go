@@ -221,6 +221,8 @@ func (s *server) dispatchLaunchAction(action string) bool {
 		go s.takeScreenshot(true, false)
 	case wlipc.ActionScreenshotWindow:
 		go s.takeScreenshot(false, true)
+	case wlipc.ActionScreenshotText:
+		_ = s.enqueueAction(func() { s.startRegionSelectFor(regionText) })
 
 	case wlipc.ActionToggleDropdown:
 		s.toggleDropdownTerminal() // it moves windows: main thread

@@ -414,7 +414,8 @@ type server struct {
 	// Screenshot modes
 	windowPickMode     bool // Waiting for click to select window for screenshot
 	regionSelectActive bool
-	regionAnchorSet    bool // true after first click places the anchor
+	regionPurpose      regionPurpose // what the zone being selected is for
+	regionAnchorSet    bool          // true after first click places the anchor
 	regionStartX       float64
 	regionStartY       float64
 	regionEndX         float64

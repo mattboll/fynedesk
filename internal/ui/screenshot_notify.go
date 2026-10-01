@@ -1,15 +1,22 @@
 package ui
 
 import (
+	"context"
+	"errors"
 	"image"
 	"image/png"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
+	"fyne.io/fyne/v2"
 	"golang.org/x/image/draw"
 
+	"fyshos.com/tyde/internal/ocr"
 	"fyshos.com/tyde/locale"
+	"fyshos.com/tyde/wlipc"
 	"fyshos.com/tyde/wm"
 )
 
@@ -26,6 +33,7 @@ func screenshotNotification(path string) *wm.Notification {
 	n.Preview = capturePreview(path)
 	n.OnActivate = func() { openCapture(path) }
 	n.Buttons = []wm.NotificationButton{
+		{Label: locale.T("screenshot.copyText"), OnTap: func() { go copyCaptureText(path, false) }},
 		{Label: locale.T("screenshot.delete"), OnTap: func() {
 			if err := os.Remove(path); err != nil {
 				log.Printf("[SCREENSHOT] %v", err)
@@ -69,4 +77,42 @@ func openCapture(path string) {
 	if err := wm.StartDetached("xdg-open", path); err != nil {
 		log.Printf("[SCREENSHOT] open %s: %v", path, err)
 	}
+}
+
+// copyCaptureText reads the text of the capture at path, puts it in the
+// clipboard and tells the user. With remove, the capture is a temporary
+// file, deleted once read. Not on the Fyne thread: reading takes a moment.
+func copyCaptureText(path string, remove bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	text, err := ocr.Text(ctx, path)
+	if remove {
+		os.Remove(path)
+	}
+	n := textNotification(text, err)
+	n.Tag = "ocr" // a new reading replaces the previous one
+	fyne.Do(func() { wm.SendNotification(n) })
+}
+
+// textNotification tells what reading the text of a capture gave, and puts
+// the text in the clipboard.
+func textNotification(text string, err error) *wm.Notification {
+	switch {
+	case errors.Is(err, ocr.ErrMissing):
+		n := wm.NewNotification(locale.T("ocr.missing"), ocr.InstallCommand)
+		n.Buttons = []wm.NotificationButton{{Label: locale.T("ocr.copyCommand"), OnTap: func() {
+			_ = wlipc.RequestClipboardPaste(ocr.InstallCommand)
+		}}}
+		return n
+	case err != nil:
+		log.Printf("[OCR] %v", err)
+		return wm.NewNotification(locale.T("ocr.failed"), err.Error())
+	case text == "":
+		return wm.NewNotification(locale.T("ocr.empty"), "")
+	}
+	if err := wlipc.RequestClipboardPaste(text); err != nil {
+		log.Printf("[OCR] clipboard: %v", err)
+		return wm.NewNotification(locale.T("ocr.failed"), err.Error())
+	}
+	return wm.NewNotification(locale.T("ocr.copied"), strings.Join(strings.Fields(text), " "))
 }

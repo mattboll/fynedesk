@@ -44,6 +44,7 @@ const (
 	ActionScreenshotAll     = "screenshot_all"  // every screen
 	ActionScreenshotRegion  = "screenshot_region"
 	ActionScreenshotWindow  = "screenshot_window"
+	ActionScreenshotText    = "screenshot_text" // copy the text of a zone (OCR)
 	ActionToggleDropdown    = "toggle_dropdown_terminal"
 	ActionLockScreen        = "lock_screen"
 	ActionShowLauncher      = "show_launcher"
@@ -104,6 +105,7 @@ func DefaultBindings() ActionBindings {
 		ActionScreenshotAll:     {{Key: "Print", Mods: []string{"WM"}}},
 		ActionScreenshotRegion:  {{Key: "Print", Mods: []string{"Shift"}}},
 		ActionScreenshotWindow:  {{Key: "Print", Mods: []string{"Ctrl"}}},
+		ActionScreenshotText:    {{Key: "Print", Mods: []string{"Ctrl", "Shift"}}},
 		ActionToggleDropdown:    {{Key: "grave", Mods: []string{"WM"}}},
 		ActionLockScreen:        {{Key: "l", Mods: []string{"WM"}}},
 		ActionShowLauncher:      {{Key: "space", Mods: []string{"WM"}}},
@@ -168,6 +170,7 @@ func ActionOrder() []string {
 		ActionScreenshotAll,
 		ActionScreenshotRegion,
 		ActionScreenshotWindow,
+		ActionScreenshotText,
 		ActionPrevDesktop,
 		ActionNextDesktop,
 		ActionSwitchDesk1,

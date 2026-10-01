@@ -279,6 +279,9 @@ func NotifySettingsChanged() error {
 type ScreenshotEvent struct {
 	FilePath  string `json:"file_path"`
 	Timestamp int64  `json:"timestamp"`
+	// ForText is set for a zone captured to read its text: the panel puts
+	// the text in the clipboard, then deletes the file.
+	ForText bool `json:"for_text,omitempty"`
 }
 
 // WatchScreenshotEvent watches for screenshot events from compositor.

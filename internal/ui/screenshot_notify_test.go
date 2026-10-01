@@ -6,6 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"fyshos.com/tyde/internal/ocr"
+	"fyshos.com/tyde/locale"
 )
 
 func TestFitInside(t *testing.T) {
@@ -42,11 +45,24 @@ func TestScreenshotNotification(t *testing.T) {
 	if n.OnActivate == nil {
 		t.Fatal("a click should open the capture")
 	}
-	if len(n.Buttons) != 1 {
-		t.Fatalf("buttons %v", n.Buttons)
+	if len(n.Buttons) != 2 {
+		t.Fatalf("%d buttons, want Copy text and Delete", len(n.Buttons))
 	}
-	n.Buttons[0].OnTap() // Delete
+	n.Buttons[1].OnTap() // Delete
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("the capture should be deleted, stat: %v", err)
+	}
+}
+
+func TestTextNotification(t *testing.T) {
+	n := textNotification("", ocr.ErrMissing)
+	if n.Body != ocr.InstallCommand || len(n.Buttons) != 1 {
+		t.Errorf("missing tesseract: %q, %d buttons", n.Body, len(n.Buttons))
+	}
+	if n := textNotification("", nil); n.Title != locale.T("ocr.empty") {
+		t.Errorf("no text: %q", n.Title)
+	}
+	if n := textNotification("Bonjour\n\nle   monde", nil); n.Title != locale.T("ocr.copied") || n.Body != "Bonjour le monde" {
+		t.Errorf("text: %q / %q", n.Title, n.Body)
 	}
 }
