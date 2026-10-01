@@ -61,7 +61,7 @@ All shortcuts are configurable via Settings > Keyboard. The **WM modifier** defa
 | Ctrl+PrintScreen | Screenshot (window) |
 | Ctrl+Shift+PrintScreen | Copy the text of a zone (OCR, needs tesseract) |
 | Super+Shift+PrintScreen | Screenshot of the screen under the pointer, in 3 seconds |
-| Super+Shift+R | Record a zone or a window to ~/Videos (again: stop) |
+| Super+Shift+R | Record a zone or a window to ~/Videos (again: stop); while choosing, M, S, W, K: microphone, sound, webcam, clicks and keys |
 
 ## Tiling Mode
 

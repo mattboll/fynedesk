@@ -35,6 +35,19 @@ blank_timeout_min = 6           # before it is turned off
 suspend_timeout_min = 0         # before the machine sleeps
 suspend_action = "suspend"      # suspend | hibernate | hybrid-sleep | nothing
 
+[recording]                     # defaults of the screen recordings (Super+Shift+R)
+microphone = false
+system_audio = false            # what the computer plays
+webcam = false                  # in a round bubble in the recorded zone
+show_input = false              # clicks and key combinations drawn on the screen
+format = "mp4"                  # mp4 | webm
+no_gpu = false                  # true: encode on the processor only
+no_countdown = false
+folder = "~/Videos"
+target_size_mb = 0              # the editor's export size (0: as it is)
+idle_button = false             # the record button in the bar when not recording
+webcam_device = "/dev/video0"
+
 [keybindings]
 quit = "Alt+Escape"
 open_terminal = "Super+t"
@@ -135,6 +148,30 @@ the same network. With [scrcpy](https://github.com/Genymobile/scrcpy)
 installed, *Screen* shows the phone's screen in a window, to use it with the
 mouse and the keyboard.
 
+## Screenshots and recordings
+
+Print captures the screen under the pointer (Super+Print every screen,
+Ctrl+Print a window, Super+Shift+Print in 3 seconds). Shift+Print selects: the
+window under the pointer is highlighted and a click takes it, a drag takes a
+zone; the size shows beside it. Captures go to `~/Pictures` and the clipboard;
+their notification shows them, opens them, deletes them, copies their text, or
+annotates them (arrows, frames, text, blur) in a window that copies or saves
+the result. Ctrl+Shift+Print copies the text of a zone (OCR, with
+`tesseract-ocr` and its `fra` and `eng` languages).
+
+The **Screen Recorder** module (turned on once `wf-recorder` is found) records
+a zone or a window, chosen the same way, with Super+Shift+R; the same shortcut
+stops. While the zone is chosen, a bar shows what will be recorded —
+microphone, computer sound, webcam, clicks and keys — which a click or M, S, W
+and K turn on or off for this recording; the defaults are in the quick
+settings and Settings > Captures (`[recording]` above). A countdown comes
+first; meanwhile a red frame surrounds the zone, outside it, and the bar shows
+the time recorded, pause and stop. The GPU encodes (VA-API), or the processor
+when it cannot. Clicks show as rings and key combinations in a bubble; a
+character typed alone never shows. The webcam shows in a round bubble in the
+zone. Recordings go to `~/Videos`; their notification edits them (cut, MP4,
+WebM or GIF, to a size), copies them to paste them in a chat, or deletes them.
+
 ## Screen sharing
 
 Screen sharing goes through `xdg-desktop-portal-wlr`. When an application
@@ -149,6 +186,9 @@ of that file (`# Written by Tyde…`): Tyde then leaves it alone.
 
 Sandboxed (Flatpak) applications cannot capture the screen or windows, nor
 type into other applications, directly: they have to go through the portal.
+
+While the screen (or a window) is shared, notification popups are held back:
+they stay in the history, and one popup tells how many came once sharing ends.
 
 ## IPC Socket
 
