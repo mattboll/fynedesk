@@ -548,6 +548,7 @@
   "annotate.copyFailed": "L'image n'a pas pu être copiée",
   "record.saved": "Enregistrement de l'écran sauvegardé",
   "record.edit": "Éditer",
+  "record.copy": "Copier",
   "edit.title": "Éditer",
   "edit.start": "Début",
   "edit.end": "Fin",

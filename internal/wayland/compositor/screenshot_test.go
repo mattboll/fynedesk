@@ -177,3 +177,11 @@ func TestWebcam(t *testing.T) {
 		t.Error("the middle should be opaque")
 	}
 }
+
+func TestClipboardFileLists(t *testing.T) {
+	uris, gnome := clipboardFileLists([]string{"/home/m/Vidéos/mon enregistrement.mp4"})
+	want := "file:///home/m/Vid%C3%A9os/mon%20enregistrement.mp4"
+	if uris != want+"\r\n" || gnome != "copy\n"+want {
+		t.Errorf("uris %q, gnome %q", uris, gnome)
+	}
+}

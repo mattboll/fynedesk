@@ -73,10 +73,10 @@ func TestRecordingNotification(t *testing.T) {
 		t.Fatal(err)
 	}
 	n := recordingNotification(path)
-	if n.OnActivate == nil || len(n.Buttons) != 2 {
-		t.Fatalf("a click should open it, with Edit and Delete: %d buttons", len(n.Buttons))
+	if n.OnActivate == nil || len(n.Buttons) != 3 {
+		t.Fatalf("a click should open it, with Edit, Copy and Delete: %d buttons", len(n.Buttons))
 	}
-	n.Buttons[1].OnTap() // Delete
+	n.Buttons[2].OnTap() // Delete
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("the recording should be deleted, stat: %v", err)
 	}

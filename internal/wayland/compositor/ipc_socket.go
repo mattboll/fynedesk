@@ -70,6 +70,7 @@ var socketHandlers = map[string]socketHandler{
 	wlipc.ReqDockIcons:          (*server).socketDockIcons,
 	wlipc.ReqCursorAlert:        (*server).socketCursorAlert,
 	wlipc.ReqRecording:          (*server).socketRecording,
+	wlipc.ReqClipboardFiles:     (*server).socketClipboardFiles,
 }
 
 // qaSocketHandlers drive the compositor like a user would (clicks,
@@ -410,6 +411,15 @@ func (s *server) socketCursorAlert(msg *wlipc.Message) (json.RawMessage, error) 
 	}
 	_ = s.enqueueAction(func() { s.setCursorAlert(req.On) })
 	return nil, nil
+}
+
+// socketClipboardFiles puts files in the clipboard.
+func (s *server) socketClipboardFiles(msg *wlipc.Message) (json.RawMessage, error) {
+	var req wlipc.ClipboardFilesRequest
+	if err := json.Unmarshal(msg.Data, &req); err != nil || len(req.Paths) == 0 {
+		return nil, fmt.Errorf("invalid clipboard files: %v", err)
+	}
+	return nil, s.enqueueAction(func() { s.setClipboardFiles(req.Paths) })
 }
 
 // socketRecording drives the screen recorder.

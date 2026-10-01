@@ -125,6 +125,11 @@ func recordingNotification(path string) *wm.Notification {
 	n.OnActivate = func() { openCapture(path) }
 	n.Buttons = []wm.NotificationButton{
 		{Label: locale.T("record.edit"), OnTap: func() { showVideoEditor(path) }},
+		{Label: locale.T("record.copy"), OnTap: func() {
+			if err := wlipc.RequestClipboardFiles(path); err != nil {
+				log.Printf("[RECORD] copy: %v", err)
+			}
+		}},
 		{Label: locale.T("screenshot.delete"), OnTap: func() {
 			if err := os.Remove(path); err != nil {
 				log.Printf("[RECORD] %v", err)

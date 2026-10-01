@@ -101,7 +101,8 @@ const (
 	ReqWindowAttention    = "window-attention"
 	ReqDockIcons          = "dock-icons"
 	ReqCursorAlert        = "cursor-alert"
-	ReqRecording          = "recording" // RecordingRequest
+	ReqRecording          = "recording"       // RecordingRequest
+	ReqClipboardFiles     = "clipboard-files" // ClipboardFilesRequest
 )
 
 // SubscribeRequest is sent by clients to register for events.

@@ -123,6 +123,7 @@ static int is_drag_active(struct wlr_seat *seat) {
 struct compositor_clipboard {
     struct wlr_data_source base;
     char *text;
+    char *gnome; // files only: what x-special/gnome-copied-files gets
 };
 
 struct clipboard_write {
@@ -163,11 +164,15 @@ static void *clipboard_write_thread(void *arg) {
 
 static void clipboard_send(struct wlr_data_source *source, const char *mime_type, int32_t fd) {
     struct compositor_clipboard *cb = wl_container_of(source, cb, base);
-    struct clipboard_write *w = cb->text ? calloc(1, sizeof(*w)) : NULL;
+    const char *text = cb->text;
+    if (cb->gnome && strcmp(mime_type, "x-special/gnome-copied-files") == 0) {
+        text = cb->gnome;
+    }
+    struct clipboard_write *w = text ? calloc(1, sizeof(*w)) : NULL;
     if (w) {
         w->fd = fd;
-        w->len = strlen(cb->text);
-        w->text = strdup(cb->text);
+        w->len = strlen(text);
+        w->text = strdup(text);
     }
     if (!w || !w->text) {
         free(w);
@@ -190,6 +195,7 @@ static void clipboard_send(struct wlr_data_source *source, const char *mime_type
 static void clipboard_destroy(struct wlr_data_source *source) {
     struct compositor_clipboard *cb = wl_container_of(source, cb, base);
     free(cb->text);
+    free(cb->gnome);
     free(cb);
 }
 
@@ -207,6 +213,25 @@ static void set_clipboard_text(struct wlr_seat *seat, const char *text) {
     // Add mime types
     const char *types[] = {"text/plain", "text/plain;charset=utf-8", "UTF8_STRING"};
     for (int i = 0; i < 3; i++) {
+        char **dst = wl_array_add(&cb->base.mime_types, sizeof(char *));
+        if (dst) *dst = strdup(types[i]);
+    }
+
+    wlr_seat_set_selection(seat, &cb->base, wl_display_next_serial(seat->display));
+}
+
+// set_clipboard_files puts files in the clipboard, as file managers do:
+// uris is the text/uri-list, gnome the x-special/gnome-copied-files. A
+// paste in a chat or a browser attaches them.
+static void set_clipboard_files(struct wlr_seat *seat, const char *uris, const char *gnome) {
+    struct compositor_clipboard *cb = calloc(1, sizeof(*cb));
+    if (!cb) return;
+    wlr_data_source_init(&cb->base, &compositor_clipboard_impl);
+    cb->text = strdup(uris);
+    cb->gnome = strdup(gnome);
+
+    const char *types[] = {"text/uri-list", "x-special/gnome-copied-files"};
+    for (int i = 0; i < 2; i++) {
         char **dst = wl_array_add(&cb->base.mime_types, sizeof(char *));
         if (dst) *dst = strdup(types[i]);
     }
@@ -266,6 +291,8 @@ import "C"
 
 import (
 	"log"
+	"net/url"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -647,6 +674,26 @@ func (s *server) setClipboard(text string) {
 	cText := C.CString(text)
 	defer C.free(unsafe.Pointer(cText))
 	C.set_clipboard_text(seatPtr(s.seat), cText)
+}
+
+// setClipboardFiles puts files in the clipboard, for a paste to attach
+// them.
+func (s *server) setClipboardFiles(paths []string) {
+	uris, gnome := clipboardFileLists(paths)
+	cURIs, cGnome := C.CString(uris), C.CString(gnome)
+	defer C.free(unsafe.Pointer(cURIs))
+	defer C.free(unsafe.Pointer(cGnome))
+	C.set_clipboard_files(seatPtr(s.seat), cURIs, cGnome)
+}
+
+// clipboardFileLists are the text/uri-list and the
+// x-special/gnome-copied-files of paths.
+func clipboardFileLists(paths []string) (uris, gnome string) {
+	var list []string
+	for _, p := range paths {
+		list = append(list, (&url.URL{Scheme: "file", Path: p}).String())
+	}
+	return strings.Join(list, "\r\n") + "\r\n", "copy\n" + strings.Join(list, "\n")
 }
 
 // debugViewAt logs information about what view is under the given coordinates.

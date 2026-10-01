@@ -2,6 +2,7 @@ package wlipc
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"time"
@@ -152,6 +153,20 @@ func RequestClipboardPaste(text string) error {
 		return err
 	}
 	return atomicWriteFile(filepath.Join(configDir, "clipboard-paste.json"), data)
+}
+
+// ClipboardFilesRequest puts files in the clipboard.
+type ClipboardFilesRequest struct {
+	Paths []string `json:"paths"`
+}
+
+// RequestClipboardFiles puts files in the clipboard, as a file manager
+// does: a paste in a chat or a browser attaches them. Socket only.
+func RequestClipboardFiles(paths ...string) error {
+	if trySendRequest(ReqClipboardFiles, ClipboardFilesRequest{Paths: paths}) {
+		return nil
+	}
+	return errors.New("clipboard files: compositor socket unavailable")
 }
 
 // RequestClipboardClear asks the compositor to clear the clipboard history.
