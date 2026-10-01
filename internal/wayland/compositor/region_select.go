@@ -79,7 +79,7 @@ func (s *server) startRegionSelect() {
 	// Initial layout: full dim overlay, no selection hole
 	s.layoutRegionRects()
 
-	log.Println("[SCREENSHOT] Region selection started — click and drag to select area, release to capture")
+	log.Println("[SCREENSHOT] Region selection started — drag a zone, or click a window (the screen outside of any)")
 }
 
 // updateRegionSelect repositions the scene rects as the cursor moves.
@@ -90,16 +90,37 @@ func (s *server) updateRegionSelect() {
 	s.layoutRegionRects()
 }
 
-// layoutRegionRects positions the 4 dim rects and 4 border rects around the
-// current selection rectangle. This is O(1) — just setting positions and sizes
-// on 8 GPU scene nodes, with zero pixel manipulation.
+// regionRect is a zone, in layout coordinates.
+type regionRect struct{ x, y, w, h int }
+
+// dragRect is the zone between two corners, in any order.
+func dragRect(x1, y1, x2, y2 float64) regionRect {
+	return regionRect{
+		x: int(min(x1, x2)), y: int(min(y1, y2)),
+		w: int(max(x1, x2) - min(x1, x2)), h: int(max(y1, y2) - min(y1, y2)),
+	}
+}
+
+// regionTarget is the zone the selection stands on: the one dragged once
+// the button is down, before that the window under the pointer, if any.
+func (s *server) regionTarget() (regionRect, bool) {
+	if s.regionAnchorSet {
+		return dragRect(s.regionStartX, s.regionStartY, s.cursor.X(), s.cursor.Y()), true
+	}
+	return s.windowRectAt(s.cursor.X(), s.cursor.Y())
+}
+
+// layoutRegionRects dims everything but the zone the selection stands on,
+// frames it and shows its size; with no zone, it dims the whole screen.
+// Setting positions and sizes on scene nodes: no pixel is drawn but the
+// size label.
 //
-// Layout (dim rects around selection hole):
+// Layout (dim rects around the zone):
 //
 //	+---------------------------+
 //	|         top (0)           |
 //	+------+----------+--------+
-//	|left  | selection |  right |
+//	|left  |   zone    |  right |
 //	| (2)  |  (hole)   |  (3)  |
 //	+------+----------+--------+
 //	|        bottom (1)         |
@@ -109,46 +130,26 @@ func (s *server) layoutRegionRects() {
 	if totalW <= 0 || totalH <= 0 {
 		return
 	}
-
-	// Before the first click, the "selection" is a degenerate point between
-	// regionStartX/Y (cursor position at startRegionSelect time) and the
-	// current cursor — which would render a stray border line at the cursor
-	// as the user moves. Show only the full-screen dim until the anchor is
-	// placed by handleRegionClick.
-	if !s.regionAnchorSet {
+	zone, ok := s.regionTarget()
+	if !ok {
 		s.layoutRegionFullDim(totalW, totalH)
+		s.hideRegionSize()
 		return
 	}
+	// Overlay-relative and clamped to the screens.
+	x1, y1 := max(zone.x-minX, 0), max(zone.y-minY, 0)
+	x2, y2 := min(zone.x-minX+zone.w, totalW), min(zone.y-minY+zone.h, totalH)
+	if x2 <= x1 || y2 <= y1 {
+		s.layoutRegionFullDim(totalW, totalH)
+		s.hideRegionSize()
+		return
+	}
+	s.layoutRegionHole(x1, y1, x2, y2, totalW, totalH)
+	s.showRegionSize(x2-x1, y2-y1, x2, y2, totalW, totalH)
+}
 
-	// Convert to overlay-relative coordinates
-	sx := int(s.regionStartX) - minX
-	sy := int(s.regionStartY) - minY
-	ex := int(s.cursor.X()) - minX
-	ey := int(s.cursor.Y()) - minY
-
-	// Normalize so x1<x2, y1<y2
-	x1, x2 := sx, ex
-	if x1 > x2 {
-		x1, x2 = x2, x1
-	}
-	y1, y2 := sy, ey
-	if y1 > y2 {
-		y1, y2 = y2, y1
-	}
-	// Clamp
-	if x1 < 0 {
-		x1 = 0
-	}
-	if y1 < 0 {
-		y1 = 0
-	}
-	if x2 > totalW {
-		x2 = totalW
-	}
-	if y2 > totalH {
-		y2 = totalH
-	}
-
+// layoutRegionHole dims everything around (x1, y1)-(x2, y2) and frames it.
+func (s *server) layoutRegionHole(x1, y1, x2, y2, totalW, totalH int) {
 	selW := x2 - x1
 	selH := y2 - y1
 
@@ -213,35 +214,44 @@ func (s *server) layoutRegionFullDim(totalW, totalH int) {
 	}
 }
 
-// finishRegionSelect captures the selected region and cleans up the overlay.
+// finishRegionSelect takes the zone dragged.
 func (s *server) finishRegionSelect() {
 	if !s.regionSelectActive {
 		return
 	}
+	s.finishRegion(dragRect(s.regionStartX, s.regionStartY, s.cursor.X(), s.cursor.Y()))
+}
 
-	// Calculate selection rectangle in layout coordinates
-	x1, y1 := s.regionStartX, s.regionStartY
-	x2, y2 := s.cursor.X(), s.cursor.Y()
-	if x1 > x2 {
-		x1, x2 = x2, x1
+// finishRegionClick takes, on a click without drag, the window under the
+// pointer, or else the screen.
+func (s *server) finishRegionClick() {
+	if !s.regionSelectActive {
+		return
 	}
-	if y1 > y2 {
-		y1, y2 = y2, y1
+	zone, ok := s.windowRectAt(s.cursor.X(), s.cursor.Y())
+	if !ok {
+		g := s.getActiveOutputGeo()
+		zone = regionRect{g.x, g.y, g.width, g.height}
 	}
-	selW := int(x2 - x1)
-	selH := int(y2 - y1)
+	s.finishRegion(zone)
+}
+
+// finishRegion ends the selection and captures zone, clamped to the
+// screens, for what it was selected for.
+func (s *server) finishRegion(zone regionRect) {
 	purpose := s.regionPurpose
+	minX, minY, totalW, totalH := s.fullLayoutBounds()
 
 	// Clean up overlay BEFORE capturing (so it's not in the screenshot)
 	s.cancelRegionSelect()
 
-	if selW < 5 || selH < 5 {
+	x1, y1 := max(zone.x, minX), max(zone.y, minY)
+	x2, y2 := min(zone.x+zone.w, minX+totalW), min(zone.y+zone.h, minY+totalH)
+	if x2-x1 < 5 || y2-y1 < 5 {
 		log.Println("[SCREENSHOT] Region too small, cancelled")
 		return
 	}
-
-	// Capture the region with grim
-	region := fmt.Sprintf("%d,%d %dx%d", int(x1), int(y1), selW, selH)
+	region := fmt.Sprintf("%d,%d %dx%d", x1, y1, x2-x1, y2-y1)
 	if purpose == regionText {
 		s.captureForText(region)
 		return
@@ -257,6 +267,7 @@ func (s *server) cancelRegionSelect() {
 	if s.regionTree != nil {
 		tree := (*C.struct_wlr_scene_tree)(s.regionTree)
 		C.wlr_scene_node_destroy(&tree.node) // destroys all children too
+		s.forgetRegionSize()
 		s.regionTree = nil
 		for i := range s.regionDimRects {
 			s.regionDimRects[i] = nil

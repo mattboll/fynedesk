@@ -23,3 +23,12 @@ func TestScreenshotPathReservesTheName(t *testing.T) {
 		}
 	}
 }
+
+func TestDragRect(t *testing.T) {
+	want := regionRect{x: 10, y: 20, w: 90, h: 60}
+	for _, c := range [][4]float64{{10, 20, 100, 80}, {100, 80, 10, 20}, {100, 20, 10, 80}} {
+		if got := dragRect(c[0], c[1], c[2], c[3]); got != want {
+			t.Errorf("%v: got %+v, want %+v", c, got, want)
+		}
+	}
+}

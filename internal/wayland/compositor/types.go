@@ -425,6 +425,11 @@ type server struct {
 	regionTree        unsafe.Pointer    // *C.struct_wlr_scene_tree
 	regionDimRects    [4]unsafe.Pointer // top, bottom, left, right dim rects
 	regionBorderRects [4]unsafe.Pointer // top, bottom, left, right border rects
+	// The size label of the zone (region_size.go).
+	regionSizeNode           unsafe.Pointer // *C.struct_wlr_scene_buffer, child of regionTree
+	regionSizeBuf            unsafe.Pointer // *C.struct_pixel_buffer
+	regionSizeText           string
+	regionSizeW, regionSizeH int
 
 	// Thumbnail capture throttle (last time we captured view thumbnails)
 	lastThumbCapture       time.Time

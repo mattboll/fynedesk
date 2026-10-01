@@ -146,7 +146,7 @@ Default keybindings (configurable in Settings > Keyboard):
 | `` Super+` `` | Dropdown terminal |
 | `Super+Space` | App launcher |
 | `Super+L` | Lock screen |
-| `PrintScreen` | Screenshot (full / Shift: region / Ctrl: window) |
+| `PrintScreen` | Screenshot (screen under the pointer / Super: every screen / Shift: region / Ctrl: window / Ctrl+Shift: copy the text of a zone) |
 | `Ctrl+Alt+Left/Right` | Switch virtual desktop |
 | `Super+1-4` | Go to desktop 1-4 |
 | `Super+Shift+1-4` | Move window to desktop 1-4 |

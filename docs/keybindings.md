@@ -55,9 +55,11 @@ All shortcuts are configurable via Settings > Keyboard. The **WM modifier** defa
 | Super+0 | Magnifier off |
 | Super+A | Toggle sidebar (Raven) |
 | Super+L | Lock screen |
-| PrintScreen | Screenshot (full screen) |
-| Shift+PrintScreen | Screenshot (region) |
+| PrintScreen | Screenshot (the screen under the pointer) |
+| Super+PrintScreen | Screenshot (every screen) |
+| Shift+PrintScreen | Screenshot (region: drag a zone, or click a window) |
 | Ctrl+PrintScreen | Screenshot (window) |
+| Ctrl+Shift+PrintScreen | Copy the text of a zone (OCR, needs tesseract) |
 
 ## Tiling Mode
 

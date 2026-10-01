@@ -20,25 +20,22 @@ func (s *server) handleRegionClick(button wlr.CursorButton, state wlr.ButtonStat
 	}
 	if button == 272 {
 		if state == wlr.ButtonPressed {
-			if s.regionAnchorSet {
-				// Second click (click-click mode): finish the selection
-				s.finishRegionSelect()
-				return true
-			}
-			// First click: place anchor
+			// The press places the anchor of a zone to drag.
 			s.regionStartX = s.cursor.X()
 			s.regionStartY = s.cursor.Y()
 			s.regionAnchorSet = true
 			return true
 		}
-		if state == wlr.ButtonReleased {
-			// Check if user dragged far enough for click-drag mode
+		if state == wlr.ButtonReleased && s.regionAnchorSet {
+			// Dragged: the zone; a mere click: the window under the
+			// pointer, or the screen.
 			dx := s.cursor.X() - s.regionStartX
 			dy := s.cursor.Y() - s.regionStartY
 			if dx*dx+dy*dy >= 25 { // >= 5px distance
 				s.finishRegionSelect()
+			} else {
+				s.finishRegionClick()
 			}
-			// Otherwise: too small, stay in selection mode (click-click)
 			return true
 		}
 	}

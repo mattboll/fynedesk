@@ -1,5 +1,10 @@
 package compositor
 
+/*
+#include <wlr/types/wlr_scene.h>
+*/
+import "C"
+
 import (
 	"encoding/json"
 	"errors"
@@ -141,7 +146,22 @@ func (s *server) startWindowPick() {
 // active.
 func (s *server) captureClickedWindow(x, y float64) {
 	s.windowPickMode = false
+	zone, ok := s.windowRectAt(x, y)
+	if !ok {
+		log.Println("[SCREENSHOT] No window at click position")
+		return
+	}
+	s.captureScreen(fmt.Sprintf("%d,%d %dx%d", zone.x, zone.y, zone.w, zone.h))
+}
 
+// windowRectAt is the window at (x, y), its title bar included; the zone
+// selection overlay, when there is one, is looked through.
+func (s *server) windowRectAt(x, y float64) (regionRect, bool) {
+	if s.regionTree != nil {
+		node := &(*C.struct_wlr_scene_tree)(s.regionTree).node
+		C.wlr_scene_node_set_enabled(node, false)
+		defer C.wlr_scene_node_set_enabled(node, true)
+	}
 	var (
 		vx, vy    float64
 		w, h      int
@@ -151,19 +171,18 @@ func (s *server) captureClickedWindow(x, y float64) {
 	case xdgV != nil:
 		state := xdgV.xdgToplevel.Base().Surface().Current()
 		vx, vy, w, h, decorated = xdgV.x, xdgV.y, state.Width(), state.Height(), xdgV.decorated
-	case xwayV != nil && !xwayV.isPanel:
+	case xwayV != nil && !xwayV.isPanel && !xwayV.isOverlay:
 		state := xwayV.surface.Surface().Current()
 		vx, vy, w, h, decorated = xwayV.x, xwayV.y, state.Width(), state.Height(), xwayV.decorated
 	default:
-		log.Println("[SCREENSHOT] No window at click position")
-		return
+		return regionRect{}, false
 	}
-	rx, ry := int(vx), int(vy)
+	zone := regionRect{int(vx), int(vy), w, h}
 	if decorated {
-		ry -= titlebarHeight
-		h += titlebarHeight
+		zone.y -= titlebarHeight
+		zone.h += titlebarHeight
 	}
-	s.captureScreen(fmt.Sprintf("%d,%d %dx%d", rx, ry, w, h))
+	return zone, w > 0 && h > 0
 }
 
 // notifyScreenshot tells the panel, which shows a notification, and copies
