@@ -316,14 +316,18 @@ func NotificationHistory() []*Notification {
 func RemoveNotification(id uint32) {
 	s := ensureServer()
 	s.histMu.Lock()
+	removed := false
 	for i, n := range s.history {
 		if n.ID == id {
 			s.history = append(s.history[:i], s.history[i+1:]...)
+			removed = true
 			break
 		}
 	}
 	s.histMu.Unlock()
-	s.notifyHistoryChange()
+	if removed { // nothing to redraw otherwise
+		s.notifyHistoryChange()
+	}
 }
 
 // ClearNotificationHistory removes all stored notifications.
