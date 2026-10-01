@@ -361,6 +361,12 @@ func (d *deskSettings) setNaturalScroll(natural bool) {
 	d.saveAndApply()
 }
 
+// setRecording changes the defaults of the screen recordings.
+func (d *deskSettings) setRecording(change func(*wlipc.RecordingSettings)) {
+	change(&d.cfg.Recording)
+	d.saveAndApply()
+}
+
 func (d *deskSettings) setNumLock(on bool) {
 	d.cfg.Input.NumLock = &on
 	d.saveAndApply()

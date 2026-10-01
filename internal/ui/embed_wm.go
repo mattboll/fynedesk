@@ -240,6 +240,7 @@ func (e *embededWM) connectSocket() bool {
 		wlipc.EventPanelHotspot,
 		wlipc.EventNightLight,
 		wlipc.EventScreenSharing,
+		wlipc.EventRecording,
 	); err != nil {
 		client.Close()
 		wlipc.SetDefaultClient(nil)
@@ -359,6 +360,12 @@ func (e *embededWM) setupSocketEventHandlers(client *wlipc.IPCClient) {
 					d.setScreenAreaVisible(!evt.Raised)
 				}
 			})
+		}
+	})
+	client.OnEvent(wlipc.EventRecording, func(data json.RawMessage) {
+		var st wlipc.RecordingState
+		if json.Unmarshal(data, &st) == nil {
+			setRecordingState(st)
 		}
 	})
 	client.OnEvent(wlipc.EventScreenSharing, func(data json.RawMessage) {

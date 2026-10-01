@@ -203,6 +203,7 @@ func (w *widgetPanel) showSettings(panel string) {
 			{title: locale.T("settings.dock"), icon: dockIcon, build: ui.loadBarScreen},
 			{title: locale.T("settings.desktops"), icon: wmtheme.DisplayIcon, build: ui.loadDesktopsScreen},
 			{title: locale.T("settings.keyboard"), icon: wmtheme.KeyboardIcon, build: ui.loadKeyboardScreen},
+			{title: locale.T("settings.captures"), icon: theme.MediaRecordIcon(), build: ui.loadCapturesScreen},
 			{title: locale.T("settings.windowRules"), icon: windowRulesIcon, build: ui.loadWindowRulesScreen},
 			{title: locale.T("settings.modules"), icon: theme.GridIcon(), build: ui.loadModulesScreen},
 			{title: locale.T("settings.ai"), icon: ai.Icon, build: ui.loadAIScreen},

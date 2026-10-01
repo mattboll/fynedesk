@@ -47,6 +47,7 @@ type sidebarPanel struct {
 	notifList *fyne.Container
 	scroll    *container.Scroll
 	clearBtn  *widget.Button
+	onClosed  []func() // run when the sidebar closes
 }
 
 func newSidebar() *sidebarPanel {
@@ -64,6 +65,9 @@ func newSidebar() *sidebarPanel {
 	win.SetOnClosed(func() {
 		if sidebar == sb {
 			sidebar = nil
+		}
+		for _, f := range sb.onClosed {
+			f()
 		}
 	})
 
@@ -155,6 +159,9 @@ func (sb *sidebarPanel) buildContent() {
 	appMixer := container.NewVBox()
 
 	quickSettings := container.NewVBox(quickLabel, volRow, audioOutput, audioInput, appMixer, brightRow, nightLightRow, wifiRow, btRow, dndRow)
+	if recorderEnabled() && wlipc.IsWaylandSession() {
+		quickSettings.Add(sb.recordingSection())
+	}
 
 	go sb.refreshSystemState(volSlider, brightSlider, wifiCheck, btCheck, wifiIconHolder, audioOutput, audioInput, appMixer)
 
